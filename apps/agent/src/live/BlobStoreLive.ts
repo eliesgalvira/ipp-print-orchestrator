@@ -1,5 +1,5 @@
 import { FileSystem, Path } from "@effect/platform"
-import { Effect, Layer } from "effect"
+import { Effect, Layer, Schema } from "effect"
 
 import {
   BlobStoreDiskFull,
@@ -7,7 +7,7 @@ import {
 } from "../domain/Errors.js"
 import type { JobId } from "../domain/JobId.js"
 import { BlobStore } from "../services/BlobStore.js"
-import { encodeJson } from "../util/Json.js"
+import { decodeJson, encodeJson } from "../util/Json.js"
 import { makeAppPaths } from "../util/Paths.js"
 import { ensureAppDirectories, writeFileAtomic, writeFileStringAtomic } from "./FileSupport.js"
 
@@ -16,6 +16,12 @@ const mapBlobError = (error: unknown) =>
   String(error).toLowerCase().includes("disk full")
     ? BlobStoreDiskFull.make({ message: String(error) })
     : BlobStoreUnavailable.make({ message: String(error) })
+
+const BlobMetadata = Schema.Struct({
+  fileName: Schema.String,
+  size: Schema.Number,
+  path: Schema.String,
+})
 
 export const BlobStoreLive = Layer.effect(
   BlobStore,
@@ -36,15 +42,16 @@ export const BlobStoreLive = Layer.effect(
         yield* writeFileAtomic(fs, path, originalPath, bytes).pipe(
           Effect.mapError(mapBlobError),
         )
+        const metadata = yield* encodeJson(BlobMetadata)({
+          fileName,
+          size: bytes.byteLength,
+          path: originalPath,
+        }).pipe(Effect.mapError(mapBlobError))
         yield* writeFileStringAtomic(
           fs,
           path,
           paths.metadataFile(jobId),
-          encodeJson({
-            fileName,
-            size: bytes.byteLength,
-            path: originalPath,
-          }),
+          metadata,
         ).pipe(Effect.mapError(mapBlobError))
 
         return {
@@ -60,11 +67,11 @@ export const BlobStoreLive = Layer.effect(
           BlobStoreUnavailable.make({ message: String(error) }),
         ),
         Effect.flatMap((json) =>
-          Effect.try({
-            try: () => JSON.parse(json) as { fileName: string; size: number; path: string },
-            catch: (error) =>
+          decodeJson(BlobMetadata)(json).pipe(
+            Effect.mapError((error) =>
               BlobStoreUnavailable.make({ message: String(error) }),
-          }),
+            ),
+          ),
         ),
       )
 

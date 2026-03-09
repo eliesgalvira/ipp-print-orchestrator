@@ -1,5 +1,5 @@
 import { FileSystem, Path } from "@effect/platform"
-import { Effect, Layer, Schema } from "effect"
+import { Effect, Layer } from "effect"
 
 import { JobRepoUnavailable } from "../domain/Errors.js"
 import { Job } from "../domain/Job.js"
@@ -8,7 +8,12 @@ import { terminalJobStates } from "../domain/JobState.js"
 import { PrintRequest } from "../domain/PrintRequest.js"
 import { WideEvent } from "../domain/WideEvent.js"
 import { JobRepo } from "../services/JobRepo.js"
-import { encodeJson } from "../util/Json.js"
+import {
+  decodeJson,
+  decodeJsonLines,
+  encodeJson,
+  encodeJsonLines,
+} from "../util/Json.js"
 import { makeAppPaths } from "../util/Paths.js"
 import {
   ensureAppDirectories,
@@ -17,9 +22,6 @@ import {
 
 const mapRepoError = (error: unknown) =>
   JobRepoUnavailable.make({ message: String(error) })
-
-const decodeJob = Schema.decodeUnknown(Job)
-const decodeWideEvent = Schema.decodeUnknown(WideEvent)
 
 export const JobRepoFileLive = Layer.effect(
   JobRepo,
@@ -31,13 +33,17 @@ export const JobRepoFileLive = Layer.effect(
     yield* ensureAppDirectories(paths, fs).pipe(Effect.mapError(mapRepoError))
 
     const writeTransitions = (jobId: JobId, events: readonly WideEvent[]) =>
-      writeFileStringAtomic(
-        fs,
-        path,
-        paths.transitionsFile(jobId),
-        events.map((event) => JSON.stringify(event)).join("\n") +
-          (events.length > 0 ? "\n" : ""),
-      ).pipe(Effect.mapError(mapRepoError))
+      encodeJsonLines(WideEvent, events).pipe(
+        Effect.mapError(mapRepoError),
+        Effect.flatMap((content) =>
+          writeFileStringAtomic(
+            fs,
+            path,
+            paths.transitionsFile(jobId),
+            content,
+          ).pipe(Effect.mapError(mapRepoError)),
+        ),
+      )
 
     const create = (job: Job) =>
       Effect.gen(function* () {
@@ -45,7 +51,7 @@ export const JobRepoFileLive = Layer.effect(
           fs,
           path,
           paths.requestFile(job.id),
-          encodeJson(
+          yield* encodeJson(PrintRequest)(
             PrintRequest.make({
               id: job.id,
               requestId: job.requestId,
@@ -55,10 +61,13 @@ export const JobRepoFileLive = Layer.effect(
               fileSize: job.fileSize,
               createdAt: job.createdAt,
             }),
-          ),
+          ).pipe(Effect.mapError(mapRepoError)),
         ).pipe(Effect.mapError(mapRepoError))
 
-        yield* writeFileStringAtomic(fs, path, paths.stateFile(job.id), encodeJson(job)).pipe(
+        const encodedJob = yield* encodeJson(Job)(job).pipe(
+          Effect.mapError(mapRepoError),
+        )
+        yield* writeFileStringAtomic(fs, path, paths.stateFile(job.id), encodedJob).pipe(
           Effect.mapError(mapRepoError),
         )
 
@@ -73,20 +82,23 @@ export const JobRepoFileLive = Layer.effect(
     const get = (jobId: JobId) =>
       fs.readFileString(paths.stateFile(jobId)).pipe(
         Effect.mapError(mapRepoError),
-        Effect.flatMap((json) =>
-          Effect.try({
-            try: () => JSON.parse(json),
-            catch: mapRepoError,
-          }),
-        ),
-        Effect.flatMap((parsed) =>
-          decodeJob(parsed).pipe(Effect.mapError(mapRepoError)),
-        ),
+        Effect.flatMap((json) => decodeJson(Job)(json).pipe(Effect.mapError(mapRepoError))),
+      )
+
+    const getOption = (jobId: JobId) =>
+      fs.exists(paths.stateFile(jobId)).pipe(
+        Effect.mapError(mapRepoError),
+        Effect.flatMap((exists) => (exists ? get(jobId) : Effect.succeed(null))),
       )
 
     const save = (job: Job) =>
-      writeFileStringAtomic(fs, path, paths.stateFile(job.id), encodeJson(job)).pipe(
+      encodeJson(Job)(job).pipe(
         Effect.mapError(mapRepoError),
+        Effect.flatMap((encodedJob) =>
+          writeFileStringAtomic(fs, path, paths.stateFile(job.id), encodedJob).pipe(
+            Effect.mapError(mapRepoError),
+          ),
+        ),
       )
 
     const getTransitions = (jobId: JobId) =>
@@ -102,23 +114,9 @@ export const JobRepoFileLive = Layer.effect(
           Effect.mapError(mapRepoError),
         )
 
-        const lines = contents
-          .split("\n")
-          .map((line) => line.trim())
-          .filter((line) => line.length > 0)
-
-        const events = yield* Effect.forEach(lines, (line) =>
-          Effect.try({
-            try: () => JSON.parse(line),
-            catch: mapRepoError,
-          }).pipe(
-            Effect.flatMap((parsed) =>
-              decodeWideEvent(parsed).pipe(Effect.mapError(mapRepoError)),
-            ),
-          ),
+        return yield* decodeJsonLines(WideEvent, contents).pipe(
+          Effect.mapError(mapRepoError),
         )
-
-        return events
       })
 
     const appendTransition = (jobId: JobId, event: WideEvent) =>
@@ -152,6 +150,7 @@ export const JobRepoFileLive = Layer.effect(
     return JobRepo.of({
       create,
       get,
+      getOption,
       save,
       appendTransition,
       getTransitions,

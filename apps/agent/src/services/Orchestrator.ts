@@ -1,7 +1,10 @@
 import { Clock, Context, Effect, Layer } from "effect"
 
 import { AppConfig } from "../config/AppConfig.js"
-import type { OperationalError } from "../domain/Errors.js"
+import {
+  type OperationalError,
+  UnsupportedFileType,
+} from "../domain/Errors.js"
 import type { Job } from "../domain/Job.js"
 import type { JobId } from "../domain/JobId.js"
 import { createJob, transitionJob } from "../domain/StateMachine.js"
@@ -94,6 +97,16 @@ export class Orchestrator extends Context.Tag("@ipp/agent/Orchestrator")<
       ) => Effect.Effect<Job, OperationalError> = Effect.fn(
         "Orchestrator.submit",
       )(function* (input: SubmitJobInput) {
+        if (
+          input.mimeType !== "application/pdf" &&
+          input.mimeType !== "text/plain" &&
+          input.mimeType !== "application/octet-stream"
+        ) {
+          return yield* UnsupportedFileType.make({
+            message: `unsupported mime type: ${input.mimeType}`,
+          })
+        }
+
         const occurredAt = yield* nowIso
 
         const initialJob = createJob({

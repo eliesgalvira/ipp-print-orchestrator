@@ -33,6 +33,11 @@ export const layer = Layer.effect(
         }),
       )
 
+    const getOption = (jobId: JobId) =>
+      Ref.get(jobsRef).pipe(
+        Effect.map((jobs) => jobs.get(String(jobId)) ?? null),
+      )
+
     const save = (job: Job) =>
       Ref.update(jobsRef, (jobs) => {
         jobs.set(String(job.id), job)
@@ -61,6 +66,7 @@ export const layer = Layer.effect(
     return JobRepo.of({
       create,
       get,
+      getOption,
       save,
       appendTransition,
       getTransitions,

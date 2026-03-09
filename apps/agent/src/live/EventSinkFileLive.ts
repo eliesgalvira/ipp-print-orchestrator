@@ -1,16 +1,15 @@
 import { FileSystem, Path } from "@effect/platform"
-import { Effect, Layer, Schema } from "effect"
+import { Effect, Layer } from "effect"
 
 import { EventSinkUnavailable } from "../domain/Errors.js"
 import { WideEvent } from "../domain/WideEvent.js"
 import { EventSink } from "../services/EventSink.js"
+import { decodeJsonLines, encodeJsonLines } from "../util/Json.js"
 import { makeAppPaths } from "../util/Paths.js"
 import {
   ensureAppDirectories,
   writeFileStringAtomic,
 } from "./FileSupport.js"
-
-const decodeWideEvent = Schema.decodeUnknown(WideEvent)
 
 export const EventSinkFileLive = Layer.effect(
   EventSink,
@@ -41,24 +40,10 @@ export const EventSinkFileLive = Layer.effect(
             EventSinkUnavailable.make({ message: String(error) }),
           ),
         )
-        const lines = contents
-          .split("\n")
-          .map((line) => line.trim())
-          .filter((line) => line.length > 0)
 
-        return yield* Effect.forEach(lines, (line) =>
-          Effect.try({
-            try: () => JSON.parse(line),
-            catch: (error) =>
-              EventSinkUnavailable.make({ message: String(error) }),
-          }).pipe(
-            Effect.flatMap((parsed) =>
-              decodeWideEvent(parsed).pipe(
-                Effect.mapError((error) =>
-                  EventSinkUnavailable.make({ message: String(error) }),
-                ),
-              ),
-            ),
+        return yield* decodeJsonLines(WideEvent, contents).pipe(
+          Effect.mapError((error) =>
+            EventSinkUnavailable.make({ message: String(error) }),
           ),
         )
       })
@@ -66,11 +51,16 @@ export const EventSinkFileLive = Layer.effect(
     const append = (event: WideEvent) =>
       Effect.gen(function* () {
         const events = yield* all()
+        const content = yield* encodeJsonLines(WideEvent, [...events, event]).pipe(
+          Effect.mapError((error) =>
+            EventSinkUnavailable.make({ message: String(error) }),
+          ),
+        )
         yield* writeFileStringAtomic(
           fs,
           path,
           paths.outboxFile,
-          [...events, event].map((item) => JSON.stringify(item)).join("\n") + "\n",
+          content,
         ).pipe(
           Effect.mapError((error) =>
             EventSinkUnavailable.make({ message: String(error) }),

@@ -8,6 +8,7 @@ import { CupsClientCliLive } from "./CupsClientCliLive.js"
 import { EventSinkFileLive } from "./EventSinkFileLive.js"
 import { JobRepoFileLive } from "./JobRepoFileLive.js"
 import { NetworkProbeCliLive } from "./NetworkProbeCliLive.js"
+import { HeartbeatLive } from "./HeartbeatLive.js"
 import { PrinterProbeCliLive } from "./PrinterProbeCliLive.js"
 import { QueueRuntimeLive } from "./QueueRuntimeLive.js"
 import { ReconcilerLive } from "./ReconcilerLive.js"
@@ -53,9 +54,11 @@ const orchestratorLayer = Orchestrator.layer.pipe(
 )
 
 const reconcilerLayer = ReconcilerLive.pipe(Layer.provideMerge(baseRuntimeLayer))
+const heartbeatLayer = HeartbeatLive.pipe(Layer.provideMerge(baseRuntimeLayer))
 
 export const MainLayer = Layer.mergeAll(
   baseRuntimeLayer,
   orchestratorLayer,
   reconcilerLayer,
+  heartbeatLayer,
 )

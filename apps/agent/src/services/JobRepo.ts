@@ -10,6 +10,9 @@ export class JobRepo extends Context.Tag("@ipp/agent/JobRepo")<
   {
     readonly create: (job: Job) => Effect.Effect<void, JobRepoUnavailable>
     readonly get: (jobId: JobId) => Effect.Effect<Job, JobRepoUnavailable>
+    readonly getOption: (
+      jobId: JobId,
+    ) => Effect.Effect<Job | null, JobRepoUnavailable>
     readonly save: (job: Job) => Effect.Effect<void, JobRepoUnavailable>
     readonly appendTransition: (
       jobId: JobId,
