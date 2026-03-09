@@ -11,6 +11,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "worker": "tsx src/cli/run-worker.ts",
+    "reconcile": "tsx src/cli/reconcile.ts",
+    "submit": "tsx src/cli/submit.ts",
     "smoke": "bash ../../scripts/smoke-test-local.sh"
   },
   "dependencies": {

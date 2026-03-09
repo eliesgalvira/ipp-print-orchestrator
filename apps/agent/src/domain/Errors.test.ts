@@ -6,6 +6,7 @@ import {
   CupsCommandFailed,
   CupsRejectedJob,
   CupsUnavailable,
+  EventSinkUnavailable,
   JobRepoUnavailable,
   NetworkOffline,
   PrinterNotReady,
@@ -30,6 +31,9 @@ describe("Errors", () => {
     )
     expect(JobRepoUnavailable.make({ message: "repo down" })._tag).toBe(
       "JobRepoUnavailable",
+    )
+    expect(EventSinkUnavailable.make({ message: "outbox down" })._tag).toBe(
+      "EventSinkUnavailable",
     )
     expect(CupsUnavailable.make({ message: "cups down" })._tag).toBe(
       "CupsUnavailable",

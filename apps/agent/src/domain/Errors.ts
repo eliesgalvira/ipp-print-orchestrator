@@ -28,6 +28,13 @@ class JobRepoUnavailable extends Schema.TaggedError<JobRepoUnavailable>()(
   },
 ) {}
 
+class EventSinkUnavailable extends Schema.TaggedError<EventSinkUnavailable>()(
+  "EventSinkUnavailable",
+  {
+    message: Schema.String,
+  },
+) {}
+
 class CupsUnavailable extends Schema.TaggedError<CupsUnavailable>()(
   "CupsUnavailable",
   {
@@ -104,6 +111,7 @@ export {
   CupsCommandFailed,
   CupsRejectedJob,
   CupsUnavailable,
+  EventSinkUnavailable,
   JobRepoUnavailable,
   NetworkOffline,
   PrinterNotReady,
@@ -120,6 +128,7 @@ export const OperationalError = Schema.Union(
   BlobStoreUnavailable,
   BlobStoreDiskFull,
   JobRepoUnavailable,
+  EventSinkUnavailable,
   CupsUnavailable,
   CupsRejectedJob,
   CupsCommandFailed,

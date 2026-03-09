@@ -1,0 +1,154 @@
+import { Command, CommandExecutor, FileSystem, Path } from "@effect/platform"
+import { Effect, Layer } from "effect"
+
+import { AppConfig } from "../config/AppConfig.js"
+import {
+  CupsCommandFailed,
+  CupsRejectedJob,
+  CupsUnavailable,
+  SubmissionUncertainError,
+} from "../domain/Errors.js"
+import type { Job } from "../domain/Job.js"
+import {
+  CupsClient,
+  type CupsJobSummary,
+  type PrinterSummary,
+} from "../services/CupsClient.js"
+import { makeAppPaths } from "../util/Paths.js"
+import { ensureAppDirectories, writeFileAtomic } from "./FileSupport.js"
+
+export const parseLpSubmitOutput = (output: string): string => {
+  const match = output.match(/request id is [^-]+-(\d+)/i)
+  if (match?.[1] === undefined) {
+    throw new Error(`Unable to parse lp output: ${output}`)
+  }
+  return match[1]
+}
+
+export const parseLpstatJobsOutput = (output: string): readonly CupsJobSummary[] =>
+  output
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .map((line) => {
+      const [title] = line.split(/\s+/, 1)
+      const idMatch = title?.match(/-(\d+)$/)
+      if (title === undefined || idMatch?.[1] === undefined) {
+        throw new Error(`Unable to parse lpstat jobs line: ${line}`)
+      }
+      return {
+        cupsJobId: idMatch[1],
+        state: "queued",
+        title,
+      } satisfies CupsJobSummary
+    })
+
+export const parseLpstatPrinterOutput = (output: string): PrinterSummary => {
+  const normalized = output.trim()
+  const match = normalized.match(/^printer\s+(\S+)\s+is\s+(.+)$/i)
+  if (match?.[1] === undefined || match[2] === undefined) {
+    throw new Error(`Unable to parse lpstat printer output: ${output}`)
+  }
+
+  return {
+    printerName: match[1],
+    available: !normalized.includes("disabled"),
+    status: match[2].split(".")[0] ?? match[2],
+  }
+}
+
+const mapCommandFailure = (error: unknown) =>
+  CupsCommandFailed.make({ message: String(error) })
+
+export const CupsClientCliLive = Layer.effect(
+  CupsClient,
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
+    const executor = yield* CommandExecutor.CommandExecutor
+    const appConfig = yield* AppConfig
+    const paths = yield* makeAppPaths
+
+    yield* ensureAppDirectories(paths, fs).pipe(
+      Effect.mapError((error) =>
+        CupsUnavailable.make({ message: String(error) }),
+      ),
+    )
+
+    const runString = (command: Command.Command) =>
+      Command.string(command).pipe(
+        Effect.provideService(CommandExecutor.CommandExecutor, executor),
+      )
+
+    const submitFile = (job: Job, bytes: Uint8Array) =>
+      Effect.gen(function* () {
+        const tempPath = path.join(paths.tmpDir, `${String(job.id)}-${job.fileName}`)
+        yield* writeFileAtomic(fs, path, tempPath, bytes).pipe(
+          Effect.mapError((error) =>
+            CupsCommandFailed.make({ message: String(error) }),
+          ),
+        )
+
+        const output = yield* runString(
+          Command.make("lp", "-d", job.printerName, tempPath),
+        ).pipe(
+          Effect.mapError((error) =>
+            String(error).includes("No such file")
+              ? CupsRejectedJob.make({ message: String(error) })
+              : CupsUnavailable.make({ message: String(error) }),
+          ),
+        )
+
+        return yield* Effect.try({
+          try: () => ({ cupsJobId: parseLpSubmitOutput(output) }),
+          catch: (error) =>
+            SubmissionUncertainError.make({ message: String(error) }),
+        })
+      })
+
+    const listRecentJobs = () =>
+      runString(Command.make("lpstat", "-W", "not-completed", "-o")).pipe(
+        Effect.mapError(mapCommandFailure),
+        Effect.flatMap((output) =>
+          Effect.try({
+            try: () => parseLpstatJobsOutput(output),
+            catch: (error) => CupsCommandFailed.make({ message: String(error) }),
+          }),
+        ),
+      )
+
+    const getJobStatus = (cupsJobId: string) =>
+      listRecentJobs().pipe(
+        Effect.map((jobs) => jobs.find((job) => job.cupsJobId === cupsJobId)),
+        Effect.flatMap((job) =>
+          job === undefined
+            ? Effect.fail(
+                CupsUnavailable.make({
+                  message: `CUPS job ${cupsJobId} not found`,
+                }),
+              )
+            : Effect.succeed(job),
+        ),
+      )
+
+    const getPrinterSummary = () =>
+      runString(Command.make("lpstat", "-p", appConfig.printerName)).pipe(
+        Effect.mapError((error) =>
+          CupsUnavailable.make({ message: String(error) }),
+        ),
+        Effect.flatMap((output) =>
+          Effect.try({
+            try: () => parseLpstatPrinterOutput(output),
+            catch: (error) => CupsCommandFailed.make({ message: String(error) }),
+          }),
+        ),
+      )
+
+    return CupsClient.of({
+      submitFile,
+      getJobStatus,
+      listRecentJobs,
+      getPrinterSummary,
+    })
+  }),
+)

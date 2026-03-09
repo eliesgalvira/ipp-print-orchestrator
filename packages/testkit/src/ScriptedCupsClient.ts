@@ -9,6 +9,8 @@ import {
 import type { Job } from "../../../apps/agent/src/domain/Job.js"
 import {
   CupsClient,
+  type CupsJobSummary,
+  type PrinterSummary,
   type SubmitResult,
 } from "../../../apps/agent/src/services/CupsClient.js"
 import { makeFaultScript } from "./FaultScript.js"
@@ -61,8 +63,34 @@ export const layer = (steps: readonly [CupsSubmitStep, ...readonly CupsSubmitSte
           }),
         )
 
+      const getJobStatus = (cupsJobId: string) =>
+        Effect.succeed({
+          cupsJobId,
+          state: "submitted",
+          title: "scripted job",
+        } satisfies CupsJobSummary)
+
+      const listRecentJobs = () =>
+        Effect.succeed([
+          {
+            cupsJobId: "scripted-1",
+            state: "submitted",
+            title: "scripted job",
+          } satisfies CupsJobSummary,
+        ] as const)
+
+      const getPrinterSummary = () =>
+        Effect.succeed({
+          printerName: "test-printer",
+          available: true,
+          status: "idle",
+        } satisfies PrinterSummary)
+
       return CupsClient.of({
         submitFile,
+        getJobStatus,
+        listRecentJobs,
+        getPrinterSummary,
       })
     }),
   )

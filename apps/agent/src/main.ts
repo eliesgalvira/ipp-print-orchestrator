@@ -1,1 +1,1 @@
-console.log("ipp-print-orchestrator bootstrap pending")
+import "./cli/run-worker.js"
