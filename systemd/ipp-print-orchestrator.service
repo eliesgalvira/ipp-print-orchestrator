@@ -1,0 +1,18 @@
+[Unit]
+Description=ipp-print-orchestrator
+After=network-online.target cups.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/apps/ipp-print-orchestrator
+EnvironmentFile=/etc/ipp-print-orchestrator.env
+ExecStart=/usr/bin/node /home/pi/apps/ipp-print-orchestrator/apps/agent/dist/main.js
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

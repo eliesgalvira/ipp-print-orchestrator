@@ -1,0 +1,10 @@
+[Unit]
+Description=Run ipp-print-orchestrator heartbeat check every minute
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=60s
+Unit=ipp-print-orchestrator-heartbeat.service
+
+[Install]
+WantedBy=timers.target

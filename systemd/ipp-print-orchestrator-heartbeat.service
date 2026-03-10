@@ -1,0 +1,11 @@
+[Unit]
+Description=ipp-print-orchestrator heartbeat check
+After=ipp-print-orchestrator.service
+
+[Service]
+Type=oneshot
+User=pi
+EnvironmentFile=/etc/ipp-print-orchestrator.env
+ExecStart=/bin/sh -lc '/usr/bin/curl --fail --silent http://127.0.0.1:${IPP_ORCH_BIND_PORT:-4310}/v1/health >/dev/null'
+StandardOutput=journal
+StandardError=journal
