@@ -212,10 +212,28 @@ bash scripts/deploy-pi.sh
 The deploy script:
 
 - rsyncs the repository to the Pi
-- runs `bun install --frozen-lockfile`
+- runs `bun install --frozen-lockfile --ignore-scripts`
 - runs `bun run build`
 - installs systemd units
 - restarts the service and heartbeat timer
+
+The deploy install step skips lifecycle scripts on the Pi. This is intentional:
+
+- the root `prepare` hook only patches the local TypeScript install for the Effect editor language service
+- that patch is not needed to build or run the service on the Pi
+- on low-memory Raspberry Pi targets, the patch step can abort with a Node heap OOM during `bun install`
+
+If a deploy already failed on the Pi with an OOM in `effect-language-service patch`, rerun the install manually and continue:
+
+```bash
+ssh pi@print-server.local
+cd /home/pi/apps/ipp-print-orchestrator
+bun install --frozen-lockfile --ignore-scripts
+bun run build
+bash scripts/install-systemd.sh
+sudo systemctl restart ipp-print-orchestrator
+sudo systemctl restart ipp-print-orchestrator-heartbeat.timer
+```
 
 ## Systemd And Journald
 

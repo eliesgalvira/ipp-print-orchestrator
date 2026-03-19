@@ -18,7 +18,8 @@ ssh "${PI_HOST}" "bash -lc '
 set -euo pipefail
 export PATH=\"\$HOME/.bun/bin:\$PATH\"
 cd \"${APP_DIR}\"
-bun install --frozen-lockfile
+# The Effect language-service prepare hook is editor-only and can OOM on low-memory Pis.
+bun install --frozen-lockfile --ignore-scripts
 bun run build
 bash scripts/install-systemd.sh
 sudo systemctl restart ipp-print-orchestrator
