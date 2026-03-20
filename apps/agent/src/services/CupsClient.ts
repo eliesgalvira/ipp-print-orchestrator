@@ -48,5 +48,13 @@ export class CupsClient extends Context.Tag("@ipp/agent/CupsClient")<
       PrinterSummary,
       CupsUnavailable | CupsCommandFailed
     >
+    readonly getPrinterDeviceUri: () => Effect.Effect<
+      string,
+      CupsUnavailable | CupsCommandFailed
+    >
+    readonly listAvailableDevices: () => Effect.Effect<
+      readonly string[],
+      CupsUnavailable | CupsCommandFailed
+    >
   }
 >() {}

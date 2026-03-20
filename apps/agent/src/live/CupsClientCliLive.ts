@@ -57,6 +57,31 @@ export const parseLpstatPrinterOutput = (output: string): PrinterSummary => {
   }
 }
 
+export const parseLpstatDeviceOutput = (
+  output: string,
+): { readonly printerName: string; readonly deviceUri: string } => {
+  const normalized = output.trim()
+  const match = normalized.match(/^device\s+for\s+(\S+):\s+(.+)$/i)
+  if (match?.[1] === undefined || match[2] === undefined) {
+    throw new Error(`Unable to parse lpstat device output: ${output}`)
+  }
+
+  return {
+    printerName: match[1],
+    deviceUri: match[2].trim(),
+  }
+}
+
+export const parseLpinfoDevicesOutput = (output: string): readonly string[] =>
+  output
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .flatMap((line) => {
+      const [, deviceUri] = line.split(/\s+/, 3)
+      return deviceUri === undefined ? [] : [deviceUri]
+    })
+
 const mapCommandFailure = (error: unknown) =>
   CupsCommandFailed.make({ message: String(error) })
 
@@ -144,11 +169,39 @@ export const CupsClientCliLive = Layer.effect(
         ),
       )
 
+    const getPrinterDeviceUri = () =>
+      runString(Command.make("lpstat", "-v", appConfig.printerName)).pipe(
+        Effect.mapError((error) =>
+          CupsUnavailable.make({ message: String(error) }),
+        ),
+        Effect.flatMap((output) =>
+          Effect.try({
+            try: () => parseLpstatDeviceOutput(output).deviceUri,
+            catch: (error) => CupsCommandFailed.make({ message: String(error) }),
+          }),
+        ),
+      )
+
+    const listAvailableDevices = () =>
+      runString(Command.make("lpinfo", "-v")).pipe(
+        Effect.mapError((error) =>
+          CupsUnavailable.make({ message: String(error) }),
+        ),
+        Effect.flatMap((output) =>
+          Effect.try({
+            try: () => parseLpinfoDevicesOutput(output),
+            catch: (error) => CupsCommandFailed.make({ message: String(error) }),
+          }),
+        ),
+      )
+
     return CupsClient.of({
       submitFile,
       getJobStatus,
       listRecentJobs,
       getPrinterSummary,
+      getPrinterDeviceUri,
+      listAvailableDevices,
     })
   }),
 )

@@ -106,6 +106,8 @@ The app reads configuration from environment variables. The most important setti
 - `IPP_ORCH_HEARTBEAT_INTERVAL_MS`
 - `IPP_ORCH_RECONCILE_INTERVAL_MS`
 
+For local USB printers, the runtime checks both the configured CUPS queue and whether the queue's device URI is currently present in `lpinfo -v`. This lets the orchestrator treat a powered-off or disconnected USB printer as unavailable before handing jobs to CUPS.
+
 ## Running Locally
 
 Run the full daemon:

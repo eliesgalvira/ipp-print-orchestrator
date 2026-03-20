@@ -86,11 +86,23 @@ export const layer = (steps: readonly [CupsSubmitStep, ...readonly CupsSubmitSte
           status: "idle",
         } satisfies PrinterSummary)
 
+      const getPrinterDeviceUri = () =>
+        Effect.succeed(
+          "usb://test-printer?serial=scripted&interface=1",
+        )
+
+      const listAvailableDevices = () =>
+        Effect.succeed([
+          "usb://test-printer?serial=scripted&interface=1",
+        ] as const)
+
       return CupsClient.of({
         submitFile,
         getJobStatus,
         listRecentJobs,
         getPrinterSummary,
+        getPrinterDeviceUri,
+        listAvailableDevices,
       })
     }),
   )
