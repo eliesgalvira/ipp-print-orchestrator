@@ -10,8 +10,8 @@ export const PrinterProbeCliLive = Layer.effect(
   Effect.gen(function* () {
     const cupsClient = yield* CupsClient
 
-    const status = () =>
-      Effect.all({
+    const status = Effect.fn("PrinterProbe.status")(function* () {
+      return yield* Effect.all({
         summary: cupsClient.getPrinterSummary(),
         configuredDeviceUri: cupsClient.getPrinterDeviceUri(),
         availableDevices: cupsClient.listAvailableDevices(),
@@ -38,6 +38,7 @@ export const PrinterProbeCliLive = Layer.effect(
           }),
         ),
       )
+    })
 
     return PrinterProbe.of({
       status,

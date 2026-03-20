@@ -34,4 +34,13 @@ export class WideEvent extends Schema.Class<WideEvent>("WideEvent")({
   cupsJobId: Schema.optional(Schema.String),
   errorTag: Schema.optional(Schema.String),
   errorMessage: Schema.optional(Schema.String),
+  appUp: Schema.optional(Schema.Boolean),
+  hostname: Schema.optional(Schema.String),
+  networkOnline: Schema.optional(Schema.Boolean),
+  localIps: Schema.optional(Schema.Array(Schema.String)),
+  cupsReachable: Schema.optional(Schema.Boolean),
+  printerAttached: Schema.optional(Schema.Boolean),
+  queueDepth: Schema.optional(Schema.Number),
+  nonterminalJobCount: Schema.optional(Schema.Number),
+  lastSuccessfulHeartbeatAt: Schema.optional(Schema.NullOr(Schema.String)),
 }) {}

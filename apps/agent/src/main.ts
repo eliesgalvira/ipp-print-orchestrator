@@ -4,6 +4,7 @@ import { Console, Effect, Layer } from "effect"
 import { AppConfig } from "./config/AppConfig.js"
 import { HttpLive } from "./http/HttpServer.js"
 import { MainLayer } from "./live/MainLayer.js"
+import { startObservability, withObservability } from "./observability/index.js"
 import { Heartbeat } from "./services/Heartbeat.js"
 import { Orchestrator } from "./services/Orchestrator.js"
 import { QueueRuntime } from "./services/QueueRuntime.js"
@@ -11,6 +12,7 @@ import { Reconciler } from "./services/Reconciler.js"
 import { loadAppEnv } from "./util/loadAppEnv.js"
 
 loadAppEnv()
+await startObservability()
 
 const program = Effect.scoped(
   Effect.gen(function* () {
@@ -64,4 +66,4 @@ const program = Effect.scoped(
   }),
 )
 
-program.pipe(Effect.provide(MainLayer), NodeRuntime.runMain)
+program.pipe(withObservability, Effect.provide(MainLayer), NodeRuntime.runMain)

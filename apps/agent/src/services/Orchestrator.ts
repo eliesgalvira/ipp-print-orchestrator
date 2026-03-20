@@ -97,6 +97,12 @@ export class Orchestrator extends Context.Tag("@ipp/agent/Orchestrator")<
       ) => Effect.Effect<Job, OperationalError> = Effect.fn(
         "Orchestrator.submit",
       )(function* (input: SubmitJobInput) {
+        yield* Effect.annotateCurrentSpan({
+          "print.file_name": input.fileName,
+          "print.mime_type": input.mimeType,
+          "print.request_id": input.requestId,
+        })
+
         if (
           input.mimeType !== "application/pdf" &&
           input.mimeType !== "text/plain" &&
@@ -138,11 +144,18 @@ export class Orchestrator extends Context.Tag("@ipp/agent/Orchestrator")<
       ) => Effect.Effect<Job, OperationalError> = Effect.fn(
         "Orchestrator.processJob",
       )(function* (jobId: JobId) {
+        yield* Effect.annotateCurrentSpan("print.id", String(jobId))
         const network = yield* networkProbe.status()
         if (!network.online) {
           yield* Effect.void
         }
         const currentJob = yield* jobRepo.get(jobId)
+        yield* Effect.annotateCurrentSpan({
+          "print.file_name": currentJob.fileName,
+          "print.printer_name": currentJob.printerName,
+          "print.request_id": currentJob.requestId,
+          "print.state": currentJob.state,
+        })
         if (
           currentJob.state === "Completed" ||
           currentJob.state === "Cancelled" ||

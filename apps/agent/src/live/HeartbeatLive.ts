@@ -51,9 +51,26 @@ export const HeartbeatLive = Layer.effect(
 
     const beat = Effect.fn("Heartbeat.beat")(function* () {
       const current = yield* snapshot()
+      yield* Effect.annotateCurrentSpan({
+        "heartbeat.cups_reachable": current.cupsReachable,
+        "heartbeat.hostname": current.hostname,
+        "heartbeat.job_count": current.nonterminalJobCount,
+        "heartbeat.network_online": current.networkOnline,
+        "heartbeat.printer_attached": current.printerAttached,
+        "heartbeat.queue_depth": current.queueDepth,
+      })
       const event = WideEvent.make({
-        timestamp: current.timestamp,
         eventName: "heartbeat",
+        timestamp: current.timestamp,
+        appUp: current.appUp,
+        hostname: current.hostname,
+        networkOnline: current.networkOnline,
+        localIps: current.localIps,
+        cupsReachable: current.cupsReachable,
+        printerAttached: current.printerAttached,
+        queueDepth: current.queueDepth,
+        nonterminalJobCount: current.nonterminalJobCount,
+        lastSuccessfulHeartbeatAt: current.timestamp,
       })
 
       yield* eventSink.append(event)

@@ -5,10 +5,12 @@ import { randomUUID } from "node:crypto"
 
 import { MainLayer } from "../live/MainLayer.js"
 import { JobId } from "../domain/JobId.js"
+import { startObservability, withObservability } from "../observability/index.js"
 import { Orchestrator } from "../services/Orchestrator.js"
 import { loadAppEnv } from "../util/loadAppEnv.js"
 
 loadAppEnv()
+await startObservability()
 
 const mimeFromFileName = (fileName: string): string => {
   if (fileName.endsWith(".pdf")) {
@@ -42,4 +44,4 @@ const program = Effect.gen(function* () {
   yield* Console.log(`queued print job ${String(job.id)} in state ${job.state}`)
 })
 
-program.pipe(Effect.provide(MainLayer), NodeRuntime.runMain)
+program.pipe(withObservability, Effect.provide(MainLayer), NodeRuntime.runMain)

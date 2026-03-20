@@ -105,8 +105,16 @@ export const CupsClientCliLive = Layer.effect(
         Effect.provideService(CommandExecutor.CommandExecutor, executor),
       )
 
-    const submitFile = (job: Job, bytes: Uint8Array) =>
-      Effect.gen(function* () {
+    const submitFile = Effect.fn("CupsClient.submitFile")(function* (
+      job: Job,
+      bytes: Uint8Array,
+    ) {
+      yield* Effect.annotateCurrentSpan({
+        "cups.file_name": job.fileName,
+        "cups.job_id": String(job.id),
+        "cups.printer_name": job.printerName,
+      })
+
         const tempPath = path.join(paths.tmpDir, `${String(job.id)}-${job.fileName}`)
         yield* writeFileAtomic(fs, path, tempPath, bytes).pipe(
           Effect.mapError((error) =>
@@ -129,10 +137,10 @@ export const CupsClientCliLive = Layer.effect(
           catch: (error) =>
             SubmissionUncertainError.make({ message: String(error) }),
         })
-      })
+    })
 
-    const listRecentJobs = () =>
-      runString(Command.make("lpstat", "-W", "not-completed", "-o")).pipe(
+    const listRecentJobs = Effect.fn("CupsClient.listRecentJobs")(function* () {
+      return yield* runString(Command.make("lpstat", "-W", "not-completed", "-o")).pipe(
         Effect.mapError(mapCommandFailure),
         Effect.flatMap((output) =>
           Effect.try({
@@ -141,9 +149,13 @@ export const CupsClientCliLive = Layer.effect(
           }),
         ),
       )
+    })
 
-    const getJobStatus = (cupsJobId: string) =>
-      listRecentJobs().pipe(
+    const getJobStatus = Effect.fn("CupsClient.getJobStatus")(function* (
+      cupsJobId: string,
+    ) {
+      yield* Effect.annotateCurrentSpan("cups.job_id", cupsJobId)
+      return yield* listRecentJobs().pipe(
         Effect.map((jobs) => jobs.find((job) => job.cupsJobId === cupsJobId)),
         Effect.flatMap((job) =>
           job === undefined
@@ -155,9 +167,11 @@ export const CupsClientCliLive = Layer.effect(
             : Effect.succeed(job),
         ),
       )
+    })
 
-    const getPrinterSummary = () =>
-      runString(Command.make("lpstat", "-p", appConfig.printerName)).pipe(
+    const getPrinterSummary = Effect.fn("CupsClient.getPrinterSummary")(function* () {
+      yield* Effect.annotateCurrentSpan("cups.printer_name", appConfig.printerName)
+      return yield* runString(Command.make("lpstat", "-p", appConfig.printerName)).pipe(
         Effect.mapError((error) =>
           CupsUnavailable.make({ message: String(error) }),
         ),
@@ -168,9 +182,11 @@ export const CupsClientCliLive = Layer.effect(
           }),
         ),
       )
+    })
 
-    const getPrinterDeviceUri = () =>
-      runString(Command.make("lpstat", "-v", appConfig.printerName)).pipe(
+    const getPrinterDeviceUri = Effect.fn("CupsClient.getPrinterDeviceUri")(function* () {
+      yield* Effect.annotateCurrentSpan("cups.printer_name", appConfig.printerName)
+      return yield* runString(Command.make("lpstat", "-v", appConfig.printerName)).pipe(
         Effect.mapError((error) =>
           CupsUnavailable.make({ message: String(error) }),
         ),
@@ -181,9 +197,10 @@ export const CupsClientCliLive = Layer.effect(
           }),
         ),
       )
+    })
 
-    const listAvailableDevices = () =>
-      runString(Command.make("lpinfo", "-v")).pipe(
+    const listAvailableDevices = Effect.fn("CupsClient.listAvailableDevices")(function* () {
+      return yield* runString(Command.make("lpinfo", "-v")).pipe(
         Effect.mapError((error) =>
           CupsUnavailable.make({ message: String(error) }),
         ),
@@ -194,6 +211,7 @@ export const CupsClientCliLive = Layer.effect(
           }),
         ),
       )
+    })
 
     return CupsClient.of({
       submitFile,

@@ -3,12 +3,14 @@ import { Console, Effect } from "effect"
 
 import { AppConfig } from "../config/AppConfig.js"
 import { MainLayer } from "../live/MainLayer.js"
+import { startObservability, withObservability } from "../observability/index.js"
 import { Orchestrator } from "../services/Orchestrator.js"
 import { QueueRuntime } from "../services/QueueRuntime.js"
 import { Reconciler } from "../services/Reconciler.js"
 import { loadAppEnv } from "../util/loadAppEnv.js"
 
 loadAppEnv()
+await startObservability()
 
 export const workerProgram = Effect.scoped(
   Effect.gen(function* () {
@@ -48,4 +50,4 @@ export const workerProgram = Effect.scoped(
   }),
 )
 
-workerProgram.pipe(Effect.provide(MainLayer), NodeRuntime.runMain)
+workerProgram.pipe(withObservability, Effect.provide(MainLayer), NodeRuntime.runMain)

@@ -31,6 +31,7 @@ apps/agent/
     domain/
     http/
     live/
+    observability/
     services/
     util/
 packages/shared/
@@ -192,6 +193,8 @@ Continuous Pi status watch from your laptop:
 bash scripts/watch-pi-status.sh
 ```
 
+The watcher prints a compact status line on every poll, including printer attachment, CUPS reachability, network state, nonterminal job count, queue depth, heartbeat age, and the first local IP.
+
 The Pi smoke script checks:
 
 - local health endpoint
@@ -265,13 +268,46 @@ curl http://127.0.0.1:4310/v1/status
 
 ## Observability
 
-Today the app emits wide-event JSON to stdout/journald through the `Telemetry` service. That means you can already tail live events remotely from your laptop:
+The app now has a dedicated `apps/agent/src/observability/` module that owns OTLP startup, the Effect-to-OpenTelemetry tracer bridge, and wide-event log export. The rest of the runtime only depends on that module's small public surface.
+
+By default, the app still emits wide-event JSON to stdout/journald through the `Telemetry` service. That means you can already tail live events remotely from your laptop:
 
 ```bash
 ssh pi@print-server.local 'journalctl -u ipp-print-orchestrator -f --no-pager'
 ```
 
-The repository also includes OTLP-related config flags, but OTLP export is not wired yet. `IPP_ORCH_ENABLE_OTLP` and `OTEL_EXPORTER_OTLP_ENDPOINT` are parsed in config, but the live telemetry path currently writes JSON logs rather than exporting spans or metrics to a backend such as Axiom.
+If you enable OTLP, the daemon exports:
+
+- Effect spans through an OpenTelemetry tracer bridge
+- wide-event logs as structured OTLP log records
+
+The heartbeat wide event now includes the same status fields exposed by `/v1/status`, so Axiom queries can answer questions like "when did the printer go missing?" or "how long was CUPS reachable while the printer was detached?"
+
+Example Axiom-oriented environment:
+
+```bash
+IPP_ORCH_ENABLE_OTLP=true
+OTEL_RESOURCE_ATTRIBUTES=service.name=ipp-print-orchestrator,service.version=dev
+OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=https://AXIOM_OTLP_DOMAIN/v1/traces
+OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=https://AXIOM_OTLP_DOMAIN/v1/logs
+OTEL_EXPORTER_OTLP_TRACES_HEADERS=authorization=Bearer AXIOM_API_TOKEN,x-axiom-dataset=ipp-print-traces
+OTEL_EXPORTER_OTLP_LOGS_HEADERS=authorization=Bearer AXIOM_API_TOKEN,x-axiom-dataset=ipp-print-logs
+```
+
+Or, if your backend uses a shared OTLP base URL:
+
+```bash
+IPP_ORCH_ENABLE_OTLP=true
+OTEL_RESOURCE_ATTRIBUTES=service.name=ipp-print-orchestrator,service.version=dev
+OTEL_EXPORTER_OTLP_ENDPOINT=https://OTLP_COLLECTOR_DOMAIN
+OTEL_EXPORTER_OTLP_HEADERS=authorization=Bearer TOKEN
+```
+
+Current scope:
+
+- traces: wired
+- logs: wired
+- metrics: not wired yet
 
 ## Systemd And Journald
 
