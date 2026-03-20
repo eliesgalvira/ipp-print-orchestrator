@@ -3,6 +3,9 @@ import { Console, Effect } from "effect"
 
 import { MainLayer } from "../live/MainLayer.js"
 import { Reconciler } from "../services/Reconciler.js"
+import { loadAppEnv } from "../util/loadAppEnv.js"
+
+loadAppEnv()
 
 const program = Effect.gen(function* () {
   const reconciler = yield* Reconciler

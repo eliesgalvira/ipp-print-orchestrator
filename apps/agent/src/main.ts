@@ -8,6 +8,9 @@ import { Heartbeat } from "./services/Heartbeat.js"
 import { Orchestrator } from "./services/Orchestrator.js"
 import { QueueRuntime } from "./services/QueueRuntime.js"
 import { Reconciler } from "./services/Reconciler.js"
+import { loadAppEnv } from "./util/loadAppEnv.js"
+
+loadAppEnv()
 
 const program = Effect.scoped(
   Effect.gen(function* () {

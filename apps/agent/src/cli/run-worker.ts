@@ -6,6 +6,9 @@ import { MainLayer } from "../live/MainLayer.js"
 import { Orchestrator } from "../services/Orchestrator.js"
 import { QueueRuntime } from "../services/QueueRuntime.js"
 import { Reconciler } from "../services/Reconciler.js"
+import { loadAppEnv } from "../util/loadAppEnv.js"
+
+loadAppEnv()
 
 export const workerProgram = Effect.scoped(
   Effect.gen(function* () {

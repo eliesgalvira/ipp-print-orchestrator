@@ -95,6 +95,8 @@ Copy or adapt environment values if needed:
 cp .env.example .env
 ```
 
+Runtime entrypoints load configuration from shell environment first, then `.env` in the repository root if present. On the Pi, ad hoc CLI commands also fall back to `/etc/ipp-print-orchestrator.env`.
+
 The app reads configuration from environment variables. The most important settings are:
 
 - `IPP_ORCH_DATA_DIR`

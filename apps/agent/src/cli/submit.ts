@@ -6,6 +6,9 @@ import { randomUUID } from "node:crypto"
 import { MainLayer } from "../live/MainLayer.js"
 import { JobId } from "../domain/JobId.js"
 import { Orchestrator } from "../services/Orchestrator.js"
+import { loadAppEnv } from "../util/loadAppEnv.js"
+
+loadAppEnv()
 
 const mimeFromFileName = (fileName: string): string => {
   if (fileName.endsWith(".pdf")) {
