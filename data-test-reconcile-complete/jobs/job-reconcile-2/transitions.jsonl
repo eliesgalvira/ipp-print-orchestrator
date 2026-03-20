@@ -1,0 +1,1 @@
+{"timestamp":"1970-01-01T00:00:00.000Z","eventName":"print.job.completed","requestId":"req-reconcile-2","printId":"job-reconcile-2","printerName":"test-printer","fileName":"done.pdf","mimeType":"application/pdf","fileSize":12,"retryCount":0,"currentState":"Completed","previousState":"Submitted","cupsJobId":"cups-42"}

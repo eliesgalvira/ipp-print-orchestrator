@@ -45,6 +45,18 @@ printer-42 bigweld 2048 Mon 09 Mar 2026 08:05:00 PM UTC
     })
   })
 
+  it("parses lpstat printer output while actively printing", () => {
+    expect(
+      parseLpstatPrinterOutput(
+        "printer HP135a now printing HP135a-21. enabled since Mon 09 Mar 2026 08:05:00 PM UTC",
+      ),
+    ).toEqual({
+      printerName: "HP135a",
+      available: true,
+      status: "printing",
+    })
+  })
+
   it("parses lpstat device output", () => {
     expect(
       parseLpstatDeviceOutput(

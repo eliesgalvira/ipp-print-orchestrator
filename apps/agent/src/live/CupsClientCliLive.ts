@@ -45,15 +45,22 @@ export const parseLpstatJobsOutput = (output: string): readonly CupsJobSummary[]
 
 export const parseLpstatPrinterOutput = (output: string): PrinterSummary => {
   const normalized = output.trim()
-  const match = normalized.match(/^printer\s+(\S+)\s+is\s+(.+)$/i)
-  if (match?.[1] === undefined || match[2] === undefined) {
+  const match = normalized.match(/^printer\s+(\S+)\s+(is|now)\s+(.+)$/i)
+  if (match?.[1] === undefined || match[2] === undefined || match[3] === undefined) {
     throw new Error(`Unable to parse lpstat printer output: ${output}`)
   }
+
+  const verb = match[2].toLowerCase()
+  const rawStatus = match[3]
+  const status =
+    verb === "now"
+      ? "printing"
+      : rawStatus.split(".")[0] ?? rawStatus
 
   return {
     printerName: match[1],
     available: !normalized.includes("disabled"),
-    status: match[2].split(".")[0] ?? match[2],
+    status,
   }
 }
 

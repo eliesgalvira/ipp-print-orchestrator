@@ -6,6 +6,7 @@ import { Effect, Layer } from "effect"
 import { AppConfig } from "../config/AppConfig.js"
 import { Job } from "../domain/Job.js"
 import { JobId } from "../domain/JobId.js"
+import { CupsClient } from "../services/CupsClient.js"
 import { EventSink } from "../services/EventSink.js"
 import { JobRepo } from "../services/JobRepo.js"
 import { QueueRuntime } from "../services/QueueRuntime.js"
@@ -27,6 +28,23 @@ const appConfigLayer = (dataDir: string) =>
     logPretty: false,
     enableOtlp: false,
   })
+
+const idleCupsLayer = Layer.succeed(
+  CupsClient,
+  CupsClient.of({
+    submitFile: () => Effect.dieMessage("unused"),
+    getJobStatus: () => Effect.dieMessage("unused"),
+    listRecentJobs: () => Effect.succeed([]),
+    getPrinterSummary: () =>
+      Effect.succeed({
+        printerName: "test-printer",
+        available: true,
+        status: "idle",
+      }),
+    getPrinterDeviceUri: () => Effect.succeed("usb://test-printer"),
+    listAvailableDevices: () => Effect.succeed(["usb://test-printer"]),
+  }),
+)
 
 describe("ReconcilerLive", () => {
   it.effect("re-enqueues persisted nonterminal jobs on startup", () =>
@@ -59,6 +77,7 @@ describe("ReconcilerLive", () => {
       }).pipe(Effect.provide(storageLayer))
 
       const runtimeLayer = ReconcilerLive.pipe(
+        Layer.provideMerge(idleCupsLayer),
         Layer.provideMerge(JobRepoFileLive),
         Layer.provideMerge(EventSinkFileLive),
         Layer.provideMerge(QueueRuntimeLive),
@@ -84,6 +103,61 @@ describe("ReconcilerLive", () => {
       expect(result.queueSize).toBe(1)
       expect(result.events.map((event) => event.eventName)).toEqual([
         "startup.reconciliation.started",
+        "startup.reconciliation.completed",
+      ])
+    }).pipe(Effect.provide(NodeFileSystem.layer)),
+  )
+
+  it.effect("marks submitted jobs completed when CUPS no longer reports them", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const dataDir = yield* fs.makeTempDirectory({
+        prefix: "ipp-orch-reconcile-complete-",
+      })
+
+      const submittedJob = Job.make({
+        id: JobId.make("job-reconcile-2"),
+        requestId: "req-reconcile-2",
+        printerName: "test-printer",
+        fileName: "done.pdf",
+        mimeType: "application/pdf",
+        fileSize: 12,
+        state: "Submitted",
+        retryCount: 0,
+        cupsJobId: "cups-42",
+        createdAt: "2026-03-09T00:00:00.000Z",
+        updatedAt: "2026-03-09T00:00:00.000Z",
+      })
+
+      const runtimeLayer = ReconcilerLive.pipe(
+        Layer.provideMerge(idleCupsLayer),
+        Layer.provideMerge(EventSinkFileLive),
+        Layer.provideMerge(JobRepoFileLive),
+        Layer.provideMerge(QueueRuntimeLive),
+        Layer.provideMerge(TelemetryLive),
+        Layer.provideMerge(appConfigLayer(dataDir)),
+        Layer.provideMerge(NodeFileSystem.layer),
+        Layer.provideMerge(NodePath.layer),
+      )
+
+      const result = yield* Effect.gen(function* () {
+        const repo = yield* JobRepo
+        const reconciler = yield* Reconciler
+        const eventSink = yield* EventSink
+
+        yield* repo.create(submittedJob)
+        yield* reconciler.reconcileStartup()
+
+        const refreshed = yield* repo.get(submittedJob.id)
+        const events = yield* eventSink.all()
+
+        return { refreshed, events }
+      }).pipe(Effect.provide(runtimeLayer))
+
+      expect(result.refreshed.state).toBe("Completed")
+      expect(result.events.map((event) => event.eventName)).toEqual([
+        "startup.reconciliation.started",
+        "print.job.completed",
         "startup.reconciliation.completed",
       ])
     }).pipe(Effect.provide(NodeFileSystem.layer)),
