@@ -186,6 +186,12 @@ Pi smoke test:
 bash scripts/smoke-test-pi.sh
 ```
 
+Continuous Pi status watch from your laptop:
+
+```bash
+bash scripts/watch-pi-status.sh
+```
+
 The Pi smoke script checks:
 
 - local health endpoint
@@ -222,6 +228,7 @@ The deploy script:
 - runs `bun run build`
 - installs systemd units
 - restarts the service and heartbeat timer
+- prints phase timings for the local rsync step and each remote deployment step
 
 The deploy install step skips lifecycle scripts on the Pi. This is intentional:
 
@@ -255,6 +262,16 @@ sudoedit /etc/ipp-print-orchestrator.env
 sudo systemctl restart ipp-print-orchestrator
 curl http://127.0.0.1:4310/v1/status
 ```
+
+## Observability
+
+Today the app emits wide-event JSON to stdout/journald through the `Telemetry` service. That means you can already tail live events remotely from your laptop:
+
+```bash
+ssh pi@print-server.local 'journalctl -u ipp-print-orchestrator -f --no-pager'
+```
+
+The repository also includes OTLP-related config flags, but OTLP export is not wired yet. `IPP_ORCH_ENABLE_OTLP` and `OTEL_EXPORTER_OTLP_ENDPOINT` are parsed in config, but the live telemetry path currently writes JSON logs rather than exporting spans or metrics to a backend such as Axiom.
 
 ## Systemd And Journald
 
