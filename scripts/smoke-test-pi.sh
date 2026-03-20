@@ -23,8 +23,8 @@ echo
 lpstat -p
 lpstat -t
 
-if ! lpstat -p "${PRINTER_NAME}" >/dev/null 2>&1; then
-  echo "Configured printer ${PRINTER_NAME} not found in CUPS" >&2
+if ! lpstat -p "\${PRINTER_NAME}" >/dev/null 2>&1; then
+  echo "Configured printer \${PRINTER_NAME} not found in CUPS" >&2
   exit 1
 fi
 
