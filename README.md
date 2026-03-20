@@ -203,6 +203,8 @@ One-time bootstrap on the Pi:
 bash scripts/bootstrap-pi.sh
 ```
 
+Bootstrap creates `/etc/ipp-print-orchestrator.env` on first run. If the Pi already has exactly one CUPS printer queue, the script uses that queue name automatically for `IPP_ORCH_PRINTER_NAME`. If there are multiple queues or none yet, set `IPP_ORCH_PRINTER_NAME` manually after bootstrap.
+
 Deploy from the development machine:
 
 ```bash
@@ -233,6 +235,21 @@ bun run build
 bash scripts/install-systemd.sh
 sudo systemctl restart ipp-print-orchestrator
 sudo systemctl restart ipp-print-orchestrator-heartbeat.timer
+```
+
+If `/v1/status` shows `cupsReachable: false` and `printerAttached: false` even though `lpstat -p` works on the Pi, verify the configured queue name:
+
+```bash
+grep '^IPP_ORCH_PRINTER_NAME=' /etc/ipp-print-orchestrator.env
+lpstat -p
+```
+
+If they do not match, update `/etc/ipp-print-orchestrator.env` so `IPP_ORCH_PRINTER_NAME` matches the real CUPS queue exactly, then restart the service:
+
+```bash
+sudoedit /etc/ipp-print-orchestrator.env
+sudo systemctl restart ipp-print-orchestrator
+curl http://127.0.0.1:4310/v1/status
 ```
 
 ## Systemd And Journald
