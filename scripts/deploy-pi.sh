@@ -23,10 +23,12 @@ run_timed() {
   log_phase "done ${phase} (${elapsed}s)"
 }
 
+run_timed "local typescript build" \
+  bash -lc "cd \"${ROOT_DIR}\" && bun run build"
+
 run_timed "rsync repository to pi" \
   rsync -az --delete \
     --exclude node_modules \
-    --exclude dist \
     --exclude .git \
     --exclude coverage \
     --exclude .reference \
@@ -53,9 +55,9 @@ run_timed() {
   local elapsed=\$((SECONDS - started_at))
   log_phase \"done \${phase} (\${elapsed}s)\"
 }
+# Build artifacts are produced locally to keep Pi deploys low-memory and predictable.
 # The Effect language-service prepare hook is editor-only and can OOM on low-memory Pis.
-run_timed \"bun install\" bun install --frozen-lockfile --ignore-scripts
-run_timed \"typescript build\" bun run build
+run_timed \"bun install (production)\" bun install --frozen-lockfile --ignore-scripts --production
 run_timed \"install systemd units\" bash scripts/install-systemd.sh
 run_timed \"restart app service\" sudo systemctl restart ipp-print-orchestrator
 run_timed \"restart heartbeat timer\" sudo systemctl restart ipp-print-orchestrator-heartbeat.timer
