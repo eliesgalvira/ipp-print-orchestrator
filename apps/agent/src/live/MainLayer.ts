@@ -1,6 +1,7 @@
 import { Layer } from "effect"
 import { NodeCommandExecutor, NodeFileSystem, NodePath } from "@effect/platform-node"
 
+import { CupsObserverIppLive } from "../cups-observation/CupsObserverIppLive.js"
 import { AppConfig } from "../config/AppConfig.js"
 import { Orchestrator } from "../services/Orchestrator.js"
 import { BlobStoreLive } from "./BlobStoreLive.js"
@@ -35,15 +36,20 @@ const cupsLayer = CupsClientCliLive.pipe(
   Layer.provideMerge(commandLayer),
 )
 
+const cupsObservationLayer = CupsObserverIppLive.pipe(
+  Layer.provideMerge(platformLayer),
+)
+
 const probeLayer = Layer.mergeAll(
   NetworkProbeCliLive,
-  PrinterProbeCliLive.pipe(Layer.provideMerge(cupsLayer)),
+  PrinterProbeCliLive.pipe(Layer.provideMerge(cupsObservationLayer)),
 )
 
 const baseRuntimeLayer = Layer.mergeAll(
   platformLayer,
   storageLayer,
   cupsLayer,
+  cupsObservationLayer,
   probeLayer,
   QueueRuntimeLive,
   TelemetryLive,

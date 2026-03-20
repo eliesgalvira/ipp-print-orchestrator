@@ -1,40 +1,31 @@
 import { Effect, Layer } from "effect"
 
-import { CupsClient } from "../services/CupsClient.js"
+import { CupsObserver } from "../cups-observation/CupsObserver.js"
 import { PrinterProbe } from "../services/PrinterProbe.js"
-
-const normalizeDeviceUri = (deviceUri: string): string => deviceUri.split("?")[0] ?? deviceUri
 
 export const PrinterProbeCliLive = Layer.effect(
   PrinterProbe,
   Effect.gen(function* () {
-    const cupsClient = yield* CupsClient
+    const cupsObserver = yield* CupsObserver
 
     const status = Effect.fn("PrinterProbe.status")(function* () {
-      return yield* Effect.all({
-        summary: cupsClient.getPrinterSummary(),
-        configuredDeviceUri: cupsClient.getPrinterDeviceUri(),
-        availableDevices: cupsClient.listAvailableDevices(),
-      }).pipe(
-        Effect.map(({ summary, configuredDeviceUri, availableDevices }) => {
-          const normalizedConfigured = normalizeDeviceUri(configuredDeviceUri)
-          const attached = availableDevices.some((deviceUri) => {
-            const normalizedAvailable = normalizeDeviceUri(deviceUri)
-            return (
-              deviceUri === configuredDeviceUri ||
-              normalizedAvailable === normalizedConfigured
-            )
-          })
-
-          return {
-            attached,
-            queueAvailable: summary.available,
-          }
-        }),
-        Effect.catchAll(() =>
+      return yield* cupsObserver.observePrinter().pipe(
+        Effect.map((observation) => ({
+          attached: observation.attached,
+          queueAvailable: observation.queueAvailable,
+          cupsReachable: true,
+          state: observation.state,
+          reasons: observation.reasons,
+          message: observation.message,
+        })),
+        Effect.catchAll((error) =>
           Effect.succeed({
             attached: false,
             queueAvailable: false,
+            cupsReachable: false,
+            state: null,
+            reasons: [error._tag],
+            message: error.message,
           }),
         ),
       )

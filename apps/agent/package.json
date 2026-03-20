@@ -27,6 +27,7 @@
     "@opentelemetry/exporter-trace-otlp-http": "^0.213.0",
     "@opentelemetry/sdk-logs": "^0.213.0",
     "@opentelemetry/sdk-node": "^0.213.0",
-    "effect": "^3.19.19"
+    "effect": "^3.19.19",
+    "ipp": "^2.0.1"
   }
 }

@@ -34,6 +34,9 @@ class StatusResponse extends Schema.Class<StatusResponse>("StatusResponse")({
   appUp: Schema.Boolean,
   cupsReachable: Schema.Boolean,
   printerAttached: Schema.Boolean,
+  printerState: Schema.NullOr(Schema.String),
+  printerReasons: Schema.Array(Schema.String),
+  printerMessage: Schema.NullOr(Schema.String),
   queueDepth: Schema.Number,
   nonterminalJobCount: Schema.Number,
 }) {}

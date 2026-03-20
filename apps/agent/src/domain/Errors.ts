@@ -56,6 +56,27 @@ class CupsCommandFailed extends Schema.TaggedError<CupsCommandFailed>()(
   },
 ) {}
 
+class CupsIppUnavailable extends Schema.TaggedError<CupsIppUnavailable>()(
+  "CupsIppUnavailable",
+  {
+    message: Schema.String,
+  },
+) {}
+
+class CupsIppProtocolError extends Schema.TaggedError<CupsIppProtocolError>()(
+  "CupsIppProtocolError",
+  {
+    message: Schema.String,
+  },
+) {}
+
+class CupsIppJobNotFound extends Schema.TaggedError<CupsIppJobNotFound>()(
+  "CupsIppJobNotFound",
+  {
+    message: Schema.String,
+  },
+) {}
+
 class PrinterUsbDetached extends Schema.TaggedError<PrinterUsbDetached>()(
   "PrinterUsbDetached",
   {
@@ -109,6 +130,9 @@ export {
   BlobStoreDiskFull,
   BlobStoreUnavailable,
   CupsCommandFailed,
+  CupsIppJobNotFound,
+  CupsIppProtocolError,
+  CupsIppUnavailable,
   CupsRejectedJob,
   CupsUnavailable,
   EventSinkUnavailable,
@@ -132,6 +156,9 @@ export const OperationalError = Schema.Union(
   CupsUnavailable,
   CupsRejectedJob,
   CupsCommandFailed,
+  CupsIppUnavailable,
+  CupsIppProtocolError,
+  CupsIppJobNotFound,
   PrinterUsbDetached,
   PrinterNotReady,
   NetworkOffline,

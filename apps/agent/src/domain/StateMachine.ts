@@ -65,8 +65,19 @@ const allowedTransitions: Record<JobState, readonly TransitionActionTag[]> = {
     "Cancelled",
     "FailedTerminal",
   ],
-  Submitted: ["Printing", "Completed", "Cancelled", "FailedTerminal"],
-  Printing: ["Completed", "Cancelled", "FailedTerminal"],
+  Submitted: [
+    "Printing",
+    "Completed",
+    "SubmissionUncertain",
+    "Cancelled",
+    "FailedTerminal",
+  ],
+  Printing: [
+    "Completed",
+    "SubmissionUncertain",
+    "Cancelled",
+    "FailedTerminal",
+  ],
   Completed: [],
   WaitingForPrinter: [
     "RetryScheduled",

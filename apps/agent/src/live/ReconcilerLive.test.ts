@@ -3,10 +3,10 @@ import { FileSystem } from "@effect/platform"
 import { NodeFileSystem, NodePath } from "@effect/platform-node"
 import { Effect, Layer } from "effect"
 
+import { CupsObserver } from "../cups-observation/CupsObserver.js"
 import { AppConfig } from "../config/AppConfig.js"
 import { Job } from "../domain/Job.js"
 import { JobId } from "../domain/JobId.js"
-import { CupsClient } from "../services/CupsClient.js"
 import { EventSink } from "../services/EventSink.js"
 import { JobRepo } from "../services/JobRepo.js"
 import { QueueRuntime } from "../services/QueueRuntime.js"
@@ -29,20 +29,20 @@ const appConfigLayer = (dataDir: string) =>
     enableOtlp: false,
   })
 
-const idleCupsLayer = Layer.succeed(
-  CupsClient,
-  CupsClient.of({
-    submitFile: () => Effect.dieMessage("unused"),
-    getJobStatus: () => Effect.dieMessage("unused"),
-    listRecentJobs: () => Effect.succeed([]),
-    getPrinterSummary: () =>
+const idleCupsObserverLayer = Layer.succeed(
+  CupsObserver,
+  CupsObserver.of({
+    observePrinter: () =>
       Effect.succeed({
         printerName: "test-printer",
-        available: true,
-        status: "idle",
+        acceptingJobs: true,
+        state: "idle",
+        reasons: [],
+        message: null,
+        attached: true,
+        queueAvailable: true,
       }),
-    getPrinterDeviceUri: () => Effect.succeed("usb://test-printer"),
-    listAvailableDevices: () => Effect.succeed(["usb://test-printer"]),
+    observeJob: () => Effect.succeed(null),
   }),
 )
 
@@ -77,7 +77,7 @@ describe("ReconcilerLive", () => {
       }).pipe(Effect.provide(storageLayer))
 
       const runtimeLayer = ReconcilerLive.pipe(
-        Layer.provideMerge(idleCupsLayer),
+        Layer.provideMerge(idleCupsObserverLayer),
         Layer.provideMerge(JobRepoFileLive),
         Layer.provideMerge(EventSinkFileLive),
         Layer.provideMerge(QueueRuntimeLive),
@@ -130,7 +130,33 @@ describe("ReconcilerLive", () => {
       })
 
       const runtimeLayer = ReconcilerLive.pipe(
-        Layer.provideMerge(idleCupsLayer),
+        Layer.provideMerge(
+          Layer.succeed(
+            CupsObserver,
+            CupsObserver.of({
+              observePrinter: () =>
+                Effect.succeed({
+                  printerName: "test-printer",
+                  acceptingJobs: true,
+                  state: "idle",
+                  reasons: [],
+                  message: null,
+                  attached: true,
+                  queueAvailable: true,
+                }),
+              observeJob: () =>
+                Effect.succeed({
+                  cupsJobId: "cups-42",
+                  state: "completed",
+                  reasons: [],
+                  printerState: "idle",
+                  printerStateReasons: [],
+                  printerStateMessage: null,
+                  mediaSheetsCompleted: 1,
+                }),
+            }),
+          ),
+        ),
         Layer.provideMerge(EventSinkFileLive),
         Layer.provideMerge(JobRepoFileLive),
         Layer.provideMerge(QueueRuntimeLive),

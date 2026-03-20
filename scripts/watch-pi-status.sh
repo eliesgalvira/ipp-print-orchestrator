@@ -52,12 +52,17 @@ rl.on("line", (line) => {
 
   const parts = [
     `printer=${formatFlag(status.printerAttached, "attached", "missing")}`,
+    `state=${status.printerState ?? "unknown"}`,
     `cups=${formatFlag(status.cupsReachable, "up", "down")}`,
     `net=${formatFlag(status.networkOnline, "online", "offline")}`,
     `jobs=${status.nonterminalJobCount}`,
     `queue=${status.queueDepth}`,
     `heartbeat=${formatHeartbeatAge(status.lastSuccessfulHeartbeatAt)}`,
   ]
+
+  if (Array.isArray(status.printerReasons) && status.printerReasons.length > 0) {
+    parts.push(`reasons=${status.printerReasons.join(",")}`)
+  }
 
   if (Array.isArray(status.localIps) && status.localIps.length > 0) {
     parts.push(`ip=${status.localIps[0]}`)

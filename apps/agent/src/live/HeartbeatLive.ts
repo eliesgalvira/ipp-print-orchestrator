@@ -2,7 +2,6 @@ import { Clock, Effect, Layer, Ref } from "effect"
 import { hostname } from "node:os"
 
 import { WideEvent } from "../domain/WideEvent.js"
-import { CupsClient } from "../services/CupsClient.js"
 import { EventSink } from "../services/EventSink.js"
 import { Heartbeat, type HeartbeatSnapshot } from "../services/Heartbeat.js"
 import { JobRepo } from "../services/JobRepo.js"
@@ -20,7 +19,6 @@ export const HeartbeatLive = Layer.effect(
     const printerProbe = yield* PrinterProbe
     const queueRuntime = yield* QueueRuntime
     const jobRepo = yield* JobRepo
-    const cupsClient = yield* CupsClient
     const lastSuccessRef = yield* Ref.make<string | null>(null)
 
     const snapshot = Effect.fn("Heartbeat.snapshot")(function* () {
@@ -29,10 +27,6 @@ export const HeartbeatLive = Layer.effect(
       const printer = yield* printerProbe.status()
       const queueDepth = yield* queueRuntime.size()
       const nonterminalJobs = yield* jobRepo.listNonTerminal()
-      const cupsReachable = yield* cupsClient.getPrinterSummary().pipe(
-        Effect.as(true),
-        Effect.catchAll(() => Effect.succeed(false)),
-      )
       const lastSuccessfulHeartbeatAt = yield* Ref.get(lastSuccessRef)
 
       return {
@@ -41,8 +35,11 @@ export const HeartbeatLive = Layer.effect(
         hostname: hostname(),
         networkOnline: network.online,
         localIps: network.localIps,
-        cupsReachable,
+        cupsReachable: printer.cupsReachable,
         printerAttached: printer.attached,
+        printerState: printer.state,
+        printerReasons: printer.reasons,
+        printerMessage: printer.message,
         queueDepth,
         nonterminalJobCount: nonterminalJobs.length,
         lastSuccessfulHeartbeatAt,
@@ -57,6 +54,7 @@ export const HeartbeatLive = Layer.effect(
         "heartbeat.job_count": current.nonterminalJobCount,
         "heartbeat.network_online": current.networkOnline,
         "heartbeat.printer_attached": current.printerAttached,
+        "heartbeat.printer_state": current.printerState,
         "heartbeat.queue_depth": current.queueDepth,
       })
       const event = WideEvent.make({
@@ -68,6 +66,9 @@ export const HeartbeatLive = Layer.effect(
         localIps: current.localIps,
         cupsReachable: current.cupsReachable,
         printerAttached: current.printerAttached,
+        printerState: current.printerState,
+        printerReasons: current.printerReasons,
+        printerMessage: current.printerMessage,
         queueDepth: current.queueDepth,
         nonterminalJobCount: current.nonterminalJobCount,
         lastSuccessfulHeartbeatAt: current.timestamp,
