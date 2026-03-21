@@ -45,6 +45,7 @@ describe("Orchestrator", () => {
         "print.request.received",
         "print.job.stored",
         "print.job.queued",
+        "queue.job.enqueued",
         "print.job.submission.attempt",
         "print.job.submitted",
       ])
@@ -193,6 +194,39 @@ describe("Orchestrator", () => {
               message: "lp disconnected before completion acknowledgement",
             },
           ],
+        }),
+      ),
+    ),
+  )
+
+  it.effect("emits a canonical job outcome for terminal failures", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator
+      const eventSink = yield* EventSink
+
+      const job = yield* orchestrator.submit({
+        id: JobId.make("job-terminal-failure"),
+        requestId: "req-terminal-failure",
+        fileName: "document.pdf",
+        mimeType: "application/pdf",
+        bytes: makeBytes(),
+      })
+
+      const processed = yield* orchestrator.processJob(job.id)
+      expect(processed.state).toBe("FailedTerminal")
+
+      const events = yield* eventSink.all()
+      const outcome = events.find((event) => event.eventName === "print.job.outcome")
+
+      expect(outcome?.printId).toBe("job-terminal-failure")
+      expect(outcome?.finalState).toBe("FailedTerminal")
+      expect(outcome?.errorTag).toBe("FailedTerminal")
+      expect(outcome?.timeToTerminalMs).toBeTypeOf("number")
+    }).pipe(
+      Effect.provide(
+        makeTestLayer({
+          printer: [{ attached: true, queueAvailable: true }],
+          cups: [{ _tag: "CupsRejectedJob", message: "queue rejected job" }],
         }),
       ),
     ),

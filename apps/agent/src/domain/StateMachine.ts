@@ -186,6 +186,15 @@ const errorDetailsForAction = (
   }
 }
 
+const elapsedMs = (from: string, to: string): number | undefined => {
+  const fromMs = Date.parse(from)
+  const toMs = Date.parse(to)
+  if (!Number.isFinite(fromMs) || !Number.isFinite(toMs)) {
+    return undefined
+  }
+  return Math.max(0, toMs - fromMs)
+}
+
 export const createJob = (input: CreateJobInput): Job =>
   Job.make({
     ...input,
@@ -225,6 +234,13 @@ export const transitionJob = (
   const nextCupsJobId =
     action._tag === "Submitted" ? action.cupsJobId : job.cupsJobId
   const errorDetails = errorDetailsForAction(action)
+  const attemptNumber = nextRetryCount + 1
+  const jobDurationMs = elapsedMs(job.createdAt, occurredAt)
+  const timeToSubmitMs =
+    action._tag === "Submitted" ? elapsedMs(job.createdAt, occurredAt) : undefined
+  const timeToTerminalMs = terminalJobStates.has(nextState)
+    ? elapsedMs(job.createdAt, occurredAt)
+    : undefined
 
   const nextJob = Job.make({
     ...job,
@@ -244,9 +260,13 @@ export const transitionJob = (
     mimeType: job.mimeType,
     fileSize: job.fileSize,
     retryCount: nextRetryCount,
+    attemptNumber,
     currentState: nextState,
     previousState: job.state,
     ...(nextCupsJobId === undefined ? {} : { cupsJobId: nextCupsJobId }),
+    ...(jobDurationMs === undefined ? {} : { jobDurationMs }),
+    ...(timeToSubmitMs === undefined ? {} : { timeToSubmitMs }),
+    ...(timeToTerminalMs === undefined ? {} : { timeToTerminalMs }),
     ...(errorDetails.errorTag === undefined
       ? {}
       : { errorTag: errorDetails.errorTag }),

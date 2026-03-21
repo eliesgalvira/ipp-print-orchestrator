@@ -10,6 +10,7 @@ export interface HeartbeatSnapshot {
   readonly localIps: readonly string[]
   readonly cupsReachable: boolean
   readonly printerAttached: boolean
+  readonly printerQueueAvailable: boolean
   readonly printerState: string | null
   readonly printerReasons: readonly string[]
   readonly printerMessage: string | null

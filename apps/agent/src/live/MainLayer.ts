@@ -14,6 +14,7 @@ import { PrinterProbeCliLive } from "./PrinterProbeCliLive.js"
 import { QueueRuntimeLive } from "./QueueRuntimeLive.js"
 import { ReconcilerLive } from "./ReconcilerLive.js"
 import { TelemetryLive } from "./TelemetryLive.js"
+import { WideEventPublisherLive } from "./WideEventPublisherLive.js"
 
 const platformLayer = Layer.mergeAll(
   AppConfig.layer,
@@ -45,14 +46,25 @@ const probeLayer = Layer.mergeAll(
   PrinterProbeCliLive.pipe(Layer.provideMerge(cupsObservationLayer)),
 )
 
-const baseRuntimeLayer = Layer.mergeAll(
+const runtimeSupportLayer = Layer.mergeAll(
   platformLayer,
   storageLayer,
   cupsLayer,
   cupsObservationLayer,
   probeLayer,
-  QueueRuntimeLive,
   TelemetryLive,
+)
+
+const eventLayer = WideEventPublisherLive.pipe(
+  Layer.provideMerge(runtimeSupportLayer),
+)
+
+const queueLayer = QueueRuntimeLive.pipe(Layer.provideMerge(eventLayer))
+
+const baseRuntimeLayer = Layer.mergeAll(
+  runtimeSupportLayer,
+  eventLayer,
+  queueLayer,
 )
 
 const orchestratorLayer = Orchestrator.layer.pipe(

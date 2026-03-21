@@ -9,6 +9,7 @@ import { describe, expect, it } from "@effect/vitest"
 import { Effect, Layer, Schema } from "effect"
 
 import { HeartbeatLive } from "../live/HeartbeatLive.js"
+import { EventSink } from "../services/EventSink.js"
 import { HttpRoutes } from "./Routes.js"
 import { makeTestLayer } from "../../../../packages/testkit/src/TestLayers.js"
 
@@ -34,6 +35,7 @@ class StatusResponse extends Schema.Class<StatusResponse>("StatusResponse")({
   appUp: Schema.Boolean,
   cupsReachable: Schema.Boolean,
   printerAttached: Schema.Boolean,
+  printerQueueAvailable: Schema.Boolean,
   printerState: Schema.NullOr(Schema.String),
   printerReasons: Schema.Array(Schema.String),
   printerMessage: Schema.NullOr(Schema.String),
@@ -84,6 +86,7 @@ describe("HttpRoutes", () => {
       expect(status.appUp).toBe(true)
       expect(status.cupsReachable).toBe(true)
       expect(status.printerAttached).toBe(true)
+      expect(status.printerQueueAvailable).toBe(true)
       expect(status.nonterminalJobCount).toBeGreaterThanOrEqual(1)
     }).pipe(Effect.provide(NodeHttpServer.layerTest), Effect.provide(apiLayer)))
 
@@ -101,5 +104,46 @@ describe("HttpRoutes", () => {
       )
 
       expect(response.status).toBe(400)
+    }).pipe(Effect.provide(NodeHttpServer.layerTest), Effect.provide(apiLayer)))
+
+  it.scoped("emits canonical http request events", () =>
+    Effect.gen(function* () {
+      yield* HttpRoutes.pipe(HttpServer.serveEffect())
+
+      yield* HttpClient.get("/v1/health")
+      const submit = yield* HttpClientRequest.post("/v1/jobs").pipe(
+        HttpClientRequest.bodyUnsafeJson({
+          fileName: "document.pdf",
+          mimeType: "application/pdf",
+          contentBase64: Buffer.from("hello world").toString("base64"),
+          requestId: "req-http-events",
+        }),
+        HttpClient.execute,
+        Effect.flatMap(HttpClientResponse.schemaBodyJson(SubmitJobResponse)),
+      )
+
+      const eventSink = yield* EventSink
+      const events = yield* eventSink.all()
+      const httpEvents = events.filter((event) => event.eventName === "http.request.completed")
+
+      expect(httpEvents.length).toBeGreaterThanOrEqual(2)
+      expect(
+        httpEvents.some(
+          (event) =>
+            event.route === "/v1/health" &&
+            event.method === "GET" &&
+            event.statusCode === 200,
+        ),
+      ).toBe(true)
+      expect(
+        httpEvents.some(
+          (event) =>
+            event.route === "/v1/jobs" &&
+            event.method === "POST" &&
+            event.statusCode === 202 &&
+            event.requestId === "req-http-events" &&
+            event.printId === submit.jobId,
+        ),
+      ).toBe(true)
     }).pipe(Effect.provide(NodeHttpServer.layerTest), Effect.provide(apiLayer)))
 })

@@ -9,14 +9,16 @@ import type { Job } from "../domain/Job.js"
 import type { JobId } from "../domain/JobId.js"
 import { createJob, transitionJob } from "../domain/StateMachine.js"
 import { WideEvent } from "../domain/WideEvent.js"
+import {
+  makeJobOutcomeEvent,
+  WideEventPublisher,
+} from "../observability/WideEventPublisher.js"
 import { BlobStore } from "./BlobStore.js"
 import { CupsClient, type SubmitResult } from "./CupsClient.js"
-import { EventSink } from "./EventSink.js"
 import { JobRepo } from "./JobRepo.js"
 import { NetworkProbe } from "./NetworkProbe.js"
 import { PrinterProbe } from "./PrinterProbe.js"
 import { QueueRuntime } from "./QueueRuntime.js"
-import { Telemetry } from "./Telemetry.js"
 
 export interface SubmitJobInput {
   readonly id: JobId
@@ -43,28 +45,38 @@ export class Orchestrator extends Context.Tag("@ipp/agent/Orchestrator")<
       const config = yield* AppConfig
       const blobStore = yield* BlobStore
       const jobRepo = yield* JobRepo
-      const eventSink = yield* EventSink
-      const telemetry = yield* Telemetry
+      const wideEventPublisher = yield* WideEventPublisher
       const cupsClient = yield* CupsClient
       const printerProbe = yield* PrinterProbe
       const networkProbe = yield* NetworkProbe
       const queueRuntime = yield* QueueRuntime
 
-      const persistEvent = (event: WideEvent) =>
-        eventSink.append(event).pipe(
-          Effect.zipRight(telemetry.emit(event).pipe(Effect.catchAll(() => Effect.void))),
-        )
+      const persistEvent = (event: WideEvent) => wideEventPublisher.emit(event)
 
       const nowIso = Effect.map(Clock.currentTimeMillis, (millis) =>
         new Date(millis).toISOString(),
       )
 
       const persistTransition = (job: Job, event: WideEvent) =>
-        jobRepo.save(job).pipe(
-          Effect.zipRight(jobRepo.appendTransition(job.id, event)),
-          Effect.zipRight(persistEvent(event)),
-          Effect.as(job),
-        )
+        Effect.gen(function* () {
+          yield* jobRepo.save(job)
+          yield* jobRepo.appendTransition(job.id, event)
+          yield* persistEvent(event)
+
+          const outcomeEvent = makeJobOutcomeEvent({
+            timestamp: event.timestamp,
+            job,
+            finalState: job.state,
+            errorTag: event.errorTag,
+            errorMessage: event.errorMessage,
+          })
+
+          if (outcomeEvent !== null) {
+            yield* persistEvent(outcomeEvent)
+          }
+
+          return job
+        })
 
       const applyTransition = (
         job: Job,

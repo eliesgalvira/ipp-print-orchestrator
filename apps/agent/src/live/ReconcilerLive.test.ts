@@ -16,6 +16,7 @@ import { JobRepoFileLive } from "./JobRepoFileLive.js"
 import { QueueRuntimeLive } from "./QueueRuntimeLive.js"
 import { ReconcilerLive } from "./ReconcilerLive.js"
 import { TelemetryLive } from "./TelemetryLive.js"
+import { WideEventPublisherLive } from "./WideEventPublisherLive.js"
 
 const appConfigLayer = (dataDir: string) =>
   Layer.succeed(AppConfig, {
@@ -52,7 +53,7 @@ describe("ReconcilerLive", () => {
       const fs = yield* FileSystem.FileSystem
       const dataDir = yield* fs.makeTempDirectory({ prefix: "ipp-orch-reconcile-" })
 
-      const storageLayer = JobRepoFileLive.pipe(
+      const repoLayer = JobRepoFileLive.pipe(
         Layer.provideMerge(appConfigLayer(dataDir)),
         Layer.provideMerge(NodeFileSystem.layer),
         Layer.provideMerge(NodePath.layer),
@@ -74,17 +75,47 @@ describe("ReconcilerLive", () => {
       yield* Effect.gen(function* () {
         const repo = yield* JobRepo
         yield* repo.create(queuedJob)
-      }).pipe(Effect.provide(storageLayer))
+      }).pipe(Effect.provide(repoLayer))
 
-      const runtimeLayer = ReconcilerLive.pipe(
-        Layer.provideMerge(idleCupsObserverLayer),
-        Layer.provideMerge(JobRepoFileLive),
-        Layer.provideMerge(EventSinkFileLive),
-        Layer.provideMerge(QueueRuntimeLive),
-        Layer.provideMerge(TelemetryLive),
-        Layer.provideMerge(appConfigLayer(dataDir)),
-        Layer.provideMerge(NodeFileSystem.layer),
-        Layer.provideMerge(NodePath.layer),
+      const platformLayer = Layer.mergeAll(
+        appConfigLayer(dataDir),
+        NodeFileSystem.layer,
+        NodePath.layer,
+      )
+
+      const storageLayer = Layer.mergeAll(
+        JobRepoFileLive,
+        EventSinkFileLive,
+      ).pipe(Layer.provideMerge(platformLayer))
+
+      const supportLayer = Layer.mergeAll(
+        idleCupsObserverLayer,
+        storageLayer,
+        TelemetryLive,
+        platformLayer,
+      )
+
+      const eventLayer = WideEventPublisherLive.pipe(
+        Layer.provideMerge(supportLayer),
+      )
+
+      const queueLayer = QueueRuntimeLive.pipe(
+        Layer.provideMerge(eventLayer),
+      )
+
+      const runtimeLayer = Layer.mergeAll(
+        supportLayer,
+        eventLayer,
+        queueLayer,
+        ReconcilerLive.pipe(
+          Layer.provideMerge(
+            Layer.mergeAll(
+              supportLayer,
+              eventLayer,
+              queueLayer,
+            ),
+          ),
+        ),
       )
 
       const result = yield* Effect.gen(function* () {
@@ -103,6 +134,7 @@ describe("ReconcilerLive", () => {
       expect(result.queueSize).toBe(1)
       expect(result.events.map((event) => event.eventName)).toEqual([
         "startup.reconciliation.started",
+        "queue.job.enqueued",
         "startup.reconciliation.completed",
       ])
     }).pipe(Effect.provide(NodeFileSystem.layer)),
@@ -129,41 +161,69 @@ describe("ReconcilerLive", () => {
         updatedAt: "2026-03-09T00:00:00.000Z",
       })
 
-      const runtimeLayer = ReconcilerLive.pipe(
-        Layer.provideMerge(
-          Layer.succeed(
-            CupsObserver,
-            CupsObserver.of({
-              observePrinter: () =>
-                Effect.succeed({
-                  printerName: "test-printer",
-                  acceptingJobs: true,
-                  state: "idle",
-                  reasons: [],
-                  message: null,
-                  attached: true,
-                  queueAvailable: true,
-                }),
-              observeJob: () =>
-                Effect.succeed({
-                  cupsJobId: "cups-42",
-                  state: "completed",
-                  reasons: [],
-                  printerState: "idle",
-                  printerStateReasons: [],
-                  printerStateMessage: null,
-                  mediaSheetsCompleted: 1,
-                }),
-            }),
+      const platformLayer = Layer.mergeAll(
+        appConfigLayer(dataDir),
+        NodeFileSystem.layer,
+        NodePath.layer,
+      )
+
+      const storageLayer = Layer.mergeAll(
+        EventSinkFileLive,
+        JobRepoFileLive,
+      ).pipe(Layer.provideMerge(platformLayer))
+
+      const supportLayer = Layer.mergeAll(
+        Layer.succeed(
+          CupsObserver,
+          CupsObserver.of({
+            observePrinter: () =>
+              Effect.succeed({
+                printerName: "test-printer",
+                acceptingJobs: true,
+                state: "idle",
+                reasons: [],
+                message: null,
+                attached: true,
+                queueAvailable: true,
+              }),
+            observeJob: () =>
+              Effect.succeed({
+                cupsJobId: "cups-42",
+                state: "completed",
+                reasons: [],
+                printerState: "idle",
+                printerStateReasons: [],
+                printerStateMessage: null,
+                mediaSheetsCompleted: 1,
+              }),
+          }),
+        ),
+        storageLayer,
+        TelemetryLive,
+        platformLayer,
+      )
+
+      const eventLayer = WideEventPublisherLive.pipe(
+        Layer.provideMerge(supportLayer),
+      )
+
+      const queueLayer = QueueRuntimeLive.pipe(
+        Layer.provideMerge(eventLayer),
+      )
+
+      const runtimeLayer = Layer.mergeAll(
+        supportLayer,
+        eventLayer,
+        queueLayer,
+        ReconcilerLive.pipe(
+          Layer.provideMerge(
+            Layer.mergeAll(
+              supportLayer,
+              eventLayer,
+              queueLayer,
+            ),
           ),
         ),
-        Layer.provideMerge(EventSinkFileLive),
-        Layer.provideMerge(JobRepoFileLive),
-        Layer.provideMerge(QueueRuntimeLive),
-        Layer.provideMerge(TelemetryLive),
-        Layer.provideMerge(appConfigLayer(dataDir)),
-        Layer.provideMerge(NodeFileSystem.layer),
-        Layer.provideMerge(NodePath.layer),
       )
 
       const result = yield* Effect.gen(function* () {
@@ -184,6 +244,7 @@ describe("ReconcilerLive", () => {
       expect(result.events.map((event) => event.eventName)).toEqual([
         "startup.reconciliation.started",
         "print.job.completed",
+        "print.job.outcome",
         "startup.reconciliation.completed",
       ])
     }).pipe(Effect.provide(NodeFileSystem.layer)),
