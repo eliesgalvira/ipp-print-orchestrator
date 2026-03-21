@@ -20,49 +20,49 @@ import {
 
 describe("Errors", () => {
   it("exposes stable typed error tags", () => {
-    expect(ValidationError.make({ message: "bad request" })._tag).toBe(
+    expect(new ValidationError({ message: "bad request" })._tag).toBe(
       "ValidationError",
     )
-    expect(BlobStoreUnavailable.make({ message: "io" })._tag).toBe(
+    expect(new BlobStoreUnavailable({ message: "io" })._tag).toBe(
       "BlobStoreUnavailable",
     )
-    expect(BlobStoreDiskFull.make({ message: "disk full" })._tag).toBe(
+    expect(new BlobStoreDiskFull({ message: "disk full" })._tag).toBe(
       "BlobStoreDiskFull",
     )
-    expect(JobRepoUnavailable.make({ message: "repo down" })._tag).toBe(
+    expect(new JobRepoUnavailable({ message: "repo down" })._tag).toBe(
       "JobRepoUnavailable",
     )
-    expect(EventSinkUnavailable.make({ message: "outbox down" })._tag).toBe(
+    expect(new EventSinkUnavailable({ message: "outbox down" })._tag).toBe(
       "EventSinkUnavailable",
     )
-    expect(CupsUnavailable.make({ message: "cups down" })._tag).toBe(
+    expect(new CupsUnavailable({ message: "cups down" })._tag).toBe(
       "CupsUnavailable",
     )
-    expect(CupsRejectedJob.make({ message: "rejected" })._tag).toBe(
+    expect(new CupsRejectedJob({ message: "rejected" })._tag).toBe(
       "CupsRejectedJob",
     )
-    expect(CupsCommandFailed.make({ message: "lp failed" })._tag).toBe(
+    expect(new CupsCommandFailed({ message: "lp failed" })._tag).toBe(
       "CupsCommandFailed",
     )
-    expect(PrinterUsbDetached.make({ message: "usb missing" })._tag).toBe(
+    expect(new PrinterUsbDetached({ message: "usb missing" })._tag).toBe(
       "PrinterUsbDetached",
     )
-    expect(PrinterNotReady.make({ message: "warming up" })._tag).toBe(
+    expect(new PrinterNotReady({ message: "warming up" })._tag).toBe(
       "PrinterNotReady",
     )
-    expect(NetworkOffline.make({ message: "offline" })._tag).toBe(
+    expect(new NetworkOffline({ message: "offline" })._tag).toBe(
       "NetworkOffline",
     )
-    expect(TelemetryUnavailable.make({ message: "otel down" })._tag).toBe(
+    expect(new TelemetryUnavailable({ message: "otel down" })._tag).toBe(
       "TelemetryUnavailable",
     )
     expect(
-      SubmissionUncertainError.make({ message: "submission unclear" })._tag,
+      new SubmissionUncertainError({ message: "submission unclear" })._tag,
     ).toBe("SubmissionUncertain")
     expect(
-      StartupRecoveryFailed.make({ message: "reconcile failed" })._tag,
+      new StartupRecoveryFailed({ message: "reconcile failed" })._tag,
     ).toBe("StartupRecoveryFailed")
-    expect(UnsupportedFileType.make({ message: "exe" })._tag).toBe(
+    expect(new UnsupportedFileType({ message: "exe" })._tag).toBe(
       "UnsupportedFileType",
     )
   })

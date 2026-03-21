@@ -1,125 +1,125 @@
 import { Schema } from "effect"
 
-class ValidationError extends Schema.TaggedError<ValidationError>()(
+class ValidationError extends Schema.TaggedErrorClass<ValidationError>()(
   "ValidationError",
   {
     message: Schema.String,
   },
 ) {}
 
-class BlobStoreUnavailable extends Schema.TaggedError<BlobStoreUnavailable>()(
+class BlobStoreUnavailable extends Schema.TaggedErrorClass<BlobStoreUnavailable>()(
   "BlobStoreUnavailable",
   {
     message: Schema.String,
   },
 ) {}
 
-class BlobStoreDiskFull extends Schema.TaggedError<BlobStoreDiskFull>()(
+class BlobStoreDiskFull extends Schema.TaggedErrorClass<BlobStoreDiskFull>()(
   "BlobStoreDiskFull",
   {
     message: Schema.String,
   },
 ) {}
 
-class JobRepoUnavailable extends Schema.TaggedError<JobRepoUnavailable>()(
+class JobRepoUnavailable extends Schema.TaggedErrorClass<JobRepoUnavailable>()(
   "JobRepoUnavailable",
   {
     message: Schema.String,
   },
 ) {}
 
-class EventSinkUnavailable extends Schema.TaggedError<EventSinkUnavailable>()(
+class EventSinkUnavailable extends Schema.TaggedErrorClass<EventSinkUnavailable>()(
   "EventSinkUnavailable",
   {
     message: Schema.String,
   },
 ) {}
 
-class CupsUnavailable extends Schema.TaggedError<CupsUnavailable>()(
+class CupsUnavailable extends Schema.TaggedErrorClass<CupsUnavailable>()(
   "CupsUnavailable",
   {
     message: Schema.String,
   },
 ) {}
 
-class CupsRejectedJob extends Schema.TaggedError<CupsRejectedJob>()(
+class CupsRejectedJob extends Schema.TaggedErrorClass<CupsRejectedJob>()(
   "CupsRejectedJob",
   {
     message: Schema.String,
   },
 ) {}
 
-class CupsCommandFailed extends Schema.TaggedError<CupsCommandFailed>()(
+class CupsCommandFailed extends Schema.TaggedErrorClass<CupsCommandFailed>()(
   "CupsCommandFailed",
   {
     message: Schema.String,
   },
 ) {}
 
-class CupsIppUnavailable extends Schema.TaggedError<CupsIppUnavailable>()(
+class CupsIppUnavailable extends Schema.TaggedErrorClass<CupsIppUnavailable>()(
   "CupsIppUnavailable",
   {
     message: Schema.String,
   },
 ) {}
 
-class CupsIppProtocolError extends Schema.TaggedError<CupsIppProtocolError>()(
+class CupsIppProtocolError extends Schema.TaggedErrorClass<CupsIppProtocolError>()(
   "CupsIppProtocolError",
   {
     message: Schema.String,
   },
 ) {}
 
-class CupsIppJobNotFound extends Schema.TaggedError<CupsIppJobNotFound>()(
+class CupsIppJobNotFound extends Schema.TaggedErrorClass<CupsIppJobNotFound>()(
   "CupsIppJobNotFound",
   {
     message: Schema.String,
   },
 ) {}
 
-class PrinterUsbDetached extends Schema.TaggedError<PrinterUsbDetached>()(
+class PrinterUsbDetached extends Schema.TaggedErrorClass<PrinterUsbDetached>()(
   "PrinterUsbDetached",
   {
     message: Schema.String,
   },
 ) {}
 
-class PrinterNotReady extends Schema.TaggedError<PrinterNotReady>()(
+class PrinterNotReady extends Schema.TaggedErrorClass<PrinterNotReady>()(
   "PrinterNotReady",
   {
     message: Schema.String,
   },
 ) {}
 
-class NetworkOffline extends Schema.TaggedError<NetworkOffline>()(
+class NetworkOffline extends Schema.TaggedErrorClass<NetworkOffline>()(
   "NetworkOffline",
   {
     message: Schema.String,
   },
 ) {}
 
-class TelemetryUnavailable extends Schema.TaggedError<TelemetryUnavailable>()(
+class TelemetryUnavailable extends Schema.TaggedErrorClass<TelemetryUnavailable>()(
   "TelemetryUnavailable",
   {
     message: Schema.String,
   },
 ) {}
 
-class SubmissionUncertainError extends Schema.TaggedError<SubmissionUncertainError>()(
+class SubmissionUncertainError extends Schema.TaggedErrorClass<SubmissionUncertainError>()(
   "SubmissionUncertain",
   {
     message: Schema.String,
   },
 ) {}
 
-class StartupRecoveryFailed extends Schema.TaggedError<StartupRecoveryFailed>()(
+class StartupRecoveryFailed extends Schema.TaggedErrorClass<StartupRecoveryFailed>()(
   "StartupRecoveryFailed",
   {
     message: Schema.String,
   },
 ) {}
 
-class UnsupportedFileType extends Schema.TaggedError<UnsupportedFileType>()(
+class UnsupportedFileType extends Schema.TaggedErrorClass<UnsupportedFileType>()(
   "UnsupportedFileType",
   {
     message: Schema.String,
@@ -147,7 +147,7 @@ export {
   ValidationError,
 }
 
-export const OperationalError = Schema.Union(
+export const OperationalError = Schema.Union([
   ValidationError,
   BlobStoreUnavailable,
   BlobStoreDiskFull,
@@ -166,6 +166,6 @@ export const OperationalError = Schema.Union(
   SubmissionUncertainError,
   StartupRecoveryFailed,
   UnsupportedFileType,
-)
+])
 
 export type OperationalError = typeof OperationalError.Type

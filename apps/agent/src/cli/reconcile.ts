@@ -1,5 +1,5 @@
-import { NodeRuntime } from "@effect/platform-node"
-import { Console, Effect } from "effect"
+import { NodeFileSystem, NodePath, NodeRuntime } from "@effect/platform-node"
+import { Console, Effect, Layer } from "effect"
 
 import { MainLayer } from "../live/MainLayer.js"
 import { startObservability, withObservability } from "../observability/index.js"
@@ -15,4 +15,13 @@ const program = Effect.gen(function* () {
   yield* Console.log(`reconciled ${jobs.length} nonterminal jobs`)
 })
 
-program.pipe(withObservability, Effect.provide(MainLayer), NodeRuntime.runMain)
+const runtimeLayer = MainLayer.pipe(
+  Layer.provide(NodeFileSystem.layer),
+  Layer.provide(NodePath.layer),
+)
+
+program.pipe(
+  withObservability,
+  Effect.provide(runtimeLayer),
+  NodeRuntime.runMain,
+)

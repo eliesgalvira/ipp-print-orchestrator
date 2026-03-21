@@ -1,6 +1,6 @@
-import { FileSystem } from "@effect/platform"
-import { NodeRuntime } from "@effect/platform-node"
-import { Console, Effect } from "effect"
+import * as FileSystem from "effect/FileSystem"
+import { NodeFileSystem, NodePath, NodeRuntime } from "@effect/platform-node"
+import { Console, Effect, Layer } from "effect"
 import { randomUUID } from "node:crypto"
 
 import { MainLayer } from "../live/MainLayer.js"
@@ -34,7 +34,7 @@ const program = Effect.gen(function* () {
   const fileName = filePath.split("/").at(-1) ?? filePath
 
   const job = yield* orchestrator.submit({
-    id: JobId.make(randomUUID()),
+    id: JobId.makeUnsafe(randomUUID()),
     requestId: randomUUID(),
     fileName,
     mimeType: mimeFromFileName(fileName),
@@ -44,4 +44,18 @@ const program = Effect.gen(function* () {
   yield* Console.log(`queued print job ${String(job.id)} in state ${job.state}`)
 })
 
-program.pipe(withObservability, Effect.provide(MainLayer), NodeRuntime.runMain)
+const appLayer = MainLayer.pipe(
+  Layer.provide(NodeFileSystem.layer),
+  Layer.provide(NodePath.layer),
+)
+
+const runtimeLayer = Layer.mergeAll(
+  NodeFileSystem.layer,
+  appLayer,
+)
+
+program.pipe(
+  withObservability,
+  Effect.provide(runtimeLayer),
+  NodeRuntime.runMain,
+)

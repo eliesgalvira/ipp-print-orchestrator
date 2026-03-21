@@ -1,4 +1,4 @@
-import { NodeRuntime } from "@effect/platform-node"
+import { NodeFileSystem, NodePath, NodeRuntime } from "@effect/platform-node"
 import { Console, Effect, Layer } from "effect"
 
 import { AppConfig } from "./config/AppConfig.js"
@@ -31,7 +31,7 @@ const program = Effect.scoped(
               `job ${String(jobId)} failed: ${error._tag}: ${error.message}`,
             ),
           ),
-          Effect.catchAll(() => Effect.void),
+          Effect.catch(() => Effect.void),
         )
       }),
     )
@@ -39,7 +39,7 @@ const program = Effect.scoped(
     const reconcileLoop = Effect.forever(
       Effect.gen(function* () {
         yield* reconciler.reconcileStartup().pipe(
-          Effect.catchAll((error) =>
+          Effect.catch((error) =>
             Console.error(`startup reconciliation failed: ${error.message}`),
           ),
         )
@@ -50,7 +50,7 @@ const program = Effect.scoped(
     const heartbeatLoop = Effect.forever(
       Effect.gen(function* () {
         yield* heartbeat.beat().pipe(
-          Effect.catchAll((error) =>
+          Effect.catch((error) =>
             Console.error(`heartbeat failed: ${error._tag}: ${error.message}`),
           ),
         )
@@ -66,4 +66,13 @@ const program = Effect.scoped(
   }),
 )
 
-program.pipe(withObservability, Effect.provide(MainLayer), NodeRuntime.runMain)
+const runtimeLayer = MainLayer.pipe(
+  Layer.provide(NodeFileSystem.layer),
+  Layer.provide(NodePath.layer),
+)
+
+program.pipe(
+  withObservability,
+  Effect.provide(runtimeLayer),
+  NodeRuntime.runMain,
+)

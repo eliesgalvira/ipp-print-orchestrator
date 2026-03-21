@@ -1,5 +1,5 @@
-import { NodeRuntime } from "@effect/platform-node"
-import { Console, Effect } from "effect"
+import { NodeFileSystem, NodePath, NodeRuntime } from "@effect/platform-node"
+import { Console, Effect, Layer } from "effect"
 
 import { AppConfig } from "../config/AppConfig.js"
 import { MainLayer } from "../live/MainLayer.js"
@@ -28,7 +28,7 @@ export const workerProgram = Effect.scoped(
               `job ${String(jobId)} failed: ${error._tag}: ${error.message}`,
             ),
           ),
-          Effect.catchAll(() => Effect.void),
+          Effect.catch(() => Effect.void),
         )
       }),
     )
@@ -36,7 +36,7 @@ export const workerProgram = Effect.scoped(
     const reconcileLoop = Effect.forever(
       Effect.gen(function* () {
         yield* reconciler.reconcileStartup().pipe(
-          Effect.catchAll((error) =>
+          Effect.catch((error) =>
             Console.error(`startup reconciliation failed: ${error.message}`),
           ),
         )
@@ -50,4 +50,13 @@ export const workerProgram = Effect.scoped(
   }),
 )
 
-workerProgram.pipe(withObservability, Effect.provide(MainLayer), NodeRuntime.runMain)
+const runtimeLayer = MainLayer.pipe(
+  Layer.provide(NodeFileSystem.layer),
+  Layer.provide(NodePath.layer),
+)
+
+workerProgram.pipe(
+  withObservability,
+  Effect.provide(runtimeLayer),
+  NodeRuntime.runMain,
+)

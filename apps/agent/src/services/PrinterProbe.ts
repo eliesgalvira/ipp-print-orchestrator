@@ -1,4 +1,5 @@
-import { Context, Effect } from "effect"
+import { Effect } from "effect"
+import * as ServiceMap from "effect/ServiceMap"
 
 export interface PrinterStatus {
   readonly attached: boolean
@@ -9,9 +10,9 @@ export interface PrinterStatus {
   readonly message: string | null
 }
 
-export class PrinterProbe extends Context.Tag("@ipp/agent/PrinterProbe")<
+export class PrinterProbe extends ServiceMap.Service<
   PrinterProbe,
   {
     readonly status: () => Effect.Effect<PrinterStatus>
   }
->() {}
+>()("@ipp/agent/PrinterProbe") {}

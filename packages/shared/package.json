@@ -15,6 +15,6 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "effect": "^3.19.19"
+    "effect": "^4.0.0-beta.36"
   }
 }

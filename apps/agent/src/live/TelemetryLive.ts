@@ -12,7 +12,7 @@ export const TelemetryLive = Layer.succeed(
     emit: (event) =>
       encodeJson(WideEvent)(event).pipe(
         Effect.mapError((error) =>
-          TelemetryUnavailable.make({ message: String(error) }),
+          new TelemetryUnavailable({ message: String(error) }),
         ),
         Effect.flatMap((json) =>
           Effect.gen(function* () {

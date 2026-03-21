@@ -32,7 +32,7 @@ export const layer = Layer.effect(
           const blob = store.get(String(jobId))
           return blob === undefined
             ? Effect.fail(
-                BlobStoreUnavailable.make({
+                new BlobStoreUnavailable({
                   message: `missing blob ${String(jobId)}`,
                 }),
               )
@@ -46,7 +46,7 @@ export const layer = Layer.effect(
           const blob = store.get(String(jobId))
           return blob === undefined
             ? Effect.fail(
-                BlobStoreUnavailable.make({
+                new BlobStoreUnavailable({
                   message: `missing blob ${String(jobId)}`,
                 }),
               )

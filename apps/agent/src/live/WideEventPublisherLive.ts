@@ -13,7 +13,7 @@ export const WideEventPublisherLive = Layer.effect(
 
     const emit = Effect.fn("WideEventPublisher.emit")(function* (event: WideEvent) {
       yield* eventSink.append(event)
-      yield* telemetry.emit(event).pipe(Effect.catchAll(() => Effect.void))
+      yield* telemetry.emit(event).pipe(Effect.catch(() => Effect.void))
     })
 
     return WideEventPublisher.of({

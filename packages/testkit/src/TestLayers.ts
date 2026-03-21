@@ -43,7 +43,7 @@ const queueRuntimeLayer = Layer.effect(
           printId: jobId,
           queueDepth,
         }),
-      ).pipe(Effect.catchAll(() => Effect.void))
+      ).pipe(Effect.catch(() => Effect.void))
     })
 
     const take = Effect.fn("QueueRuntime.take")(function* () {
@@ -57,7 +57,7 @@ const queueRuntimeLayer = Layer.effect(
           printId: jobId,
           queueDepth,
         }),
-      ).pipe(Effect.catchAll(() => Effect.void))
+      ).pipe(Effect.catch(() => Effect.void))
       return jobId
     })
 

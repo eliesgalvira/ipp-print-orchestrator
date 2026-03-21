@@ -1,5 +1,6 @@
-import { FileSystem, Path } from "@effect/platform"
+import * as FileSystem from "effect/FileSystem"
 import { Effect, Layer } from "effect"
+import * as Path from "effect/Path"
 
 import { JobRepoUnavailable } from "../domain/Errors.js"
 import { Job } from "../domain/Job.js"
@@ -21,7 +22,7 @@ import {
 } from "./FileSupport.js"
 
 const mapRepoError = (error: unknown) =>
-  JobRepoUnavailable.make({ message: String(error) })
+  new JobRepoUnavailable({ message: String(error) })
 
 export const JobRepoFileLive = Layer.effect(
   JobRepo,
@@ -52,7 +53,7 @@ export const JobRepoFileLive = Layer.effect(
           path,
           paths.requestFile(job.id),
           yield* encodeJson(PrintRequest)(
-            PrintRequest.make({
+            new PrintRequest({
               id: job.id,
               requestId: job.requestId,
               printerName: job.printerName,

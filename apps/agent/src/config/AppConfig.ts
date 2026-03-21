@@ -1,4 +1,5 @@
-import { Config, Context, Effect, Layer } from "effect"
+import { Config, Effect, Layer } from "effect"
+import * as ServiceMap from "effect/ServiceMap"
 
 export interface AppConfigShape {
   readonly dataDir: string
@@ -11,10 +12,10 @@ export interface AppConfigShape {
   readonly enableOtlp: boolean
 }
 
-export class AppConfig extends Context.Tag("@ipp/agent/AppConfig")<
+export class AppConfig extends ServiceMap.Service<
   AppConfig,
   AppConfigShape
->() {
+>()("@ipp/agent/AppConfig") {
   static readonly layer = Layer.effect(
     AppConfig,
     Effect.gen(function* () {
@@ -27,13 +28,13 @@ export class AppConfig extends Context.Tag("@ipp/agent/AppConfig")<
       const bindHost = yield* Config.string("IPP_ORCH_BIND_HOST").pipe(
         Config.withDefault("127.0.0.1"),
       )
-      const bindPort = yield* Config.integer("IPP_ORCH_BIND_PORT").pipe(
+      const bindPort = yield* Config.int("IPP_ORCH_BIND_PORT").pipe(
         Config.withDefault(4310),
       )
-      const heartbeatIntervalMs = yield* Config.integer(
+      const heartbeatIntervalMs = yield* Config.int(
         "IPP_ORCH_HEARTBEAT_INTERVAL_MS",
       ).pipe(Config.withDefault(60_000))
-      const reconcileIntervalMs = yield* Config.integer(
+      const reconcileIntervalMs = yield* Config.int(
         "IPP_ORCH_RECONCILE_INTERVAL_MS",
       ).pipe(Config.withDefault(30_000))
       const logPretty = yield* Config.boolean("IPP_ORCH_LOG_PRETTY").pipe(

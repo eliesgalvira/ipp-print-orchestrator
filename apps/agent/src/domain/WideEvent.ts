@@ -3,7 +3,7 @@ import { Schema } from "effect"
 import { JobId } from "./JobId.js"
 import { JobState } from "./JobState.js"
 
-export const WideEventName = Schema.Literal(
+export const WideEventName = Schema.Literals([
   "print.request.received",
   "print.job.stored",
   "print.job.queued",
@@ -19,7 +19,7 @@ export const WideEventName = Schema.Literal(
   "heartbeat",
   "startup.reconciliation.started",
   "startup.reconciliation.completed",
-)
+])
 
 export type WideEventName = typeof WideEventName.Type
 

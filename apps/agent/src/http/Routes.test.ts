@@ -1,12 +1,11 @@
-import {
-  HttpClient,
-  HttpClientRequest,
-  HttpClientResponse,
-  HttpServer,
-} from "@effect/platform"
 import { NodeHttpServer } from "@effect/platform-node"
 import { describe, expect, it } from "@effect/vitest"
 import { Effect, Layer, Schema } from "effect"
+import * as HttpClient from "effect/unstable/http/HttpClient"
+import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
+import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
+import * as HttpRouter from "effect/unstable/http/HttpRouter"
+import * as HttpServer from "effect/unstable/http/HttpServer"
 
 import { HeartbeatLive } from "../live/HeartbeatLive.js"
 import { EventSink } from "../services/EventSink.js"
@@ -53,9 +52,10 @@ const apiLayer = HeartbeatLive.pipe(
 )
 
 describe("HttpRoutes", () => {
-  it.scoped("supports health, status, submit, and get job", () =>
+  it.effect("supports health, status, submit, and get job", () =>
     Effect.gen(function* () {
-      yield* HttpRoutes.pipe(HttpServer.serveEffect())
+      const httpApp = yield* HttpRouter.toHttpEffect(HttpRoutes)
+      yield* HttpServer.serveEffect(httpApp)
 
       const health = yield* HttpClient.get("/v1/health").pipe(
         Effect.flatMap(HttpClientResponse.schemaBodyJson(HealthResponse)),
@@ -63,7 +63,7 @@ describe("HttpRoutes", () => {
       expect(health.ok).toBe(true)
 
       const submit = yield* HttpClientRequest.post("/v1/jobs").pipe(
-        HttpClientRequest.bodyUnsafeJson({
+        HttpClientRequest.bodyJsonUnsafe({
           fileName: "document.pdf",
           mimeType: "application/pdf",
           contentBase64: Buffer.from("hello world").toString("base64"),
@@ -90,12 +90,13 @@ describe("HttpRoutes", () => {
       expect(status.nonterminalJobCount).toBeGreaterThanOrEqual(1)
     }).pipe(Effect.provide(NodeHttpServer.layerTest), Effect.provide(apiLayer)))
 
-  it.scoped("returns 400 for unsupported file types", () =>
+  it.effect("returns 400 for unsupported file types", () =>
     Effect.gen(function* () {
-      yield* HttpRoutes.pipe(HttpServer.serveEffect())
+      const httpApp = yield* HttpRouter.toHttpEffect(HttpRoutes)
+      yield* HttpServer.serveEffect(httpApp)
 
       const response = yield* HttpClientRequest.post("/v1/jobs").pipe(
-        HttpClientRequest.bodyUnsafeJson({
+        HttpClientRequest.bodyJsonUnsafe({
           fileName: "malware.exe",
           mimeType: "application/x-msdownload",
           contentBase64: Buffer.from("oops").toString("base64"),
@@ -106,13 +107,14 @@ describe("HttpRoutes", () => {
       expect(response.status).toBe(400)
     }).pipe(Effect.provide(NodeHttpServer.layerTest), Effect.provide(apiLayer)))
 
-  it.scoped("emits canonical http request events", () =>
+  it.effect("emits canonical http request events", () =>
     Effect.gen(function* () {
-      yield* HttpRoutes.pipe(HttpServer.serveEffect())
+      const httpApp = yield* HttpRouter.toHttpEffect(HttpRoutes)
+      yield* HttpServer.serveEffect(httpApp)
 
       yield* HttpClient.get("/v1/health")
       const submit = yield* HttpClientRequest.post("/v1/jobs").pipe(
-        HttpClientRequest.bodyUnsafeJson({
+        HttpClientRequest.bodyJsonUnsafe({
           fileName: "document.pdf",
           mimeType: "application/pdf",
           contentBase64: Buffer.from("hello world").toString("base64"),

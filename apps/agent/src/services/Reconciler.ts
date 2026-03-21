@@ -1,9 +1,10 @@
-import { Context, Effect } from "effect"
+import { Effect } from "effect"
+import * as ServiceMap from "effect/ServiceMap"
 
 import { StartupRecoveryFailed } from "../domain/Errors.js"
 import type { Job } from "../domain/Job.js"
 
-export class Reconciler extends Context.Tag("@ipp/agent/Reconciler")<
+export class Reconciler extends ServiceMap.Service<
   Reconciler,
   {
     readonly reconcileStartup: () => Effect.Effect<
@@ -11,4 +12,4 @@ export class Reconciler extends Context.Tag("@ipp/agent/Reconciler")<
       StartupRecoveryFailed
     >
   }
->() {}
+>()("@ipp/agent/Reconciler") {}

@@ -50,14 +50,14 @@ export const layer = (steps: readonly [CupsSubmitStep, ...readonly CupsSubmitSte
               case "Submitted":
                 return Effect.succeed({ cupsJobId: step.cupsJobId })
               case "CupsUnavailable":
-                return Effect.fail(CupsUnavailable.make({ message: step.message }))
+                return Effect.fail(new CupsUnavailable({ message: step.message }))
               case "CupsRejectedJob":
-                return Effect.fail(CupsRejectedJob.make({ message: step.message }))
+                return Effect.fail(new CupsRejectedJob({ message: step.message }))
               case "CupsCommandFailed":
-                return Effect.fail(CupsCommandFailed.make({ message: step.message }))
+                return Effect.fail(new CupsCommandFailed({ message: step.message }))
               case "SubmissionUncertain":
                 return Effect.fail(
-                  SubmissionUncertainError.make({ message: step.message }),
+                  new SubmissionUncertainError({ message: step.message }),
                 )
             }
           }),

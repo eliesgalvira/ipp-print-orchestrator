@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest"
-import { FileSystem } from "@effect/platform"
+import * as FileSystem from "effect/FileSystem"
 import { NodeFileSystem, NodePath } from "@effect/platform-node"
 import { Effect, Layer } from "effect"
 
@@ -59,8 +59,8 @@ describe("ReconcilerLive", () => {
         Layer.provideMerge(NodePath.layer),
       )
 
-      const queuedJob = Job.make({
-        id: JobId.make("job-reconcile-1"),
+      const queuedJob = new Job({
+        id: JobId.makeUnsafe("job-reconcile-1"),
         requestId: "req-reconcile-1",
         printerName: "test-printer",
         fileName: "document.pdf",
@@ -147,8 +147,8 @@ describe("ReconcilerLive", () => {
         prefix: "ipp-orch-reconcile-complete-",
       })
 
-      const submittedJob = Job.make({
-        id: JobId.make("job-reconcile-2"),
+      const submittedJob = new Job({
+        id: JobId.makeUnsafe("job-reconcile-2"),
         requestId: "req-reconcile-2",
         printerName: "test-printer",
         fileName: "done.pdf",

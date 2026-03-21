@@ -1,5 +1,6 @@
-import { FileSystem, Path } from "@effect/platform"
+import * as FileSystem from "effect/FileSystem"
 import { Effect, Layer, Schema } from "effect"
+import * as Path from "effect/Path"
 
 import {
   BlobStoreDiskFull,
@@ -14,8 +15,8 @@ import { ensureAppDirectories, writeFileAtomic, writeFileStringAtomic } from "./
 const mapBlobError = (error: unknown) =>
   String(error).toLowerCase().includes("no space") ||
   String(error).toLowerCase().includes("disk full")
-    ? BlobStoreDiskFull.make({ message: String(error) })
-    : BlobStoreUnavailable.make({ message: String(error) })
+    ? new BlobStoreDiskFull({ message: String(error) })
+    : new BlobStoreUnavailable({ message: String(error) })
 
 const BlobMetadata = Schema.Struct({
   fileName: Schema.String,
@@ -32,7 +33,7 @@ export const BlobStoreLive = Layer.effect(
 
     yield* ensureAppDirectories(paths, fs).pipe(
       Effect.mapError((error) =>
-        BlobStoreUnavailable.make({ message: String(error) }),
+        new BlobStoreUnavailable({ message: String(error) }),
       ),
     )
 
@@ -64,12 +65,12 @@ export const BlobStoreLive = Layer.effect(
     const getInfo = (jobId: JobId) =>
       fs.readFileString(paths.metadataFile(jobId)).pipe(
         Effect.mapError((error) =>
-          BlobStoreUnavailable.make({ message: String(error) }),
+          new BlobStoreUnavailable({ message: String(error) }),
         ),
         Effect.flatMap((json) =>
           decodeJson(BlobMetadata)(json).pipe(
             Effect.mapError((error) =>
-              BlobStoreUnavailable.make({ message: String(error) }),
+              new BlobStoreUnavailable({ message: String(error) }),
             ),
           ),
         ),
@@ -80,7 +81,7 @@ export const BlobStoreLive = Layer.effect(
         const info = yield* getInfo(jobId)
         return yield* fs.readFile(info.path).pipe(
           Effect.mapError((error) =>
-            BlobStoreUnavailable.make({ message: String(error) }),
+            new BlobStoreUnavailable({ message: String(error) }),
           ),
         )
       })

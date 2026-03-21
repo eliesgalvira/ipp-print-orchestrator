@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "@ipp/shared": "workspace:*",
-    "effect": "^3.19.19"
+    "effect": "^4.0.0-beta.36"
   },
   "devDependencies": {
     "fast-check": "^4.6.0"

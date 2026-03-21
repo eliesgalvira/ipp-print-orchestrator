@@ -1,4 +1,5 @@
-import { Clock, Context, Effect, Layer } from "effect"
+import { Clock, Effect, Layer } from "effect"
+import * as ServiceMap from "effect/ServiceMap"
 
 import { AppConfig } from "../config/AppConfig.js"
 import {
@@ -28,7 +29,7 @@ export interface SubmitJobInput {
   readonly bytes: Uint8Array
 }
 
-export class Orchestrator extends Context.Tag("@ipp/agent/Orchestrator")<
+export class Orchestrator extends ServiceMap.Service<
   Orchestrator,
   {
     readonly submit: (
@@ -38,7 +39,7 @@ export class Orchestrator extends Context.Tag("@ipp/agent/Orchestrator")<
       jobId: JobId,
     ) => Effect.Effect<Job, OperationalError>
   }
->() {
+>()("@ipp/agent/Orchestrator") {
   static readonly layer = Layer.effect(
     Orchestrator,
     Effect.gen(function* () {
@@ -85,13 +86,13 @@ export class Orchestrator extends Context.Tag("@ipp/agent/Orchestrator")<
       ) => {
         const result = transitionJob(job, action, occurredAt)
         if (result._tag === "InvalidTransition") {
-          return Effect.dieMessage(result.reason)
+          return Effect.die(new Error(result.reason))
         }
         return persistTransition(result.job, result.event)
       }
 
       const buildReceivedEvent = (job: Job, occurredAt: string) =>
-        WideEvent.make({
+        new WideEvent({
           timestamp: occurredAt,
           eventName: "print.request.received",
           requestId: job.requestId,
@@ -120,7 +121,7 @@ export class Orchestrator extends Context.Tag("@ipp/agent/Orchestrator")<
           input.mimeType !== "text/plain" &&
           input.mimeType !== "application/octet-stream"
         ) {
-          return yield* UnsupportedFileType.make({
+          return yield* new UnsupportedFileType({
             message: `unsupported mime type: ${input.mimeType}`,
           })
         }
@@ -202,7 +203,7 @@ export class Orchestrator extends Context.Tag("@ipp/agent/Orchestrator")<
         const submitResult: SubmitResult | Job = yield* cupsClient
           .submitFile(submittingJob, bytes)
           .pipe(
-            Effect.catchAll((error) => {
+            Effect.catch((error) => {
               switch (error._tag) {
                 case "CupsUnavailable":
                   return Effect.gen(function* () {

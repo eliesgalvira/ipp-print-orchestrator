@@ -1,6 +1,6 @@
 import { Schema } from "effect"
 
-export const JobState = Schema.Literal(
+export const JobState = Schema.Literals([
   "Received",
   "Stored",
   "Queued",
@@ -14,7 +14,7 @@ export const JobState = Schema.Literal(
   "SubmissionUncertain",
   "FailedTerminal",
   "Cancelled",
-)
+])
 
 export type JobState = typeof JobState.Type
 

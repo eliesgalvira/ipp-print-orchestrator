@@ -1,4 +1,5 @@
-import { Context, Effect } from "effect"
+import { Effect } from "effect"
+import * as ServiceMap from "effect/ServiceMap"
 
 import {
   CupsCommandFailed,
@@ -24,7 +25,7 @@ export interface PrinterSummary {
   readonly status: string
 }
 
-export class CupsClient extends Context.Tag("@ipp/agent/CupsClient")<
+export class CupsClient extends ServiceMap.Service<
   CupsClient,
   {
     readonly submitFile: (
@@ -57,4 +58,4 @@ export class CupsClient extends Context.Tag("@ipp/agent/CupsClient")<
       CupsUnavailable | CupsCommandFailed
     >
   }
->() {}
+>()("@ipp/agent/CupsClient") {}

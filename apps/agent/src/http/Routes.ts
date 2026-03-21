@@ -1,10 +1,8 @@
-import {
-  Headers,
-  HttpRouter,
-  HttpServerRequest,
-  HttpServerResponse,
-} from "@effect/platform"
-import { Clock, Effect, Option, Schema } from "effect"
+import { Clock, Effect, Layer, Option, Schema } from "effect"
+import * as Headers from "effect/unstable/http/Headers"
+import * as HttpRouter from "effect/unstable/http/HttpRouter"
+import * as HttpServerRequest from "effect/unstable/http/HttpServerRequest"
+import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse"
 import { randomUUID } from "node:crypto"
 
 import { JobId } from "../domain/JobId.js"
@@ -78,22 +76,24 @@ const instrumentRoute = <E, R>(
           ? {}
           : { errorMessage: context.errorMessage }),
       }),
-    ).pipe(Effect.catchAll(() => Effect.void))
+    ).pipe(Effect.catch(() => Effect.void))
 
     return response
   })
 
-export const HttpRoutes = HttpRouter.empty.pipe(
-  HttpRouter.get(
+export const HttpRoutes = Layer.mergeAll(
+  HttpRouter.add(
+    "GET",
     "/v1/health",
     instrumentRoute("/v1/health", "GET", () =>
       HttpServerResponse.json({ ok: true }).pipe(
-        Effect.catchAll((error) =>
+        Effect.catch((error) =>
           serviceUnavailable(String(error)),
         ),
       )),
   ),
-  HttpRouter.get(
+  HttpRouter.add(
+    "GET",
     "/v1/status",
     instrumentRoute("/v1/status", "GET", () =>
       Effect.gen(function* () {
@@ -115,11 +115,12 @@ export const HttpRoutes = HttpRouter.empty.pipe(
           hostname: snapshot.hostname,
         })
       }).pipe(
-        Effect.catchAll((error) => serviceUnavailable(String(error))),
+        Effect.catch((error) => serviceUnavailable(String(error))),
       ),
     ),
   ),
-  HttpRouter.post(
+  HttpRouter.add(
+    "POST",
     "/v1/jobs",
     instrumentRoute("/v1/jobs", "POST", (context) =>
       Effect.gen(function* () {
@@ -129,7 +130,7 @@ export const HttpRoutes = HttpRouter.empty.pipe(
         context.requestId = requestId
         const bytes = Uint8Array.from(Buffer.from(body.contentBase64, "base64"))
         const job = yield* orchestrator.submit({
-          id: JobId.make(randomUUID()),
+          id: JobId.makeUnsafe(randomUUID()),
           requestId,
           fileName: body.fileName,
           mimeType: body.mimeType,
@@ -151,7 +152,7 @@ export const HttpRoutes = HttpRouter.empty.pipe(
           context.errorMessage = error.message
           return badRequest(error.message)
         }),
-        Effect.catchAll((error) => {
+        Effect.catch((error) => {
           context.errorTag = "HttpRouteFailure"
           context.errorMessage = String(error)
           return serviceUnavailable(String(error))
@@ -159,7 +160,8 @@ export const HttpRoutes = HttpRouter.empty.pipe(
       ),
     ),
   ),
-  HttpRouter.get(
+  HttpRouter.add(
+    "GET",
     "/v1/jobs/:id",
     instrumentRoute("/v1/jobs/:id", "GET", (context) =>
       Effect.gen(function* () {
@@ -185,7 +187,7 @@ export const HttpRoutes = HttpRouter.empty.pipe(
           cupsJobId: job.cupsJobId,
         })
       }).pipe(
-        Effect.catchAll((error) => {
+        Effect.catch((error) => {
           context.errorTag = "HttpRouteFailure"
           context.errorMessage = String(error)
           return serviceUnavailable(String(error))

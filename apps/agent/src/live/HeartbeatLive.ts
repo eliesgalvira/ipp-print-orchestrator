@@ -57,7 +57,7 @@ export const HeartbeatLive = Layer.effect(
         "heartbeat.printer_state": current.printerState,
         "heartbeat.queue_depth": current.queueDepth,
       })
-      const event = WideEvent.make({
+      const event = new WideEvent({
         eventName: "heartbeat",
         timestamp: current.timestamp,
         appUp: current.appUp,

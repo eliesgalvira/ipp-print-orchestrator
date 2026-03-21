@@ -196,7 +196,7 @@ const elapsedMs = (from: string, to: string): number | undefined => {
 }
 
 export const createJob = (input: CreateJobInput): Job =>
-  Job.make({
+  new Job({
     ...input,
     state: "Received",
     retryCount: 0,
@@ -242,7 +242,7 @@ export const transitionJob = (
     ? elapsedMs(job.createdAt, occurredAt)
     : undefined
 
-  const nextJob = Job.make({
+  const nextJob = new Job({
     ...job,
     state: nextState,
     retryCount: nextRetryCount,
@@ -250,7 +250,7 @@ export const transitionJob = (
     ...(nextCupsJobId === undefined ? {} : { cupsJobId: nextCupsJobId }),
   })
 
-  const event = WideEvent.make({
+  const event = new WideEvent({
     timestamp: occurredAt,
     eventName: eventNameForAction(action),
     requestId: job.requestId,

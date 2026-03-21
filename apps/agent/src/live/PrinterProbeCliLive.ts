@@ -18,7 +18,7 @@ export const PrinterProbeCliLive = Layer.effect(
           reasons: observation.reasons,
           message: observation.message,
         })),
-        Effect.catchAll((error) =>
+        Effect.catch((error) =>
           Effect.succeed({
             attached: false,
             queueAvailable: false,

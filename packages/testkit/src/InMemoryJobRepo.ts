@@ -25,7 +25,7 @@ export const layer = Layer.effect(
           const job = jobs.get(String(jobId))
           return job === undefined
             ? Effect.fail(
-                JobRepoUnavailable.make({
+                new JobRepoUnavailable({
                   message: `missing job ${String(jobId)}`,
                 }),
               )

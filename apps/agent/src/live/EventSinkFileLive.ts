@@ -1,5 +1,6 @@
-import { FileSystem, Path } from "@effect/platform"
+import * as FileSystem from "effect/FileSystem"
 import { Effect, Layer } from "effect"
+import * as Path from "effect/Path"
 
 import { EventSinkUnavailable } from "../domain/Errors.js"
 import { WideEvent } from "../domain/WideEvent.js"
@@ -20,7 +21,7 @@ export const EventSinkFileLive = Layer.effect(
 
     yield* ensureAppDirectories(paths, fs).pipe(
       Effect.mapError((error) =>
-        EventSinkUnavailable.make({ message: String(error) }),
+        new EventSinkUnavailable({ message: String(error) }),
       ),
     )
 
@@ -28,7 +29,7 @@ export const EventSinkFileLive = Layer.effect(
       Effect.gen(function* () {
         const exists = yield* fs.exists(paths.outboxFile).pipe(
           Effect.mapError((error) =>
-            EventSinkUnavailable.make({ message: String(error) }),
+            new EventSinkUnavailable({ message: String(error) }),
           ),
         )
         if (!exists) {
@@ -37,13 +38,13 @@ export const EventSinkFileLive = Layer.effect(
 
         const contents = yield* fs.readFileString(paths.outboxFile).pipe(
           Effect.mapError((error) =>
-            EventSinkUnavailable.make({ message: String(error) }),
+            new EventSinkUnavailable({ message: String(error) }),
           ),
         )
 
         return yield* decodeJsonLines(WideEvent, contents).pipe(
           Effect.mapError((error) =>
-            EventSinkUnavailable.make({ message: String(error) }),
+            new EventSinkUnavailable({ message: String(error) }),
           ),
         )
       })
@@ -53,7 +54,7 @@ export const EventSinkFileLive = Layer.effect(
         const events = yield* all()
         const content = yield* encodeJsonLines(WideEvent, [...events, event]).pipe(
           Effect.mapError((error) =>
-            EventSinkUnavailable.make({ message: String(error) }),
+            new EventSinkUnavailable({ message: String(error) }),
           ),
         )
         yield* writeFileStringAtomic(
@@ -63,7 +64,7 @@ export const EventSinkFileLive = Layer.effect(
           content,
         ).pipe(
           Effect.mapError((error) =>
-            EventSinkUnavailable.make({ message: String(error) }),
+            new EventSinkUnavailable({ message: String(error) }),
           ),
         )
       })

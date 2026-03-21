@@ -77,12 +77,12 @@ export const ReconcilerLive = Layer.effect(
             occurredAt,
           )
           if (result._tag === "InvalidTransition") {
-            return yield* Effect.dieMessage(result.reason)
+            return yield* Effect.die(new Error(result.reason))
           }
 
           return yield* persistTransition(result.job, result.event).pipe(
             Effect.mapError((error) =>
-              StartupRecoveryFailed.make({ message: String(error) }),
+              new StartupRecoveryFailed({ message: String(error) }),
             ),
           )
         }
@@ -101,33 +101,33 @@ export const ReconcilerLive = Layer.effect(
             }
             const result = transitionJob(job, { _tag: "Printing" }, occurredAt)
             if (result._tag === "InvalidTransition") {
-              return yield* Effect.dieMessage(result.reason)
+              return yield* Effect.die(new Error(result.reason))
             }
             return yield* persistTransition(result.job, result.event).pipe(
               Effect.mapError((error) =>
-                StartupRecoveryFailed.make({ message: String(error) }),
+                new StartupRecoveryFailed({ message: String(error) }),
               ),
             )
           }
           case "completed": {
             const result = transitionJob(job, { _tag: "Completed" }, occurredAt)
             if (result._tag === "InvalidTransition") {
-              return yield* Effect.dieMessage(result.reason)
+              return yield* Effect.die(new Error(result.reason))
             }
             return yield* persistTransition(result.job, result.event).pipe(
               Effect.mapError((error) =>
-                StartupRecoveryFailed.make({ message: String(error) }),
+                new StartupRecoveryFailed({ message: String(error) }),
               ),
             )
           }
           case "canceled": {
             const result = transitionJob(job, { _tag: "Cancelled" }, occurredAt)
             if (result._tag === "InvalidTransition") {
-              return yield* Effect.dieMessage(result.reason)
+              return yield* Effect.die(new Error(result.reason))
             }
             return yield* persistTransition(result.job, result.event).pipe(
               Effect.mapError((error) =>
-                StartupRecoveryFailed.make({ message: String(error) }),
+                new StartupRecoveryFailed({ message: String(error) }),
               ),
             )
           }
@@ -142,11 +142,11 @@ export const ReconcilerLive = Layer.effect(
               occurredAt,
             )
             if (result._tag === "InvalidTransition") {
-              return yield* Effect.dieMessage(result.reason)
+              return yield* Effect.die(new Error(result.reason))
             }
             return yield* persistTransition(result.job, result.event).pipe(
               Effect.mapError((error) =>
-                StartupRecoveryFailed.make({ message: String(error) }),
+                new StartupRecoveryFailed({ message: String(error) }),
               ),
             )
           }
@@ -164,7 +164,7 @@ export const ReconcilerLive = Layer.effect(
         const observation = yield* cupsObserver.observeJob(job.cupsJobId).pipe(
           Effect.catchTag("CupsIppJobNotFound", () => Effect.succeed(null)),
           Effect.mapError((error) =>
-            StartupRecoveryFailed.make({
+            new StartupRecoveryFailed({
               message: error.message,
             }),
           ),
@@ -175,19 +175,19 @@ export const ReconcilerLive = Layer.effect(
 
     const reconcileStartup = Effect.fn("Reconciler.reconcileStartup")(function* () {
       const startedAt = new Date(yield* Clock.currentTimeMillis).toISOString()
-      const startedEvent = WideEvent.make({
+      const startedEvent = new WideEvent({
         timestamp: startedAt,
         eventName: "startup.reconciliation.started",
       })
       yield* emitEvent(startedEvent).pipe(
         Effect.mapError((error) =>
-          StartupRecoveryFailed.make({ message: String(error) }),
+          new StartupRecoveryFailed({ message: String(error) }),
         ),
       )
 
       const jobs = yield* jobRepo.listNonTerminal().pipe(
         Effect.mapError((error) =>
-          StartupRecoveryFailed.make({ message: error.message }),
+          new StartupRecoveryFailed({ message: error.message }),
         ),
       )
 
@@ -195,7 +195,7 @@ export const ReconcilerLive = Layer.effect(
         requeueableStates.has(job.state)
           ? queueRuntime.enqueue(job.id).pipe(
               Effect.mapError((error) =>
-                StartupRecoveryFailed.make({ message: String(error) }),
+                new StartupRecoveryFailed({ message: String(error) }),
               ),
             )
           : cupsTrackedStates.has(job.state)
@@ -204,13 +204,13 @@ export const ReconcilerLive = Layer.effect(
       )
 
       const completedAt = new Date(yield* Clock.currentTimeMillis).toISOString()
-      const completedEvent = WideEvent.make({
+      const completedEvent = new WideEvent({
         timestamp: completedAt,
         eventName: "startup.reconciliation.completed",
       })
       yield* emitEvent(completedEvent).pipe(
         Effect.mapError((error) =>
-          StartupRecoveryFailed.make({ message: String(error) }),
+          new StartupRecoveryFailed({ message: String(error) }),
         ),
       )
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "@effect/vitest"
-import { Effect, Fiber, TestClock } from "effect"
+import { Effect, Fiber } from "effect"
+import { TestClock } from "effect/testing"
 
 import { JobId } from "../domain/JobId.js"
 import { EventSink } from "./EventSink.js"
@@ -21,7 +22,7 @@ describe("Orchestrator", () => {
       const queueRuntime = yield* QueueRuntime
 
       const job = yield* orchestrator.submit({
-        id: JobId.make("job-happy"),
+        id: JobId.makeUnsafe("job-happy"),
         requestId: "req-happy",
         fileName: "document.pdf",
         mimeType: "application/pdf",
@@ -65,7 +66,7 @@ describe("Orchestrator", () => {
       const eventSink = yield* EventSink
 
       const job = yield* orchestrator.submit({
-        id: JobId.make("job-printer"),
+        id: JobId.makeUnsafe("job-printer"),
         requestId: "req-printer",
         fileName: "document.pdf",
         mimeType: "application/pdf",
@@ -96,14 +97,14 @@ describe("Orchestrator", () => {
       const jobRepo = yield* JobRepo
 
       const job = yield* orchestrator.submit({
-        id: JobId.make("job-cups-retry"),
+        id: JobId.makeUnsafe("job-cups-retry"),
         requestId: "req-cups-retry",
         fileName: "document.pdf",
         mimeType: "application/pdf",
         bytes: makeBytes(),
       })
 
-      const fiber = yield* Effect.fork(orchestrator.processJob(job.id))
+      const fiber = yield* orchestrator.processJob(job.id).pipe(Effect.forkChild)
       yield* TestClock.adjust(2_000)
       const processed = yield* Fiber.join(fiber)
 
@@ -136,7 +137,7 @@ describe("Orchestrator", () => {
       const eventSink = yield* EventSink
 
       const job = yield* orchestrator.submit({
-        id: JobId.make("job-telemetry"),
+        id: JobId.makeUnsafe("job-telemetry"),
         requestId: "req-telemetry",
         fileName: "document.pdf",
         mimeType: "application/pdf",
@@ -165,7 +166,7 @@ describe("Orchestrator", () => {
       const jobRepo = yield* JobRepo
 
       const job = yield* orchestrator.submit({
-        id: JobId.make("job-uncertain"),
+        id: JobId.makeUnsafe("job-uncertain"),
         requestId: "req-uncertain",
         fileName: "document.pdf",
         mimeType: "application/pdf",
@@ -205,7 +206,7 @@ describe("Orchestrator", () => {
       const eventSink = yield* EventSink
 
       const job = yield* orchestrator.submit({
-        id: JobId.make("job-terminal-failure"),
+        id: JobId.makeUnsafe("job-terminal-failure"),
         requestId: "req-terminal-failure",
         fileName: "document.pdf",
         mimeType: "application/pdf",
@@ -237,7 +238,7 @@ describe("Orchestrator", () => {
       const orchestrator = yield* Orchestrator
 
       const job = yield* orchestrator.submit({
-        id: JobId.make("job-network-offline"),
+        id: JobId.makeUnsafe("job-network-offline"),
         requestId: "req-network-offline",
         fileName: "document.pdf",
         mimeType: "application/pdf",

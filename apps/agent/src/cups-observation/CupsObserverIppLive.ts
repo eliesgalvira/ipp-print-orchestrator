@@ -83,7 +83,7 @@ const executeIpp = (
         })
       }),
     catch: (error) =>
-      CupsIppUnavailable.make({
+      new CupsIppUnavailable({
         message: String(error),
       }),
   })
@@ -96,9 +96,9 @@ const ensureSuccessfulPrinterResponse = <A extends IppResponse>(
     return Effect.succeed(response)
   }
 
-  return CupsIppProtocolError.make({
+  return Effect.fail(new CupsIppProtocolError({
     message: `IPP request failed: ${statusCode}`,
-  })
+  }))
 }
 
 const ensureSuccessfulJobResponse = <A extends IppResponse>(
@@ -110,14 +110,14 @@ const ensureSuccessfulJobResponse = <A extends IppResponse>(
   }
 
   if (statusCode.includes("not-found")) {
-    return CupsIppJobNotFound.make({
+    return Effect.fail(new CupsIppJobNotFound({
       message: `IPP object not found: ${statusCode}`,
-    })
+    }))
   }
 
-  return CupsIppProtocolError.make({
+  return Effect.fail(new CupsIppProtocolError({
     message: `IPP request failed: ${statusCode}`,
-  })
+  }))
 }
 
 export const CupsObserverIppLive = Layer.effect(
@@ -148,7 +148,7 @@ export const CupsObserverIppLive = Layer.effect(
 
       const attrs = response["printer-attributes-tag"]
       if (attrs === undefined) {
-        return yield* CupsIppProtocolError.make({
+        return yield* new CupsIppProtocolError({
           message: "IPP printer response missing printer-attributes-tag",
         })
       }
@@ -183,7 +183,7 @@ export const CupsObserverIppLive = Layer.effect(
 
       const jobId = parseJobId(cupsJobId)
       if (jobId === null) {
-        return yield* CupsIppProtocolError.make({
+        return yield* new CupsIppProtocolError({
           message: `Invalid numeric CUPS job id: ${cupsJobId}`,
         })
       }
@@ -215,7 +215,7 @@ export const CupsObserverIppLive = Layer.effect(
 
       const attrs = singleRecord(response["job-attributes-tag"])
       if (attrs === null) {
-        return yield* CupsIppProtocolError.make({
+        return yield* new CupsIppProtocolError({
           message: `IPP job response missing job-attributes-tag for ${cupsJobId}`,
         })
       }

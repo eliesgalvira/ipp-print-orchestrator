@@ -3,15 +3,14 @@ import { OTLPLogExporter } from "@opentelemetry/exporter-logs-otlp-http"
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http"
 import { NodeSDK, tracing } from "@opentelemetry/sdk-node"
 import { BatchLogRecordProcessor } from "@opentelemetry/sdk-logs"
-import { Effect, Layer } from "effect"
+import { Effect } from "effect"
 import type { Tracer as EffectTracer } from "effect"
 
 import type { WideEvent } from "../domain/WideEvent.js"
-import { effectSpanToOtelContext, makeOtelEffectTracer } from "./OtelEffectTracer.js"
+import { effectSpanToOtelContext } from "./OtelEffectTracer.js"
 import { readOtelConfig } from "./OtelConfig.js"
 
 let sdk: NodeSDK | null = null
-let tracerLayer: Layer.Layer<never> | null = null
 let shutdownRegistered = false
 
 const severityForEvent = (event: WideEvent): SeverityNumber => {
@@ -62,7 +61,7 @@ const registerShutdownHooks = () => {
 }
 
 export const startObservability = async (): Promise<void> => {
-  if (sdk !== null || tracerLayer !== null) {
+  if (sdk !== null) {
     return
   }
 
@@ -108,10 +107,6 @@ export const startObservability = async (): Promise<void> => {
     logRecordProcessors,
   })
   sdk.start()
-  tracerLayer =
-    spanProcessors.length > 0
-      ? Layer.setTracer(makeOtelEffectTracer(config.serviceName))
-      : null
   registerShutdownHooks()
 }
 
@@ -122,14 +117,13 @@ export const shutdownObservability = async (): Promise<void> => {
 
   const current = sdk
   sdk = null
-  tracerLayer = null
   await current.shutdown()
 }
 
 export const withObservability = <A, E, R>(
   effect: Effect.Effect<A, E, R>,
 ): Effect.Effect<A, E, R> =>
-  tracerLayer === null ? effect : effect.pipe(Effect.provide(tracerLayer))
+  effect
 
 export const emitWideEventLog = (
   event: WideEvent,

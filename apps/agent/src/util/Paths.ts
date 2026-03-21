@@ -1,4 +1,4 @@
-import { Path } from "@effect/platform"
+import * as Path from "effect/Path"
 import { Effect } from "effect"
 
 import { AppConfig } from "../config/AppConfig.js"

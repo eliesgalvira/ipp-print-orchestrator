@@ -1,4 +1,5 @@
-import { Context, Effect } from "effect"
+import { Effect } from "effect"
+import * as ServiceMap from "effect/ServiceMap"
 
 import { EventSinkUnavailable, TelemetryUnavailable } from "../domain/Errors.js"
 import type { Job } from "../domain/Job.js"
@@ -6,13 +7,14 @@ import type { JobId } from "../domain/JobId.js"
 import { terminalJobStates, type JobState } from "../domain/JobState.js"
 import { WideEvent } from "../domain/WideEvent.js"
 
-export class WideEventPublisher extends Context.Tag(
-  "@ipp/agent/observability/WideEventPublisher",
-)<WideEventPublisher, {
+export class WideEventPublisher extends ServiceMap.Service<
+  WideEventPublisher,
+  {
   readonly emit: (
     event: WideEvent,
   ) => Effect.Effect<void, EventSinkUnavailable | TelemetryUnavailable>
-}>() {}
+  }
+>()("@ipp/agent/observability/WideEventPublisher") {}
 
 const elapsedMs = (from: string, to: string): number | undefined => {
   const fromMs = Date.parse(from)
@@ -31,7 +33,7 @@ export interface QueueEventInput {
 }
 
 export const makeQueueEvent = (input: QueueEventInput): WideEvent =>
-  WideEvent.make({
+  new WideEvent({
     timestamp: input.timestamp,
     eventName: input.eventName,
     printId: input.printId,
@@ -55,7 +57,7 @@ export interface HttpRequestCompletedEventInput {
 export const makeHttpRequestCompletedEvent = (
   input: HttpRequestCompletedEventInput,
 ): WideEvent =>
-  WideEvent.make({
+  new WideEvent({
     timestamp: input.timestamp,
     eventName: "http.request.completed",
     route: input.route,
@@ -87,7 +89,7 @@ export const makeJobOutcomeEvent = (
     return null
   }
 
-  return WideEvent.make({
+  return new WideEvent({
     timestamp: input.timestamp,
     eventName: "print.job.outcome",
     requestId: input.job.requestId,
