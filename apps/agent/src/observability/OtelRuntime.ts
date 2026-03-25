@@ -70,6 +70,12 @@ export const startObservability = async (): Promise<void> => {
     return
   }
 
+  if (config.traces !== null) {
+    console.warn(
+      "[observability] OTLP traces endpoint is configured, but the Effect-to-OpenTelemetry tracer bridge is disabled during the Effect v4 migration; wide-event logs can export, but app traces are not currently emitted",
+    )
+  }
+
   const spanProcessors =
     config.traces === null
       ? []

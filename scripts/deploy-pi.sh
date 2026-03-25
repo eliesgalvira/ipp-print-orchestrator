@@ -36,32 +36,59 @@ run_timed "rsync repository to pi" \
     "${ROOT_DIR}/" "${PI_HOST}:${APP_DIR}/"
 
 run_timed "remote install/build/restart" \
-ssh "${PI_HOST}" "bash -lc '
+  ssh "${PI_HOST}" "APP_DIR='${APP_DIR}' bash -s" <<'EOF'
 set -euo pipefail
-export PATH=\"\$HOME/.bun/bin:\$PATH\"
-cd \"${APP_DIR}\"
+export PATH="$HOME/.bun/bin:$PATH"
+cd "${APP_DIR}"
+
 timestamp() {
-  date \"+%Y-%m-%dT%H:%M:%S%z\"
+  date "+%Y-%m-%dT%H:%M:%S%z"
 }
+
 log_phase() {
-  printf \"[%s] %s\\n\" \"\$(timestamp)\" \"\$*\"
+  printf "[%s] %s\n" "$(timestamp)" "$*"
 }
+
 run_timed() {
-  local phase=\"\$1\"
+  local phase="$1"
   shift
-  local started_at=\"\$SECONDS\"
-  log_phase \"start \${phase}\"
-  \"\$@\"
-  local elapsed=\$((SECONDS - started_at))
-  log_phase \"done \${phase} (\${elapsed}s)\"
+  local started_at="$SECONDS"
+  log_phase "start ${phase}"
+  "$@"
+  local elapsed=$((SECONDS - started_at))
+  log_phase "done ${phase} (${elapsed}s)"
 }
+
 # Build artifacts are produced locally to keep Pi deploys low-memory and predictable.
 # The Effect language-service prepare hook is editor-only and can OOM on low-memory Pis.
-run_timed \"bun install (production)\" bun install --frozen-lockfile --ignore-scripts --production
-run_timed \"install systemd units\" bash scripts/install-systemd.sh
-run_timed \"restart app service\" sudo systemctl restart ipp-print-orchestrator
-run_timed \"restart heartbeat timer\" sudo systemctl restart ipp-print-orchestrator-heartbeat.timer
-'"
+run_timed "bun install (production)" bun install --frozen-lockfile --ignore-scripts --production
+run_timed "install systemd units" bash scripts/install-systemd.sh
+run_timed "restart app service" sudo systemctl restart ipp-print-orchestrator
+run_timed "restart heartbeat timer" sudo systemctl restart ipp-print-orchestrator-heartbeat.timer
+
+HOST="127.0.0.1"
+PORT="4310"
+if [[ -f /etc/ipp-print-orchestrator.env ]]; then
+  CONFIGURED_HOST="$(awk -F= '/^IPP_ORCH_BIND_HOST=/ { print $2 }' /etc/ipp-print-orchestrator.env | tail -n 1)"
+  CONFIGURED_PORT="$(awk -F= '/^IPP_ORCH_BIND_PORT=/ { print $2 }' /etc/ipp-print-orchestrator.env | tail -n 1)"
+  if [[ -n "${CONFIGURED_HOST}" ]]; then
+    HOST="${CONFIGURED_HOST}"
+  fi
+  if [[ -n "${CONFIGURED_PORT}" ]]; then
+    PORT="${CONFIGURED_PORT}"
+  fi
+fi
+
+run_timed "verify app health" bash -c '
+for attempt in {1..20}; do
+  if curl --fail --silent "http://$1:$2/v1/health" >/dev/null; then
+    exit 0
+  fi
+  sleep 1
+done
+exit 1
+' _ "${HOST}" "${PORT}"
+EOF
 
 PORT="${IPP_ORCH_BIND_PORT:-4310}"
 cat <<EOF

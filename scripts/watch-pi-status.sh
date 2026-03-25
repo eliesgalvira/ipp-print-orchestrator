@@ -8,9 +8,28 @@ INTERVAL_SEC="${WATCH_INTERVAL_SEC:-2}"
 ssh "${PI_HOST}" "bash -lc '
 set -euo pipefail
 
+HOST=\"127.0.0.1\"
+REMOTE_PORT=\"${PORT}\"
+
+if [[ -f /etc/ipp-print-orchestrator.env ]]; then
+  CONFIGURED_HOST=\"\$(awk -F= '\''/^IPP_ORCH_BIND_HOST=/ { print \$2 }'\'' /etc/ipp-print-orchestrator.env | tail -n 1)\"
+  CONFIGURED_PORT=\"\$(awk -F= '\''/^IPP_ORCH_BIND_PORT=/ { print \$2 }'\'' /etc/ipp-print-orchestrator.env | tail -n 1)\"
+
+  if [[ -n \"\${CONFIGURED_HOST}\" ]]; then
+    HOST=\"\${CONFIGURED_HOST}\"
+  fi
+
+  if [[ -n \"\${CONFIGURED_PORT}\" ]]; then
+    REMOTE_PORT=\"\${CONFIGURED_PORT}\"
+  fi
+fi
+
 while true; do
-  curl -fsS \"http://127.0.0.1:${PORT}/v1/status\"
-  printf \"\n\"
+  if ! curl -fsS \"http://\${HOST}:\${REMOTE_PORT}/v1/status\"; then
+    printf '{\"watchError\":\"status-unreachable\",\"host\":\"%s\",\"port\":%s}\n' \"\${HOST}\" \"\${REMOTE_PORT}\"
+  else
+    printf \"\n\"
+  fi
   sleep \"${INTERVAL_SEC}\"
 done
 '" | node -e '
@@ -47,6 +66,13 @@ rl.on("line", (line) => {
     status = JSON.parse(line)
   } catch (error) {
     console.log(`[${new Date().toISOString()}] invalid-json ${line}`)
+    return
+  }
+
+  if (status.watchError === "status-unreachable") {
+    console.log(
+      `[${new Date().toISOString()}] status-unreachable host=${status.host} port=${status.port}`,
+    )
     return
   }
 

@@ -1,8 +1,8 @@
 import { NodeFileSystem, NodePath, NodeRuntime } from "@effect/platform-node"
-import { Console, Effect, Layer } from "effect"
+import { Cause, Console, Effect, Layer } from "effect"
 
 import { AppConfig } from "./config/AppConfig.js"
-import { HttpLive } from "./http/HttpServer.js"
+import { runHttpServer } from "./http/HttpServer.js"
 import { MainLayer } from "./live/MainLayer.js"
 import { startObservability, withObservability } from "./observability/index.js"
 import { Heartbeat } from "./services/Heartbeat.js"
@@ -58,11 +58,19 @@ const program = Effect.scoped(
       }),
     )
 
-    yield* Effect.forkScoped(Layer.launch(HttpLive))
-    yield* Effect.forkScoped(workerLoop)
-    yield* Effect.forkScoped(reconcileLoop)
-    yield* Effect.forkScoped(heartbeatLoop)
-    return yield* Effect.never
+    return yield* Effect.all(
+      [
+        runHttpServer.pipe(
+          Effect.tapCause((cause) =>
+            Console.error(`http server failed to start: ${Cause.pretty(cause)}`),
+          ),
+        ),
+        workerLoop,
+        reconcileLoop,
+        heartbeatLoop,
+      ],
+      { concurrency: "unbounded" },
+    )
   }),
 )
 

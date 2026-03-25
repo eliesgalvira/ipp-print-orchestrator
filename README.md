@@ -278,8 +278,9 @@ ssh pi@print-server.local 'journalctl -u ipp-print-orchestrator -f --no-pager'
 
 If you enable OTLP, the daemon exports:
 
-- Effect spans through an OpenTelemetry tracer bridge
 - wide-event logs as structured OTLP log records
+
+Trace export is not currently functional during the Effect v4 migration. The trace endpoint can still be configured, but the custom Effect-to-OpenTelemetry bridge is disabled in code, so you should expect logs without corresponding application traces until that bridge is restored.
 
 The heartbeat wide event now includes the same status fields exposed by `/v1/status`, so Axiom queries can answer questions like "when did the printer go missing?" or "how long was CUPS reachable while the printer was detached?"
 
@@ -305,7 +306,7 @@ OTEL_EXPORTER_OTLP_HEADERS=authorization=Bearer TOKEN
 
 Current scope:
 
-- traces: wired
+- traces: bridge disabled during Effect v4 migration
 - logs: wired
 - metrics: not wired yet
 
