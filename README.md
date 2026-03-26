@@ -112,6 +112,12 @@ The app reads configuration from environment variables. The most important setti
 
 For local USB printers, the runtime checks both the configured CUPS queue and whether the queue's device URI is currently present in `lpinfo -v`. This lets the orchestrator treat a powered-off or disconnected USB printer as unavailable before handing jobs to CUPS.
 
+Mandatory printer setup for home/USB printers:
+
+- disable any printer-side `Auto Power Off`, `Sleep`, `Deep Sleep`, `Eco`, or similar automatic power-saving mode before using the orchestrator
+
+If you do not disable printer-side auto power-off, the printer can disappear from the USB bus while CUPS still has a configured queue, which presents as intermittent `printerAttached=false` transitions and confusing "printer looks idle but does not print" behavior.
+
 ## Running Locally
 
 Run the full daemon:
@@ -220,6 +226,8 @@ bash scripts/bootstrap-pi.sh
 ```
 
 Bootstrap creates `/etc/ipp-print-orchestrator.env` on first run. If the Pi already has exactly one CUPS printer queue, the script uses that queue name automatically for `IPP_ORCH_PRINTER_NAME`. If there are multiple queues or none yet, set `IPP_ORCH_PRINTER_NAME` manually after bootstrap.
+
+Before treating the Pi setup as complete, verify on the physical printer itself that any `Auto Power Off`, `Sleep`, `Deep Sleep`, `Eco`, or similar automatic power-saving mode is disabled. This is a mandatory step for reliable USB-attached printing.
 
 Deploy from the development machine:
 
