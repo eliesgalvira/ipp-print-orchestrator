@@ -57,6 +57,7 @@ export class WideEvent extends Schema.Class<WideEvent>("WideEvent")({
   timeToTerminalMs: Schema.optional(Schema.Number),
   appUp: Schema.optional(Schema.Boolean),
   hostname: Schema.optional(Schema.String),
+  observationReason: Schema.optional(Schema.String),
   networkOnline: Schema.optional(Schema.Boolean),
   previousNetworkOnline: Schema.optional(Schema.Boolean),
   localIps: Schema.optional(Schema.Array(Schema.String)),

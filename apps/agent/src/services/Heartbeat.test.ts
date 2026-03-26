@@ -3,8 +3,24 @@ import { Effect, Layer } from "effect"
 
 import { EventSink } from "./EventSink.js"
 import { Heartbeat } from "./Heartbeat.js"
+import { StatusRuntime } from "./StatusRuntime.js"
 import { makeTestLayer } from "../../../../packages/testkit/src/TestLayers.js"
 import { HeartbeatLive } from "../live/HeartbeatLive.js"
+import { StatusRuntimeLive } from "../live/StatusRuntimeLive.js"
+
+const statusTestLayer = StatusRuntimeLive.pipe(
+  Layer.provideMerge(
+    makeTestLayer({
+      printer: [{ attached: true, queueAvailable: true }],
+      cups: [{ _tag: "Submitted", cupsJobId: "unused" }],
+    }),
+  ),
+)
+
+const heartbeatTestLayer = Layer.merge(
+  statusTestLayer,
+  HeartbeatLive.pipe(Layer.provide(statusTestLayer)),
+)
 
 describe("Heartbeat", () => {
   it.effect("builds a snapshot and emits a heartbeat event", () =>
@@ -21,25 +37,18 @@ describe("Heartbeat", () => {
       expect(events.some((event) => event.eventName === "heartbeat")).toBe(true)
     }).pipe(
       Effect.provide(
-        HeartbeatLive.pipe(
-          Layer.provideMerge(
-            makeTestLayer({
-              printer: [{ attached: true, queueAvailable: true }],
-              cups: [{ _tag: "Submitted", cupsJobId: "unused" }],
-            }),
-          ),
-        ),
+        heartbeatTestLayer,
       ),
     ),
   )
 
   it.effect("emits canonical status change events when observed status flips", () =>
     Effect.gen(function* () {
-      const heartbeat = yield* Heartbeat
+      const statusRuntime = yield* StatusRuntime
       const eventSink = yield* EventSink
 
-      yield* heartbeat.snapshot()
-      yield* heartbeat.snapshot()
+      yield* statusRuntime.observeNow("test-initial")
+      yield* statusRuntime.observeNow("test-transition")
 
       const events = yield* eventSink.all()
 
@@ -47,6 +56,7 @@ describe("Heartbeat", () => {
         events.some(
           (event) =>
             event.eventName === "network.status.changed" &&
+            event.observationReason === "test-transition" &&
             event.previousNetworkOnline === true &&
             event.networkOnline === false,
         ),
@@ -55,6 +65,7 @@ describe("Heartbeat", () => {
         events.some(
           (event) =>
             event.eventName === "cups.status.changed" &&
+            event.observationReason === "test-transition" &&
             event.previousCupsReachable === true &&
             event.cupsReachable === false,
         ),
@@ -63,6 +74,7 @@ describe("Heartbeat", () => {
         events.some(
           (event) =>
             event.eventName === "printer.status.changed" &&
+            event.observationReason === "test-transition" &&
             event.previousPrinterAttached === true &&
             event.printerAttached === false &&
             event.previousPrinterState === "idle" &&
@@ -71,7 +83,7 @@ describe("Heartbeat", () => {
       ).toBe(true)
     }).pipe(
       Effect.provide(
-        HeartbeatLive.pipe(
+        StatusRuntimeLive.pipe(
           Layer.provideMerge(
             makeTestLayer({
               printer: [
