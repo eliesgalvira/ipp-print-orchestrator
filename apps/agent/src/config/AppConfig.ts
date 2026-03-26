@@ -6,6 +6,7 @@ export interface AppConfigShape {
   readonly printerName: string
   readonly bindHost: string
   readonly bindPort: number
+  readonly statusObservationIntervalMs: number
   readonly heartbeatIntervalMs: number
   readonly reconcileIntervalMs: number
   readonly logPretty: boolean
@@ -31,6 +32,9 @@ export class AppConfig extends ServiceMap.Service<
       const bindPort = yield* Config.int("IPP_ORCH_BIND_PORT").pipe(
         Config.withDefault(4310),
       )
+      const statusObservationIntervalMs = yield* Config.int(
+        "IPP_ORCH_STATUS_OBSERVATION_INTERVAL_MS",
+      ).pipe(Config.withDefault(30_000))
       const heartbeatIntervalMs = yield* Config.int(
         "IPP_ORCH_HEARTBEAT_INTERVAL_MS",
       ).pipe(Config.withDefault(60_000))
@@ -49,6 +53,7 @@ export class AppConfig extends ServiceMap.Service<
         printerName,
         bindHost,
         bindPort,
+        statusObservationIntervalMs,
         heartbeatIntervalMs,
         reconcileIntervalMs,
         logPretty,

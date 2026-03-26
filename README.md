@@ -104,6 +104,7 @@ The app reads configuration from environment variables. The most important setti
 - `IPP_ORCH_PRINTER_NAME`
 - `IPP_ORCH_BIND_HOST`
 - `IPP_ORCH_BIND_PORT`
+- `IPP_ORCH_STATUS_OBSERVATION_INTERVAL_MS`
 - `IPP_ORCH_HEARTBEAT_INTERVAL_MS`
 - `IPP_ORCH_RECONCILE_INTERVAL_MS`
 
@@ -281,7 +282,28 @@ If you enable OTLP, the daemon exports:
 - Effect spans through an OpenTelemetry tracer bridge
 - wide-event logs as structured OTLP log records
 
-The heartbeat wide event now includes the same status fields exposed by `/v1/status`, so Axiom queries can answer questions like "when did the printer go missing?" or "how long was CUPS reachable while the printer was detached?"
+The runtime now emits canonical change events for network, CUPS, and printer status transitions, while heartbeat still provides sampled snapshots for point-in-time box state.
+
+By default, the daemon uses Linux USB hotplug events for USB printer attach/detach detection and keeps a slower 30-second fallback observation poll for everything else. That means physical USB attach/detach changes can emit canonical status-change events promptly without relying on aggressive polling, while non-USB or non-hotplug changes still have a safety-net observer.
+
+Example Axiom query for canonical printer-detached transitions:
+
+```apl
+['ipp-print-logs']
+| where ['attributes.eventName'] == "printer.status.changed"
+| where ['attributes.previousPrinterAttached'] == true
+| where ['attributes.printerAttached'] == false
+| project _time,
+          ['attributes.hostname'],
+          ['attributes.cupsReachable'],
+          ['attributes.printerAttached'],
+          ['attributes.previousPrinterAttached'],
+          ['attributes.printerQueueAvailable'],
+          ['attributes.printerState'],
+          ['attributes.printerMessage'],
+          ['attributes.printerReasons']
+| order by _time desc
+```
 
 Example Axiom-oriented environment:
 
