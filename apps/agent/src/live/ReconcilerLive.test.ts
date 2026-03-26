@@ -24,6 +24,7 @@ const appConfigLayer = (dataDir: string) =>
     printerName: "test-printer",
     bindHost: "127.0.0.1",
     bindPort: 4310,
+    statusObservationIntervalMs: 2_000,
     heartbeatIntervalMs: 60_000,
     reconcileIntervalMs: 1_000,
     logPretty: false,

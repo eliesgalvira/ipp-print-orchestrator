@@ -59,6 +59,7 @@ const probeLayer = Layer.mergeAll(
 
 const runtimeSupportLayer = Layer.mergeAll(
   storageLayer,
+  commandLayer,
   cupsLayer,
   cupsObservationLayer,
   probeLayer,

@@ -32,4 +32,68 @@ describe("Heartbeat", () => {
       ),
     ),
   )
+
+  it.effect("emits canonical status change events when observed status flips", () =>
+    Effect.gen(function* () {
+      const heartbeat = yield* Heartbeat
+      const eventSink = yield* EventSink
+
+      yield* heartbeat.snapshot()
+      yield* heartbeat.snapshot()
+
+      const events = yield* eventSink.all()
+
+      expect(
+        events.some(
+          (event) =>
+            event.eventName === "network.status.changed" &&
+            event.previousNetworkOnline === true &&
+            event.networkOnline === false,
+        ),
+      ).toBe(true)
+      expect(
+        events.some(
+          (event) =>
+            event.eventName === "cups.status.changed" &&
+            event.previousCupsReachable === true &&
+            event.cupsReachable === false,
+        ),
+      ).toBe(true)
+      expect(
+        events.some(
+          (event) =>
+            event.eventName === "printer.status.changed" &&
+            event.previousPrinterAttached === true &&
+            event.printerAttached === false &&
+            event.previousPrinterState === "idle" &&
+            event.printerState === "stopped",
+        ),
+      ).toBe(true)
+    }).pipe(
+      Effect.provide(
+        HeartbeatLive.pipe(
+          Layer.provideMerge(
+            makeTestLayer({
+              printer: [
+                { attached: true, queueAvailable: true, state: "idle" },
+                {
+                  attached: false,
+                  queueAvailable: false,
+                  cupsReachable: false,
+                  state: "stopped",
+                  reasons: ["offline"],
+                  message: "Printer unreachable",
+                },
+              ],
+              cups: [{ _tag: "Submitted", cupsJobId: "unused" }],
+              network: [
+                { online: true, localIps: ["127.0.0.1"] },
+                { online: false, localIps: [] },
+              ],
+            }),
+          ),
+        ),
+      ),
+    ),
+  )
 })

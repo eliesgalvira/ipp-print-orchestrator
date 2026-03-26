@@ -5,6 +5,7 @@ This document describes the current observability model after the instrumentatio
 - queue depth is now event-driven
 - HTTP request analytics are now log-native
 - terminal job analytics are now log-native
+- network, CUPS, and printer status transitions are now log-native
 - heartbeat remains a sampled status snapshot and is not the source of truth for historical queue analysis
 
 ## Logging Model
@@ -22,6 +23,9 @@ The logs dataset is now the authoritative place for:
 - queue mutations
 - HTTP request outcomes
 - terminal job outcomes
+- network reachability transitions
+- CUPS reachability transitions
+- printer availability and state transitions
 
 The traces dataset is still the authoritative place for:
 
@@ -34,6 +38,9 @@ The traces dataset is still the authoritative place for:
 
 Current wide-event families:
 
+- `network.status.changed`
+- `cups.status.changed`
+- `printer.status.changed`
 - `print.request.received`
 - `print.job.stored`
 - `print.job.queued`
@@ -53,6 +60,13 @@ Current wide-event families:
 Important fields now available in logs:
 
 - `['attributes.eventName']`
+- `['attributes.previousNetworkOnline']`
+- `['attributes.previousCupsReachable']`
+- `['attributes.previousPrinterAttached']`
+- `['attributes.previousPrinterQueueAvailable']`
+- `['attributes.previousPrinterState']`
+- `['attributes.previousPrinterReasons']`
+- `['attributes.previousPrinterMessage']`
 - `['attributes.printId']`
 - `['attributes.requestId']`
 - `['attributes.currentState']`
@@ -108,6 +122,9 @@ Useful schema checks:
 
 Trust these for historical analysis:
 
+- `network.status.changed`
+- `cups.status.changed`
+- `printer.status.changed`
 - `queue.job.enqueued`
 - `queue.job.dequeued`
 - `http.request.completed`
@@ -536,7 +553,7 @@ API writes to `/v1/jobs`:
 
 ## Printer And CUPS
 
-These still depend on heartbeat, so they are sampled.
+Use status-change events for canonical transitions and heartbeat for sampled snapshots/details around those transitions.
 
 Heartbeat snapshots where CUPS was down:
 
@@ -576,7 +593,8 @@ All events related to CUPS being unavailable:
 
 ```apl
 ['ipp-print-logs']
-| where (['attributes.eventName'] == "heartbeat" and ['attributes.cupsReachable'] == false)
+| where (['attributes.eventName'] == "cups.status.changed" and ['attributes.cupsReachable'] == false)
+   or (['attributes.eventName'] == "heartbeat" and ['attributes.cupsReachable'] == false)
    or ['attributes.errorTag'] == "CupsUnavailable"
    or ['attributes.currentState'] == "WaitingForCups"
 | project _time,
@@ -597,7 +615,8 @@ All events related to printer unavailable:
 
 ```apl
 ['ipp-print-logs']
-| where (['attributes.eventName'] == "heartbeat" and ['attributes.printerAttached'] == false)
+| where (['attributes.eventName'] == "printer.status.changed" and ['attributes.printerAttached'] == false)
+   or (['attributes.eventName'] == "heartbeat" and ['attributes.printerAttached'] == false)
    or ['attributes.errorTag'] == "PrinterNotReady"
    or ['attributes.currentState'] == "WaitingForPrinter"
 | project _time,
@@ -610,6 +629,56 @@ All events related to printer unavailable:
           ['attributes.errorMessage'],
           ['attributes.printerAttached'],
           ['attributes.printerQueueAvailable']
+| order by _time desc
+```
+
+Canonical network reachability transitions:
+
+```apl
+['ipp-print-logs']
+| where ['attributes.eventName'] == "network.status.changed"
+| project _time,
+          ['attributes.hostname'],
+          ['attributes.previousNetworkOnline'],
+          ['attributes.networkOnline'],
+          ['attributes.localIps']
+| order by _time desc
+```
+
+Canonical CUPS reachability transitions:
+
+```apl
+['ipp-print-logs']
+| where ['attributes.eventName'] == "cups.status.changed"
+| project _time,
+          ['attributes.hostname'],
+          ['attributes.previousCupsReachable'],
+          ['attributes.cupsReachable'],
+          ['attributes.printerAttached'],
+          ['attributes.printerQueueAvailable'],
+          ['attributes.printerState'],
+          ['attributes.printerMessage'],
+          ['attributes.printerReasons']
+| order by _time desc
+```
+
+Canonical printer status transitions:
+
+```apl
+['ipp-print-logs']
+| where ['attributes.eventName'] == "printer.status.changed"
+| project _time,
+          ['attributes.hostname'],
+          ['attributes.previousPrinterAttached'],
+          ['attributes.printerAttached'],
+          ['attributes.previousPrinterQueueAvailable'],
+          ['attributes.printerQueueAvailable'],
+          ['attributes.previousPrinterState'],
+          ['attributes.printerState'],
+          ['attributes.previousPrinterMessage'],
+          ['attributes.printerMessage'],
+          ['attributes.previousPrinterReasons'],
+          ['attributes.printerReasons']
 | order by _time desc
 ```
 
