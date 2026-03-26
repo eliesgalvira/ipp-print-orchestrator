@@ -13,6 +13,7 @@ import {
 import { Heartbeat } from "../services/Heartbeat.js"
 import { JobRepo } from "../services/JobRepo.js"
 import { Orchestrator } from "../services/Orchestrator.js"
+import { StatusRuntime } from "../services/StatusRuntime.js"
 
 const SubmitJobBody = Schema.Struct({
   fileName: Schema.String,
@@ -97,10 +98,12 @@ export const HttpRoutes = Layer.mergeAll(
     "/v1/status",
     instrumentRoute("/v1/status", "GET", () =>
       Effect.gen(function* () {
+        const statusRuntime = yield* StatusRuntime
         const heartbeat = yield* Heartbeat
-        const snapshot = yield* heartbeat.snapshot()
+        const snapshot = yield* statusRuntime.current()
+        const lastSuccessfulHeartbeatAt = yield* heartbeat.lastSuccess()
         return yield* HttpServerResponse.json({
-          appUp: snapshot.appUp,
+          appUp: true,
           cupsReachable: snapshot.cupsReachable,
           printerAttached: snapshot.printerAttached,
           printerQueueAvailable: snapshot.printerQueueAvailable,
@@ -109,7 +112,7 @@ export const HttpRoutes = Layer.mergeAll(
           printerMessage: snapshot.printerMessage,
           queueDepth: snapshot.queueDepth,
           nonterminalJobCount: snapshot.nonterminalJobCount,
-          lastSuccessfulHeartbeatAt: snapshot.lastSuccessfulHeartbeatAt,
+          lastSuccessfulHeartbeatAt,
           networkOnline: snapshot.networkOnline,
           localIps: snapshot.localIps,
           hostname: snapshot.hostname,

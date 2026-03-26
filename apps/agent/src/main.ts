@@ -12,6 +12,7 @@ import { Heartbeat } from "./services/Heartbeat.js"
 import { Orchestrator } from "./services/Orchestrator.js"
 import { QueueRuntime } from "./services/QueueRuntime.js"
 import { Reconciler } from "./services/Reconciler.js"
+import { StatusRuntime } from "./services/StatusRuntime.js"
 import { loadAppEnv } from "./util/loadAppEnv.js"
 
 loadAppEnv()
@@ -24,20 +25,16 @@ const program = Effect.scoped(
     const orchestrator = yield* Orchestrator
     const reconciler = yield* Reconciler
     const heartbeat = yield* Heartbeat
+    const statusRuntime = yield* StatusRuntime
     const cupsClient = yield* CupsClient
     const childProcessSpawner = yield* ChildProcessSpawner
 
     const observeStatus = (reason: string) =>
-      Effect.gen(function* () {
-        yield* Effect.annotateCurrentSpan({
-          "status.observation_reason": reason,
-        })
-        yield* heartbeat.snapshot().pipe(
-          Effect.catch((error) =>
-            Console.error(`status observation failed: ${error._tag}: ${error.message}`),
-          ),
-        )
-      })
+      statusRuntime.observeNow(reason).pipe(
+        Effect.catch((error) =>
+          Console.error(`status observation failed: ${error._tag}: ${error.message}`),
+        ),
+      )
 
     const workerLoop = Effect.forever(
       Effect.gen(function* () {
@@ -92,7 +89,7 @@ const program = Effect.scoped(
 
     const statusObservationLoop = Effect.forever(
       Effect.gen(function* () {
-        yield* observeStatus("fallback-poll")
+        yield* observeStatus("periodic-observation")
         yield* Effect.sleep(config.statusObservationIntervalMs)
       }),
     )

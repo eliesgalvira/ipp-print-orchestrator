@@ -17,6 +17,7 @@ import { HeartbeatLive } from "./HeartbeatLive.js"
 import { PrinterProbeCliLive } from "./PrinterProbeCliLive.js"
 import { QueueRuntimeLive } from "./QueueRuntimeLive.js"
 import { ReconcilerLive } from "./ReconcilerLive.js"
+import { StatusRuntimeLive } from "./StatusRuntimeLive.js"
 import { TelemetryLive } from "./TelemetryLive.js"
 import { WideEventPublisherLive } from "./WideEventPublisherLive.js"
 
@@ -70,24 +71,45 @@ const eventLayer = WideEventPublisherLive.pipe(
   Layer.provide(runtimeSupportLayer),
 )
 
-const queueLayer = QueueRuntimeLive.pipe(Layer.provide(eventLayer))
-
-const baseRuntimeLayer = Layer.mergeAll(
+const eventRuntimeLayer = Layer.mergeAll(
   configLayer,
   runtimeSupportLayer,
   eventLayer,
+)
+
+const queueLayer = QueueRuntimeLive.pipe(
+  Layer.provide(eventRuntimeLayer),
+)
+
+const queueRuntimeLayer = Layer.merge(
+  eventRuntimeLayer,
   queueLayer,
 )
 
-const orchestratorLayer = Orchestrator.layer.pipe(
-  Layer.provide(baseRuntimeLayer),
+const statusRuntimeLayer = StatusRuntimeLive.pipe(
+  Layer.provide(queueRuntimeLayer),
 )
 
-const reconcilerLayer = ReconcilerLive.pipe(Layer.provide(baseRuntimeLayer))
-const heartbeatLayer = HeartbeatLive.pipe(Layer.provide(baseRuntimeLayer))
+const statusAwareRuntimeLayer = Layer.merge(
+  queueRuntimeLayer,
+  statusRuntimeLayer,
+)
+
+const orchestratorLayer = Orchestrator.layer.pipe(
+  Layer.provide(queueRuntimeLayer),
+)
+
+const reconcilerLayer = ReconcilerLive.pipe(
+  Layer.provide(queueRuntimeLayer),
+)
+
+const heartbeatLayer = HeartbeatLive.pipe(
+  Layer.provide(statusAwareRuntimeLayer),
+)
 
 export const MainLayer = Layer.mergeAll(
-  baseRuntimeLayer,
+  queueRuntimeLayer,
+  statusRuntimeLayer,
   orchestratorLayer,
   reconcilerLayer,
   heartbeatLayer,

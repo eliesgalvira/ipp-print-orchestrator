@@ -105,6 +105,8 @@ The app reads configuration from environment variables. The most important setti
 - `IPP_ORCH_BIND_HOST`
 - `IPP_ORCH_BIND_PORT`
 - `IPP_ORCH_STATUS_OBSERVATION_INTERVAL_MS`
+  - optional; defaults to `10000`
+  - cadence for the periodic status observation loop that emits canonical status change events when network, CUPS, or printer status changes are observed
 - `IPP_ORCH_HEARTBEAT_INTERVAL_MS`
 - `IPP_ORCH_RECONCILE_INTERVAL_MS`
 

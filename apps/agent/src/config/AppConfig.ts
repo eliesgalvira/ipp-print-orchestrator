@@ -34,7 +34,7 @@ export class AppConfig extends ServiceMap.Service<
       )
       const statusObservationIntervalMs = yield* Config.int(
         "IPP_ORCH_STATUS_OBSERVATION_INTERVAL_MS",
-      ).pipe(Config.withDefault(30_000))
+      ).pipe(Config.withDefault(10_000))
       const heartbeatIntervalMs = yield* Config.int(
         "IPP_ORCH_HEARTBEAT_INTERVAL_MS",
       ).pipe(Config.withDefault(60_000))

@@ -8,6 +8,7 @@ import * as HttpRouter from "effect/unstable/http/HttpRouter"
 import * as HttpServer from "effect/unstable/http/HttpServer"
 
 import { HeartbeatLive } from "../live/HeartbeatLive.js"
+import { StatusRuntimeLive } from "../live/StatusRuntimeLive.js"
 import { EventSink } from "../services/EventSink.js"
 import { HttpRoutes } from "./Routes.js"
 import { makeTestLayer } from "../../../../packages/testkit/src/TestLayers.js"
@@ -42,13 +43,18 @@ class StatusResponse extends Schema.Class<StatusResponse>("StatusResponse")({
   nonterminalJobCount: Schema.Number,
 }) {}
 
-const apiLayer = HeartbeatLive.pipe(
+const statusTestLayer = StatusRuntimeLive.pipe(
   Layer.provideMerge(
     makeTestLayer({
       printer: [{ attached: true, queueAvailable: true }],
       cups: [{ _tag: "Submitted", cupsJobId: "cups-http" }],
     }),
   ),
+)
+
+const apiLayer = Layer.merge(
+  statusTestLayer,
+  HeartbeatLive.pipe(Layer.provide(statusTestLayer)),
 )
 
 describe("HttpRoutes", () => {
