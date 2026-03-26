@@ -104,7 +104,7 @@ export const derivePrinterAttached = (
   reasons: readonly string[],
   state: CupsPrinterState,
 ): boolean =>
-  state !== "stopped" ||
+  state !== "stopped" &&
   !reasons.some((reason) => attachedBlockingReasons.has(reason))
 
 export const deriveQueueAvailable = (

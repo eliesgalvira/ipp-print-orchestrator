@@ -51,7 +51,10 @@ const cupsObservationLayer = CupsObserverIppLive.pipe(
 
 const probeLayer = Layer.mergeAll(
   NetworkProbeCliLive,
-  PrinterProbeCliLive.pipe(Layer.provide(cupsObservationLayer)),
+  PrinterProbeCliLive.pipe(
+    Layer.provide(cupsObservationLayer),
+    Layer.provide(cupsLayer),
+  ),
 )
 
 const runtimeSupportLayer = Layer.mergeAll(
