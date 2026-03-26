@@ -286,7 +286,7 @@ If you enable OTLP, the daemon exports:
 
 The runtime now emits canonical change events for network, CUPS, and printer status transitions, while heartbeat still provides sampled snapshots for point-in-time box state.
 
-By default, the daemon uses Linux USB hotplug events for USB printer attach/detach detection and keeps a slower 30-second fallback observation poll for everything else. That means physical USB attach/detach changes can emit canonical status-change events promptly without relying on aggressive polling, while non-USB or non-hotplug changes still have a safety-net observer.
+By default, the daemon uses Linux USB hotplug events for USB printer attach/detach detection and keeps a 10-second periodic status observation loop for everything else. That means physical USB attach/detach changes can emit canonical status-change events promptly without relying on aggressive polling, while non-USB or non-hotplug changes still have a safety-net observer.
 
 Example Axiom query for canonical printer-detached transitions:
 
@@ -301,6 +301,24 @@ Example Axiom query for canonical printer-detached transitions:
           ['attributes.printerAttached'],
           ['attributes.previousPrinterAttached'],
           ['attributes.printerQueueAvailable'],
+          ['attributes.printerState'],
+          ['attributes.printerMessage'],
+          ['attributes.printerReasons']
+| order by _time desc
+```
+
+Example Axiom query for canonical printer-reattached transitions:
+
+```apl
+['ipp-print-logs']
+| where ['attributes.eventName'] == "printer.status.changed"
+| where ['attributes.previousPrinterAttached'] == false
+| where ['attributes.printerAttached'] == true
+| project _time,
+          ['attributes.hostname'],
+          ['attributes.previousPrinterAttached'],
+          ['attributes.printerAttached'],
+          ['attributes.previousPrinterState'],
           ['attributes.printerState'],
           ['attributes.printerMessage'],
           ['attributes.printerReasons']

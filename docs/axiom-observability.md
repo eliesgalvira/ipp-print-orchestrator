@@ -60,6 +60,7 @@ Current wide-event families:
 Important fields now available in logs:
 
 - `['attributes.eventName']`
+- `['attributes.observationReason']`
 - `['attributes.previousNetworkOnline']`
 - `['attributes.previousCupsReachable']`
 - `['attributes.previousPrinterAttached']`
@@ -137,6 +138,13 @@ Trust these for historical analysis:
 Treat these as sampled status snapshots:
 
 - `heartbeat`
+
+Current observation reasons:
+
+- `udev-usb-event`
+- `periodic-observation`
+- `cold-start`
+- any explicit test/manual reason passed by the runtime
 
 That means:
 
@@ -662,6 +670,46 @@ Canonical CUPS reachability transitions:
 | order by _time desc
 ```
 
+Canonical printer-detached transitions:
+
+```apl
+['ipp-print-logs']
+| where ['attributes.eventName'] == "printer.status.changed"
+| where ['attributes.previousPrinterAttached'] == true
+| where ['attributes.printerAttached'] == false
+| project _time,
+          ['attributes.hostname'],
+          ['attributes.observationReason'],
+          ['attributes.cupsReachable'],
+          ['attributes.previousPrinterAttached'],
+          ['attributes.printerAttached'],
+          ['attributes.previousPrinterQueueAvailable'],
+          ['attributes.printerQueueAvailable'],
+          ['attributes.previousPrinterState'],
+          ['attributes.printerState'],
+          ['attributes.previousPrinterReasons'],
+          ['attributes.printerReasons']
+| order by _time desc
+```
+
+Canonical printer-reattached transitions:
+
+```apl
+['ipp-print-logs']
+| where ['attributes.eventName'] == "printer.status.changed"
+| where ['attributes.previousPrinterAttached'] == false
+| where ['attributes.printerAttached'] == true
+| project _time,
+          ['attributes.hostname'],
+          ['attributes.observationReason'],
+          ['attributes.previousPrinterAttached'],
+          ['attributes.printerAttached'],
+          ['attributes.previousPrinterState'],
+          ['attributes.printerState'],
+          ['attributes.printerReasons']
+| order by _time desc
+```
+
 Canonical printer status transitions:
 
 ```apl
@@ -669,18 +717,19 @@ Canonical printer status transitions:
 | where ['attributes.eventName'] == "printer.status.changed"
 | project _time,
           ['attributes.hostname'],
+          ['attributes.observationReason'],
           ['attributes.previousPrinterAttached'],
           ['attributes.printerAttached'],
           ['attributes.previousPrinterQueueAvailable'],
           ['attributes.printerQueueAvailable'],
           ['attributes.previousPrinterState'],
           ['attributes.printerState'],
-          ['attributes.previousPrinterMessage'],
-          ['attributes.printerMessage'],
           ['attributes.previousPrinterReasons'],
           ['attributes.printerReasons']
 | order by _time desc
 ```
+
+If your Axiom dataset has not yet materialized optional printer message columns, omit `['attributes.previousPrinterMessage']` and `['attributes.printerMessage']` from the projection.
 
 ## Reconciliation
 
