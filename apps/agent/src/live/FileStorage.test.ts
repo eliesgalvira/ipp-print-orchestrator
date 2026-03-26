@@ -55,6 +55,12 @@ const makeEvent = () =>
     previousState: "Stored",
   })
 
+const makeEventWith = (overrides: Partial<WideEvent["Type"]>) =>
+  new WideEvent({
+    ...makeEvent(),
+    ...overrides,
+  })
+
 describe("file-backed storage", () => {
   it.effect("stores blobs durably on disk", () =>
     Effect.gen(function* () {
@@ -130,6 +136,14 @@ describe("file-backed storage", () => {
       yield* Effect.gen(function* () {
         const sink = yield* EventSink
         yield* sink.append(makeEvent())
+        yield* sink.append(
+          makeEventWith({
+            timestamp: "2026-03-09T00:00:01.000Z",
+            eventName: "print.job.submitted",
+            currentState: "Submitted",
+            previousState: "Queued",
+          }),
+        )
       }).pipe(Effect.provide(liveLayer))
 
       const events = yield* Effect.gen(function* () {
@@ -137,8 +151,9 @@ describe("file-backed storage", () => {
         return yield* sink.all()
       }).pipe(Effect.provide(liveLayer))
 
-      expect(events).toHaveLength(1)
+      expect(events).toHaveLength(2)
       expect(events[0]?.eventName).toBe("print.job.queued")
+      expect(events[1]?.eventName).toBe("print.job.submitted")
     }).pipe(Effect.provide(NodeFileSystem.layer)),
   )
 })

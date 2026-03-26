@@ -1,22 +1,17 @@
 import * as FileSystem from "effect/FileSystem"
 import { Effect, Layer } from "effect"
-import * as Path from "effect/Path"
 
 import { EventSinkUnavailable } from "../domain/Errors.js"
 import { WideEvent } from "../domain/WideEvent.js"
 import { EventSink } from "../services/EventSink.js"
-import { decodeJsonLines, encodeJsonLines } from "../util/Json.js"
+import { decodeJsonLines, encodeJson } from "../util/Json.js"
 import { makeAppPaths } from "../util/Paths.js"
-import {
-  ensureAppDirectories,
-  writeFileStringAtomic,
-} from "./FileSupport.js"
+import { ensureAppDirectories } from "./FileSupport.js"
 
 export const EventSinkFileLive = Layer.effect(
   EventSink,
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
-    const path = yield* Path.Path
     const paths = yield* makeAppPaths
 
     yield* ensureAppDirectories(paths, fs).pipe(
@@ -51,18 +46,14 @@ export const EventSinkFileLive = Layer.effect(
 
     const append = (event: WideEvent) =>
       Effect.gen(function* () {
-        const events = yield* all()
-        const content = yield* encodeJsonLines(WideEvent, [...events, event]).pipe(
+        const line = yield* encodeJson(WideEvent)(event).pipe(
           Effect.mapError((error) =>
             new EventSinkUnavailable({ message: String(error) }),
           ),
         )
-        yield* writeFileStringAtomic(
-          fs,
-          path,
-          paths.outboxFile,
-          content,
-        ).pipe(
+        yield* fs.writeFileString(paths.outboxFile, `${line}\n`, {
+          flag: "a",
+        }).pipe(
           Effect.mapError((error) =>
             new EventSinkUnavailable({ message: String(error) }),
           ),

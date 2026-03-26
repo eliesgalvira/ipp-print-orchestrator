@@ -7,10 +7,14 @@ import { Effect } from "effect"
 import type { Tracer as EffectTracer } from "effect"
 
 import type { WideEvent } from "../domain/WideEvent.js"
-import { effectSpanToOtelContext } from "./OtelEffectTracer.js"
+import {
+  effectSpanToOtelContext,
+  makeOtelEffectTracer,
+} from "./OtelEffectTracer.js"
 import { readOtelConfig } from "./OtelConfig.js"
 
 let sdk: NodeSDK | null = null
+let effectTracer: EffectTracer.Tracer | null = null
 let shutdownRegistered = false
 
 const severityForEvent = (event: WideEvent): SeverityNumber => {
@@ -70,12 +74,6 @@ export const startObservability = async (): Promise<void> => {
     return
   }
 
-  if (config.traces !== null) {
-    console.warn(
-      "[observability] OTLP traces endpoint is configured, but the Effect-to-OpenTelemetry tracer bridge is disabled during the Effect v4 migration; wide-event logs can export, but app traces are not currently emitted",
-    )
-  }
-
   const spanProcessors =
     config.traces === null
       ? []
@@ -113,6 +111,8 @@ export const startObservability = async (): Promise<void> => {
     logRecordProcessors,
   })
   sdk.start()
+  effectTracer =
+    config.traces === null ? null : makeOtelEffectTracer(config.serviceName)
   registerShutdownHooks()
 }
 
@@ -123,13 +123,14 @@ export const shutdownObservability = async (): Promise<void> => {
 
   const current = sdk
   sdk = null
+  effectTracer = null
   await current.shutdown()
 }
 
 export const withObservability = <A, E, R>(
   effect: Effect.Effect<A, E, R>,
 ): Effect.Effect<A, E, R> =>
-  effect
+  effectTracer === null ? effect : Effect.withTracer(effect, effectTracer)
 
 export const emitWideEventLog = (
   event: WideEvent,
