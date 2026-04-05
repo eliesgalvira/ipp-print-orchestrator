@@ -7,6 +7,7 @@ import { AppConfig } from "../config/AppConfig.js"
 import { MainLayer } from "../live/MainLayer.js"
 import { startObservability, withObservability } from "../observability/index.js"
 import { CupsClient } from "../services/CupsClient.js"
+import { CupsEventStream } from "../services/CupsEventStream.js"
 import { Orchestrator } from "../services/Orchestrator.js"
 import { QueueRuntime } from "../services/QueueRuntime.js"
 import { Reconciler } from "../services/Reconciler.js"
@@ -22,6 +23,7 @@ export const workerProgram = Effect.scoped(
     const queueRuntime = yield* QueueRuntime
     const orchestrator = yield* Orchestrator
     const reconciler = yield* Reconciler
+    const cupsEventStream = yield* CupsEventStream
     const statusRuntime = yield* StatusRuntime
     const cupsClient = yield* CupsClient
     const childProcessSpawner = yield* ChildProcessSpawner
@@ -84,17 +86,11 @@ export const workerProgram = Effect.scoped(
       )
     })
 
-    const statusObservationLoop = Effect.forever(
-      Effect.gen(function* () {
-        yield* observeStatus("periodic-observation")
-        yield* Effect.sleep(config.statusObservationIntervalMs)
-      }),
-    )
-
+    yield* observeStatus("cold-start")
     yield* Effect.forkScoped(workerLoop)
     yield* Effect.forkScoped(reconcileLoop)
     yield* Effect.forkScoped(usbHotplugObservationLoop)
-    yield* Effect.forkScoped(statusObservationLoop)
+    yield* Effect.forkScoped(cupsEventStream.run())
     return yield* Effect.never
   }),
 )

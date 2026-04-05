@@ -104,11 +104,14 @@ The app reads configuration from environment variables. The most important setti
 - `IPP_ORCH_PRINTER_NAME`
 - `IPP_ORCH_BIND_HOST`
 - `IPP_ORCH_BIND_PORT`
-- `IPP_ORCH_STATUS_OBSERVATION_INTERVAL_MS`
-  - optional; defaults to `10000`
-  - cadence for the periodic status observation loop that emits canonical status change events when network, CUPS, or printer status changes are observed
 - `IPP_ORCH_HEARTBEAT_INTERVAL_MS`
 - `IPP_ORCH_RECONCILE_INTERVAL_MS`
+
+Deprecated compatibility setting:
+
+- `IPP_ORCH_STATUS_OBSERVATION_INTERVAL_MS`
+  - ignored by the current runtime
+  - older installs may still have it in `/etc/ipp-print-orchestrator.env` from the previous polling-based design
 
 For local USB printers, the runtime checks both the configured CUPS queue and whether the queue's device URI is currently present in `lpinfo -v`. This lets the orchestrator treat a powered-off or disconnected USB printer as unavailable before handing jobs to CUPS.
 
@@ -292,9 +295,11 @@ If you enable OTLP, the daemon exports:
 - Effect spans through an OpenTelemetry tracer bridge
 - wide-event logs as structured OTLP log records
 
-The runtime now emits canonical change events for network, CUPS, and printer status transitions, while heartbeat still provides sampled snapshots for point-in-time box state.
+The runtime now emits canonical change events for network, CUPS, and printer status transitions. Heartbeat is now a minimal liveness event, not a sampled printer/CUPS status snapshot.
 
-By default, the daemon uses Linux USB hotplug events for USB printer attach/detach detection and keeps a 10-second periodic status observation loop for everything else. That means physical USB attach/detach changes can emit canonical status-change events promptly without relying on aggressive polling, while non-USB or non-hotplug changes still have a safety-net observer.
+By default, the daemon uses Linux USB hotplug events for USB printer attach/detach detection and an IPP notification stream for CUPS/printer state changes. The old periodic status observation loop has been removed from the daemon hot path.
+
+`network.status.changed` remains a local durable fact, but should not be treated as a guaranteed remote Axiom fact during internet outages until a replay worker exists for the local outbox.
 
 Example Axiom query for canonical printer-detached transitions:
 

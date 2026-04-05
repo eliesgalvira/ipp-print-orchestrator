@@ -9,6 +9,7 @@ import { CupsObserverIppLive } from "../cups-observation/CupsObserverIppLive.js"
 import { AppConfig } from "../config/AppConfig.js"
 import { Orchestrator } from "../services/Orchestrator.js"
 import { BlobStoreLive } from "./BlobStoreLive.js"
+import { CupsEventStreamIppLive } from "./CupsEventStreamIppLive.js"
 import { CupsClientCliLive } from "./CupsClientCliLive.js"
 import { EventSinkFileLive } from "./EventSinkFileLive.js"
 import { JobRepoFileLive } from "./JobRepoFileLive.js"
@@ -107,10 +108,15 @@ const heartbeatLayer = HeartbeatLive.pipe(
   Layer.provide(statusAwareRuntimeLayer),
 )
 
+const cupsEventStreamLayer = CupsEventStreamIppLive.pipe(
+  Layer.provide(statusAwareRuntimeLayer),
+)
+
 export const MainLayer = Layer.mergeAll(
   queueRuntimeLayer,
   statusRuntimeLayer,
   orchestratorLayer,
   reconcilerLayer,
   heartbeatLayer,
+  cupsEventStreamLayer,
 )

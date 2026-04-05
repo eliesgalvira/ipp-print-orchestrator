@@ -7,10 +7,64 @@ import { JobRepo } from "../services/JobRepo.js"
 import { NetworkProbe } from "../services/NetworkProbe.js"
 import { PrinterProbe } from "../services/PrinterProbe.js"
 import { QueueRuntime } from "../services/QueueRuntime.js"
-import { StatusRuntime, type StatusSnapshot } from "../services/StatusRuntime.js"
+import {
+  StatusRuntime,
+  type StatusObservationInput,
+  type StatusSnapshot,
+} from "../services/StatusRuntime.js"
 
 interface EmittedStatusSnapshot extends StatusSnapshot {
   readonly observationReason: string
+}
+
+const emptyObservedSnapshot = (
+  input: StatusObservationInput,
+): EmittedStatusSnapshot => ({
+  timestamp: input.timestamp,
+  hostname: input.hostname,
+  observationReason: input.observationReason,
+  networkOnline: input.networkOnline ?? false,
+  localIps: input.localIps ?? [],
+  cupsReachable: input.cupsReachable ?? false,
+  printerAttached: input.printerAttached ?? false,
+  printerQueueAvailable: input.printerQueueAvailable ?? false,
+  printerState: input.printerState ?? null,
+  printerReasons: input.printerReasons ?? [],
+  printerMessage: input.printerMessage ?? null,
+  queueDepth: 0,
+  nonterminalJobCount: 0,
+})
+
+const mergeObservedSnapshot = (
+  previous: EmittedStatusSnapshot | null,
+  input: StatusObservationInput,
+): EmittedStatusSnapshot => {
+  if (previous === null) {
+    return emptyObservedSnapshot(input)
+  }
+
+  return {
+    ...previous,
+    timestamp: input.timestamp,
+    hostname: input.hostname,
+    observationReason: input.observationReason,
+    ...(input.networkOnline === undefined ? {} : { networkOnline: input.networkOnline }),
+    ...(input.localIps === undefined ? {} : { localIps: [...input.localIps] }),
+    ...(input.cupsReachable === undefined ? {} : { cupsReachable: input.cupsReachable }),
+    ...(input.printerAttached === undefined
+      ? {}
+      : { printerAttached: input.printerAttached }),
+    ...(input.printerQueueAvailable === undefined
+      ? {}
+      : { printerQueueAvailable: input.printerQueueAvailable }),
+    ...(input.printerState === undefined ? {} : { printerState: input.printerState }),
+    ...(input.printerReasons === undefined
+      ? {}
+      : { printerReasons: [...input.printerReasons] }),
+    ...(input.printerMessage === undefined
+      ? {}
+      : { printerMessage: input.printerMessage }),
+  }
 }
 
 const sameStringArray = (
@@ -28,6 +82,28 @@ export const StatusRuntimeLive = Layer.effect(
     const queueRuntime = yield* QueueRuntime
     const jobRepo = yield* JobRepo
     const lastObservedStatusRef = yield* Ref.make<EmittedStatusSnapshot | null>(null)
+
+    const enrichWithCurrentCounts = Effect.fn("StatusRuntime.enrichWithCurrentCounts")(function* (
+      observed: EmittedStatusSnapshot,
+    ) {
+      const queueDepth = yield* queueRuntime.size()
+      const nonterminalJobs = yield* jobRepo.listNonTerminal()
+
+      return {
+        timestamp: observed.timestamp,
+        hostname: observed.hostname,
+        networkOnline: observed.networkOnline,
+        localIps: observed.localIps,
+        cupsReachable: observed.cupsReachable,
+        printerAttached: observed.printerAttached,
+        printerQueueAvailable: observed.printerQueueAvailable,
+        printerState: observed.printerState,
+        printerReasons: observed.printerReasons,
+        printerMessage: observed.printerMessage,
+        queueDepth,
+        nonterminalJobCount: nonterminalJobs.length,
+      } satisfies StatusSnapshot
+    })
 
     const emitStatusChangeEvents = Effect.fn("StatusRuntime.emitStatusChangeEvents")(function* (
       previous: EmittedStatusSnapshot | null,
@@ -106,6 +182,14 @@ export const StatusRuntimeLive = Layer.effect(
       yield* Ref.set(lastObservedStatusRef, current)
     })
 
+    const recordObservedStatus = Effect.fn("StatusRuntime.recordObservedStatus")(function* (
+      input: StatusObservationInput,
+    ) {
+      const previousObservedStatus = yield* Ref.get(lastObservedStatusRef)
+      const currentObservedStatus = mergeObservedSnapshot(previousObservedStatus, input)
+      yield* emitStatusChangeEvents(previousObservedStatus, currentObservedStatus)
+    })
+
     const observeNow = Effect.fn("StatusRuntime.observeNow")(function* (reason: string) {
       yield* Effect.annotateCurrentSpan({
         "status.observation_reason": reason,
@@ -113,13 +197,13 @@ export const StatusRuntimeLive = Layer.effect(
 
       const now = new Date(yield* Clock.currentTimeMillis).toISOString()
       const network = yield* networkProbe.status()
-      const printer = yield* printerProbe.status()
-      const queueDepth = yield* queueRuntime.size()
-      const nonterminalJobs = yield* jobRepo.listNonTerminal()
-      const currentObservedStatus: EmittedStatusSnapshot = {
-        observationReason: reason,
+      const printer = yield* printerProbe.status(reason)
+      const host = hostname()
+
+      yield* recordObservedStatus({
         timestamp: now,
-        hostname: hostname(),
+        hostname: host,
+        observationReason: reason,
         networkOnline: network.online,
         localIps: network.localIps,
         cupsReachable: printer.cupsReachable,
@@ -128,39 +212,27 @@ export const StatusRuntimeLive = Layer.effect(
         printerState: printer.state,
         printerReasons: printer.reasons,
         printerMessage: printer.message,
-        queueDepth,
-        nonterminalJobCount: nonterminalJobs.length,
+      })
+
+      const currentObservedStatus = yield* Ref.get(lastObservedStatusRef)
+      if (currentObservedStatus === null) {
+        return yield* Effect.die("StatusRuntime.observeNow did not persist status")
       }
 
-      const previousObservedStatus = yield* Ref.get(lastObservedStatusRef)
-      yield* emitStatusChangeEvents(previousObservedStatus, currentObservedStatus)
-
-      return currentObservedStatus satisfies StatusSnapshot
+      return yield* enrichWithCurrentCounts(currentObservedStatus)
     })
 
     const current = Effect.fn("StatusRuntime.current")(function* () {
       const cached = yield* Ref.get(lastObservedStatusRef)
       if (cached !== null) {
-        return {
-          timestamp: cached.timestamp,
-          hostname: cached.hostname,
-          networkOnline: cached.networkOnline,
-          localIps: cached.localIps,
-          cupsReachable: cached.cupsReachable,
-          printerAttached: cached.printerAttached,
-          printerQueueAvailable: cached.printerQueueAvailable,
-          printerState: cached.printerState,
-          printerReasons: cached.printerReasons,
-          printerMessage: cached.printerMessage,
-          queueDepth: cached.queueDepth,
-          nonterminalJobCount: cached.nonterminalJobCount,
-        } satisfies StatusSnapshot
+        return yield* enrichWithCurrentCounts(cached)
       }
 
       return yield* observeNow("cold-start")
     })
 
     return StatusRuntime.of({
+      recordObservedStatus,
       observeNow,
       current,
     })

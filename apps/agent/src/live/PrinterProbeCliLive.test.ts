@@ -2,8 +2,8 @@ import { describe, expect, it } from "@effect/vitest"
 import { Effect, Layer } from "effect"
 
 import { CupsObserver } from "../cups-observation/CupsObserver.js"
-import { PrinterProbe } from "../services/PrinterProbe.js"
 import { CupsClient } from "../services/CupsClient.js"
+import { PrinterProbe } from "../services/PrinterProbe.js"
 import { PrinterProbeCliLive } from "./PrinterProbeCliLive.js"
 
 const cupsObserverLayer = (attached = true) =>
@@ -85,5 +85,88 @@ describe("PrinterProbeCliLive", () => {
         ),
       ),
     ),
+  )
+
+  it.effect("reuses cached USB device scans outside explicit udev refreshes", () =>
+    (() => {
+      let deviceUriCalls = 0
+      let availableDeviceCalls = 0
+
+      const cachedCupsClientLayer = Layer.succeed(
+        CupsClient,
+        CupsClient.of({
+          submitFile: () => Effect.die("unused"),
+          getJobStatus: () => Effect.die("unused"),
+          listRecentJobs: () => Effect.die("unused"),
+          getPrinterSummary: () => Effect.die("unused"),
+          getPrinterDeviceUri: () =>
+            Effect.sync(() => {
+              deviceUriCalls += 1
+              return "usb://test-printer?serial=ABC123&interface=1"
+            }),
+          listAvailableDevices: () =>
+            Effect.sync(() => {
+              availableDeviceCalls += 1
+              return ["usb://test-printer?serial=ABC123&interface=1"] as const
+            }),
+        }),
+      )
+
+      return Effect.gen(function* () {
+        const printerProbe = yield* PrinterProbe
+
+        yield* printerProbe.status("periodic-observation")
+        yield* printerProbe.status("periodic-observation")
+
+        expect(deviceUriCalls).toBe(1)
+        expect(availableDeviceCalls).toBe(1)
+      }).pipe(
+        Effect.provide(
+          PrinterProbeCliLive.pipe(
+            Layer.provide(cupsObserverLayer()),
+            Layer.provide(cachedCupsClientLayer),
+          ),
+        ),
+      )
+    })(),
+  )
+
+  it.effect("forces a fresh USB device scan on udev-triggered observations", () =>
+    (() => {
+      let availableDeviceCalls = 0
+
+      const refreshingCupsClientLayer = Layer.succeed(
+        CupsClient,
+        CupsClient.of({
+          submitFile: () => Effect.die("unused"),
+          getJobStatus: () => Effect.die("unused"),
+          listRecentJobs: () => Effect.die("unused"),
+          getPrinterSummary: () => Effect.die("unused"),
+          getPrinterDeviceUri: () =>
+            Effect.succeed("usb://test-printer?serial=ABC123&interface=1"),
+          listAvailableDevices: () =>
+            Effect.sync(() => {
+              availableDeviceCalls += 1
+              return ["usb://test-printer?serial=ABC123&interface=1"] as const
+            }),
+        }),
+      )
+
+      return Effect.gen(function* () {
+        const printerProbe = yield* PrinterProbe
+
+        yield* printerProbe.status("periodic-observation")
+        yield* printerProbe.status("udev-usb-event")
+
+        expect(availableDeviceCalls).toBe(2)
+      }).pipe(
+        Effect.provide(
+          PrinterProbeCliLive.pipe(
+            Layer.provide(cupsObserverLayer()),
+            Layer.provide(refreshingCupsClientLayer),
+          ),
+        ),
+      )
+    })(),
   )
 })

@@ -8,6 +8,7 @@ import { runHttpServer } from "./http/HttpServer.js"
 import { MainLayer } from "./live/MainLayer.js"
 import { startObservability, withObservability } from "./observability/index.js"
 import { CupsClient } from "./services/CupsClient.js"
+import { CupsEventStream } from "./services/CupsEventStream.js"
 import { Heartbeat } from "./services/Heartbeat.js"
 import { Orchestrator } from "./services/Orchestrator.js"
 import { QueueRuntime } from "./services/QueueRuntime.js"
@@ -24,6 +25,7 @@ const program = Effect.scoped(
     const queueRuntime = yield* QueueRuntime
     const orchestrator = yield* Orchestrator
     const reconciler = yield* Reconciler
+    const cupsEventStream = yield* CupsEventStream
     const heartbeat = yield* Heartbeat
     const statusRuntime = yield* StatusRuntime
     const cupsClient = yield* CupsClient
@@ -87,13 +89,6 @@ const program = Effect.scoped(
       )
     })
 
-    const statusObservationLoop = Effect.forever(
-      Effect.gen(function* () {
-        yield* observeStatus("periodic-observation")
-        yield* Effect.sleep(config.statusObservationIntervalMs)
-      }),
-    )
-
     const heartbeatLoop = Effect.forever(
       Effect.gen(function* () {
         yield* heartbeat.beat().pipe(
@@ -105,6 +100,8 @@ const program = Effect.scoped(
       }),
     )
 
+    yield* observeStatus("cold-start")
+
     return yield* Effect.all(
       [
         runHttpServer.pipe(
@@ -115,7 +112,7 @@ const program = Effect.scoped(
         workerLoop,
         reconcileLoop,
         usbHotplugObservationLoop,
-        statusObservationLoop,
+        cupsEventStream.run(),
         heartbeatLoop,
       ],
       { concurrency: "unbounded" },

@@ -1,54 +1,38 @@
-import { Effect, Layer, Ref } from "effect"
+import { Clock, Effect, Layer, Ref } from "effect"
+import { hostname } from "node:os"
 
 import { WideEvent } from "../domain/WideEvent.js"
 import { WideEventPublisher } from "../observability/WideEventPublisher.js"
 import { Heartbeat, type HeartbeatSnapshot } from "../services/Heartbeat.js"
-import { StatusRuntime } from "../services/StatusRuntime.js"
 
 export const HeartbeatLive = Layer.effect(
   Heartbeat,
   Effect.gen(function* () {
     const wideEventPublisher = yield* WideEventPublisher
-    const statusRuntime = yield* StatusRuntime
     const lastSuccessRef = yield* Ref.make<string | null>(null)
 
     const beat = Effect.fn("Heartbeat.beat")(function* () {
-      const current = yield* statusRuntime.current()
+      const now = new Date(yield* Clock.currentTimeMillis).toISOString()
+      const host = hostname()
       yield* Effect.annotateCurrentSpan({
-        "heartbeat.cups_reachable": current.cupsReachable,
-        "heartbeat.hostname": current.hostname,
-        "heartbeat.job_count": current.nonterminalJobCount,
-        "heartbeat.network_online": current.networkOnline,
-        "heartbeat.printer_attached": current.printerAttached,
-        "heartbeat.printer_queue_available": current.printerQueueAvailable,
-        "heartbeat.printer_state": current.printerState,
-        "heartbeat.queue_depth": current.queueDepth,
+        "heartbeat.hostname": host,
       })
       const event = new WideEvent({
         eventName: "heartbeat",
-        timestamp: current.timestamp,
+        timestamp: now,
         appUp: true,
-        hostname: current.hostname,
-        networkOnline: current.networkOnline,
-        localIps: current.localIps,
-        cupsReachable: current.cupsReachable,
-        printerAttached: current.printerAttached,
-        printerQueueAvailable: current.printerQueueAvailable,
-        printerState: current.printerState,
-        printerReasons: current.printerReasons,
-        printerMessage: current.printerMessage,
-        queueDepth: current.queueDepth,
-        nonterminalJobCount: current.nonterminalJobCount,
-        lastSuccessfulHeartbeatAt: current.timestamp,
+        hostname: host,
+        lastSuccessfulHeartbeatAt: now,
       })
 
       yield* wideEventPublisher.emit(event)
-      yield* Ref.set(lastSuccessRef, current.timestamp)
+      yield* Ref.set(lastSuccessRef, now)
 
       return {
-        ...current,
+        timestamp: now,
+        hostname: host,
         appUp: true,
-        lastSuccessfulHeartbeatAt: current.timestamp,
+        lastSuccessfulHeartbeatAt: now,
       } satisfies HeartbeatSnapshot
     })
 

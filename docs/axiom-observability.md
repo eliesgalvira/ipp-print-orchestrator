@@ -6,7 +6,7 @@ This document describes the current observability model after the instrumentatio
 - HTTP request analytics are now log-native
 - terminal job analytics are now log-native
 - network, CUPS, and printer status transitions are now log-native
-- heartbeat remains a sampled status snapshot and is not the source of truth for historical queue analysis
+- heartbeat is now a minimal liveness event and is not the source of truth for historical status analysis
 
 ## Logging Model
 
@@ -23,7 +23,7 @@ The logs dataset is now the authoritative place for:
 - queue mutations
 - HTTP request outcomes
 - terminal job outcomes
-- network reachability transitions
+- local network reachability transitions
 - CUPS reachability transitions
 - printer availability and state transitions
 
@@ -88,14 +88,11 @@ Important fields now available in logs:
 - `['attributes.clientAddress']`
 - `['attributes.userAgent']`
 
-Heartbeat-only fields still exist and are still useful for live-ish box status:
+Heartbeat-only fields now reflect liveness only:
 
-- `['attributes.cupsReachable']`
-- `['attributes.printerAttached']`
-- `['attributes.printerQueueAvailable']`
-- `['attributes.printerState']`
-- `['attributes.printerReasons']`
-- `['attributes.printerMessage']`
+- `['attributes.appUp']`
+- `['attributes.hostname']`
+- `['attributes.lastSuccessfulHeartbeatAt']`
 
 ## APL Syntax Notes
 
@@ -123,7 +120,6 @@ Useful schema checks:
 
 Trust these for historical analysis:
 
-- `network.status.changed`
 - `cups.status.changed`
 - `printer.status.changed`
 - `queue.job.enqueued`
@@ -135,14 +131,20 @@ Trust these for historical analysis:
 - `print.job.failed`
 - `print.job.state.changed`
 
-Treat these as sampled status snapshots:
+Treat these as local-only unless replay exists:
+
+- `network.status.changed`
+
+Treat these as liveness-only:
 
 - `heartbeat`
 
 Current observation reasons:
 
 - `udev-usb-event`
-- `periodic-observation`
+- `cups-notification`
+- `cups-stream-reconnect`
+- `cups-stream-disconnect`
 - `cold-start`
 - any explicit test/manual reason passed by the runtime
 
@@ -151,7 +153,7 @@ That means:
 - use queue events for queue depth history
 - use HTTP wide events for route analytics
 - use `print.job.outcome` for terminal job analytics
-- use heartbeat to answer "what was the machine seeing around that time?"
+- use heartbeat to answer "is the daemon still alive?"
 
 ## Queries Worth Saving
 
@@ -561,48 +563,13 @@ API writes to `/v1/jobs`:
 
 ## Printer And CUPS
 
-Use status-change events for canonical transitions and heartbeat for sampled snapshots/details around those transitions.
-
-Heartbeat snapshots where CUPS was down:
-
-```apl
-['ipp-print-logs']
-| where ['attributes.eventName'] == "heartbeat"
-| where ['attributes.cupsReachable'] == false
-| project _time,
-          ['attributes.hostname'],
-          ['attributes.cupsReachable'],
-          ['attributes.printerAttached'],
-          ['attributes.printerQueueAvailable'],
-          ['attributes.printerState'],
-          ['attributes.printerMessage'],
-          ['attributes.printerReasons']
-| order by _time desc
-```
-
-Heartbeat snapshots where printer was detached:
-
-```apl
-['ipp-print-logs']
-| where ['attributes.eventName'] == "heartbeat"
-| where ['attributes.printerAttached'] == false
-| project _time,
-          ['attributes.hostname'],
-          ['attributes.cupsReachable'],
-          ['attributes.printerAttached'],
-          ['attributes.printerQueueAvailable'],
-          ['attributes.printerState'],
-          ['attributes.printerMessage'],
-          ['attributes.printerReasons']
-| order by _time desc
-```
+Use status-change events for canonical transitions. Heartbeat is only for liveness.
 
 All events related to CUPS being unavailable:
 
 ```apl
 ['ipp-print-logs']
 | where (['attributes.eventName'] == "cups.status.changed" and ['attributes.cupsReachable'] == false)
-   or (['attributes.eventName'] == "heartbeat" and ['attributes.cupsReachable'] == false)
    or ['attributes.errorTag'] == "CupsUnavailable"
    or ['attributes.currentState'] == "WaitingForCups"
 | project _time,
@@ -624,7 +591,6 @@ All events related to printer unavailable:
 ```apl
 ['ipp-print-logs']
 | where (['attributes.eventName'] == "printer.status.changed" and ['attributes.printerAttached'] == false)
-   or (['attributes.eventName'] == "heartbeat" and ['attributes.printerAttached'] == false)
    or ['attributes.errorTag'] == "PrinterNotReady"
    or ['attributes.currentState'] == "WaitingForPrinter"
 | project _time,

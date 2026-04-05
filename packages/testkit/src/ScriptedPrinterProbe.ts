@@ -20,7 +20,7 @@ export const layer = (
     Effect.gen(function* () {
       const script = yield* makeFaultScript(steps)
 
-      const status = () =>
+      const status = (_reason?: string) =>
         script.next.pipe(
           Effect.map((step) => ({
             attached: step.attached,
