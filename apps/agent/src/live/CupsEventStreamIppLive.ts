@@ -12,6 +12,14 @@ import { CupsEventStream } from "../services/CupsEventStream.js"
 import { StatusRuntime } from "../services/StatusRuntime.js"
 
 const require = createRequire(import.meta.url)
+interface IppAttributeSyntax {
+  readonly type: string
+  readonly tag: number
+  readonly min?: number
+  readonly max?: number
+  setof?: boolean
+}
+
 const ipp = require("ipp") as {
   readonly Printer: (
     url: string,
@@ -22,10 +30,15 @@ const ipp = require("ipp") as {
       callback: (error: unknown, response: Record<string, unknown>) => void,
     ) => void
   }
+  readonly attributes: {
+    readonly Operation: Record<string, unknown>
+  }
+  readonly tags: Record<string, number>
 }
 
 interface IppResponse {
   readonly statusCode?: string
+  readonly ["operation-attributes-tag"]?: Record<string, unknown>
   readonly ["subscription-attributes-tag"]?:
     | Record<string, unknown>
     | readonly Record<string, unknown>[]
@@ -36,6 +49,41 @@ interface IppResponse {
 
 const printerUriForName = (printerName: string): string =>
   `http://127.0.0.1:631/printers/${encodeURIComponent(printerName)}`
+
+const installIppNotificationOperationAttributes = (): void => {
+  const operationAttributes = ipp.attributes.Operation
+  const requireTag = (name: string): number => {
+    const value = ipp.tags[name]
+    if (typeof value !== "number") {
+      throw new Error(`IPP tag map missing ${name}`)
+    }
+    return value
+  }
+  const define = (name: string, syntax: IppAttributeSyntax) => {
+    if (operationAttributes[name] === undefined) {
+      operationAttributes[name] = syntax
+    }
+  }
+
+  define("notify-subscription-ids", {
+    type: "integer",
+    tag: requireTag("integer"),
+    min: 1,
+    max: 2147483647,
+    setof: true,
+  })
+  define("notify-sequence-numbers", {
+    type: "integer",
+    tag: requireTag("integer"),
+    min: 1,
+    max: 2147483647,
+    setof: true,
+  })
+  define("notify-wait", {
+    type: "boolean",
+    tag: requireTag("boolean"),
+  })
+}
 
 const requestMessage = (
   attributes: Record<string, unknown>,
@@ -127,6 +175,28 @@ export const maxNotificationSequenceNumber = (
       : max
   }, 0)
 
+export const extractNotifyGetIntervalSeconds = (
+  response: IppResponse,
+): number | null => {
+  const value = response["operation-attributes-tag"]?.["notify-get-interval"]
+  return typeof value === "number" && Number.isInteger(value) && value >= 0
+    ? value
+    : null
+}
+
+export const getNotificationsRequestMessage = (
+  printerUri: string,
+  subscriptionId: number,
+  nextSequenceNumber: number,
+): Record<string, unknown> =>
+  requestMessage({
+    "printer-uri": printerUri,
+    "requesting-user-name": "ipp-print-orchestrator",
+    "notify-subscription-ids": [subscriptionId],
+    "notify-sequence-numbers": [nextSequenceNumber],
+    "notify-wait": true,
+  })
+
 const subscriptionTemplate = {
   "notify-pull-method": "ippget",
   "notify-events": [
@@ -147,6 +217,8 @@ const reconnectSchedule = Schedule.exponential("1 second").pipe(
 export const CupsEventStreamIppLive = Layer.effect(
   CupsEventStream,
   Effect.gen(function* () {
+    installIppNotificationOperationAttributes()
+
     const appConfig = yield* AppConfig
     const statusRuntime = yield* StatusRuntime
     const printerUri = printerUriForName(appConfig.printerName)
@@ -202,15 +274,10 @@ export const CupsEventStreamIppLive = Layer.effect(
       executeIpp(
         printerUri,
         "Get-Notifications",
-        requestMessage(
-          {
-            "printer-uri": printerUri,
-            "requesting-user-name": "ipp-print-orchestrator",
-          },
-          {
-            "notify-subscription-id": subscriptionId,
-            "notify-sequence-number": nextSequenceNumber,
-          },
+        getNotificationsRequestMessage(
+          printerUri,
+          subscriptionId,
+          nextSequenceNumber,
         ),
       ).pipe(
         Effect.flatMap(ensureSuccessfulResponse),
@@ -239,6 +306,7 @@ export const CupsEventStreamIppLive = Layer.effect(
         const response = yield* getNotifications(subscriptionId, nextSequenceNumber)
         const notifications = notificationRecords(response)
         const maxSeen = maxNotificationSequenceNumber(notifications)
+        const notifyGetIntervalSeconds = extractNotifyGetIntervalSeconds(response)
 
         if (maxSeen >= nextSequenceNumber) {
           nextSequenceNumber = maxSeen + 1
@@ -250,7 +318,9 @@ export const CupsEventStreamIppLive = Layer.effect(
           )
         }
 
-        yield* Effect.sleep("1 second")
+        if (notifyGetIntervalSeconds !== null && notifyGetIntervalSeconds > 0) {
+          yield* Effect.sleep(`${notifyGetIntervalSeconds} seconds`)
+        }
       }
     })
 

@@ -2,6 +2,8 @@ import { describe, expect, it } from "@effect/vitest"
 
 import {
   extractSubscriptionId,
+  extractNotifyGetIntervalSeconds,
+  getNotificationsRequestMessage,
   maxNotificationSequenceNumber,
   notificationRecords,
 } from "./CupsEventStreamIppLive.js"
@@ -45,5 +47,39 @@ describe("CupsEventStreamIppLive", () => {
         { "notify-sequence-number": 4 },
       ]),
     ).toBe(7)
+  })
+
+  it("extracts notify-get-interval when the printer asks the client to retry later", () => {
+    expect(
+      extractNotifyGetIntervalSeconds({
+        "operation-attributes-tag": {
+          "notify-get-interval": 12,
+        },
+      }),
+    ).toBe(12)
+
+    expect(
+      extractNotifyGetIntervalSeconds({
+        "operation-attributes-tag": {},
+      }),
+    ).toBeNull()
+  })
+
+  it("builds Get-Notifications requests in event wait mode", () => {
+    expect(
+      getNotificationsRequestMessage(
+        "http://127.0.0.1:631/printers/Test_Printer",
+        42,
+        9,
+      ),
+    ).toEqual({
+      "operation-attributes-tag": {
+        "printer-uri": "http://127.0.0.1:631/printers/Test_Printer",
+        "requesting-user-name": "ipp-print-orchestrator",
+        "notify-subscription-ids": [42],
+        "notify-sequence-numbers": [9],
+        "notify-wait": true,
+      },
+    })
   })
 })
