@@ -3,7 +3,6 @@ import { Console, Effect, Layer, Stream } from "effect"
 import * as ChildProcess from "effect/unstable/process/ChildProcess"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 
-import { AppConfig } from "../config/AppConfig.js"
 import { MainLayer } from "../live/MainLayer.js"
 import { startObservability, withObservability } from "../observability/index.js"
 import { CupsClient } from "../services/CupsClient.js"
@@ -19,7 +18,6 @@ await startObservability()
 
 export const workerProgram = Effect.scoped(
   Effect.gen(function* () {
-    const config = yield* AppConfig
     const queueRuntime = yield* QueueRuntime
     const orchestrator = yield* Orchestrator
     const reconciler = yield* Reconciler
@@ -46,17 +44,6 @@ export const workerProgram = Effect.scoped(
           ),
           Effect.catch(() => Effect.void),
         )
-      }),
-    )
-
-    const reconcileLoop = Effect.forever(
-      Effect.gen(function* () {
-        yield* reconciler.reconcileStartup().pipe(
-          Effect.catch((error) =>
-            Console.error(`startup reconciliation failed: ${error.message}`),
-          ),
-        )
-        yield* Effect.sleep(config.reconcileIntervalMs)
       }),
     )
 
@@ -87,8 +74,12 @@ export const workerProgram = Effect.scoped(
     })
 
     yield* observeStatus("cold-start")
+    yield* reconciler.recoverStartup().pipe(
+      Effect.catch((error) =>
+        Console.error(`startup recovery failed: ${error.message}`),
+      ),
+    )
     yield* Effect.forkScoped(workerLoop)
-    yield* Effect.forkScoped(reconcileLoop)
     yield* Effect.forkScoped(usbHotplugObservationLoop)
     yield* Effect.forkScoped(cupsEventStream.run())
     return yield* Effect.never

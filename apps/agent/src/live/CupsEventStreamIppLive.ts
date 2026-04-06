@@ -9,6 +9,7 @@ import {
 } from "../domain/Errors.js"
 import { AppConfig } from "../config/AppConfig.js"
 import { CupsEventStream } from "../services/CupsEventStream.js"
+import { Reconciler } from "../services/Reconciler.js"
 import { StatusRuntime } from "../services/StatusRuntime.js"
 
 const require = createRequire(import.meta.url)
@@ -175,6 +176,21 @@ export const maxNotificationSequenceNumber = (
       : max
   }, 0)
 
+const jobNotificationEvents = new Set([
+  "job-completed",
+  "job-created",
+  "job-progress",
+  "job-stopped",
+])
+
+export const notificationsIncludeJobEvent = (
+  notifications: readonly Record<string, unknown>[],
+): boolean =>
+  notifications.some((notification) => {
+    const eventName = notification["notify-subscribed-event"]
+    return typeof eventName === "string" && jobNotificationEvents.has(eventName)
+  })
+
 export const extractNotifyGetIntervalSeconds = (
   response: IppResponse,
 ): number | null => {
@@ -220,6 +236,7 @@ export const CupsEventStreamIppLive = Layer.effect(
     installIppNotificationOperationAttributes()
 
     const appConfig = yield* AppConfig
+    const reconciler = yield* Reconciler
     const statusRuntime = yield* StatusRuntime
     const printerUri = printerUriForName(appConfig.printerName)
 
@@ -299,6 +316,9 @@ export const CupsEventStreamIppLive = Layer.effect(
           }),
         ),
       )
+      yield* reconciler.repairCupsTrackedJobs().pipe(
+        Effect.catch(() => Effect.void),
+      )
 
       let nextSequenceNumber = 1
 
@@ -307,6 +327,7 @@ export const CupsEventStreamIppLive = Layer.effect(
         const notifications = notificationRecords(response)
         const maxSeen = maxNotificationSequenceNumber(notifications)
         const notifyGetIntervalSeconds = extractNotifyGetIntervalSeconds(response)
+        const hasJobEvent = notificationsIncludeJobEvent(notifications)
 
         if (maxSeen >= nextSequenceNumber) {
           nextSequenceNumber = maxSeen + 1
@@ -314,6 +335,12 @@ export const CupsEventStreamIppLive = Layer.effect(
 
         if (notifications.length > 0) {
           yield* statusRuntime.observeNow("cups-notification").pipe(
+            Effect.catch(() => Effect.void),
+          )
+        }
+
+        if (hasJobEvent) {
+          yield* reconciler.repairCupsTrackedJobs().pipe(
             Effect.catch(() => Effect.void),
           )
         }

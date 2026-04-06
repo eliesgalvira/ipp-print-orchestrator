@@ -5,6 +5,7 @@ import {
   extractNotifyGetIntervalSeconds,
   getNotificationsRequestMessage,
   maxNotificationSequenceNumber,
+  notificationsIncludeJobEvent,
   notificationRecords,
 } from "./CupsEventStreamIppLive.js"
 
@@ -81,5 +82,20 @@ describe("CupsEventStreamIppLive", () => {
         "notify-wait": true,
       },
     })
+  })
+
+  it("detects job notifications that should trigger targeted repair", () => {
+    expect(
+      notificationsIncludeJobEvent([
+        { "notify-subscribed-event": "printer-state-changed" },
+        { "notify-subscribed-event": "job-completed" },
+      ]),
+    ).toBe(true)
+
+    expect(
+      notificationsIncludeJobEvent([
+        { "notify-subscribed-event": "printer-state-changed" },
+      ]),
+    ).toBe(false)
   })
 })

@@ -109,7 +109,12 @@ const heartbeatLayer = HeartbeatLive.pipe(
 )
 
 const cupsEventStreamLayer = CupsEventStreamIppLive.pipe(
-  Layer.provide(statusAwareRuntimeLayer),
+  Layer.provide(
+    Layer.merge(
+      statusAwareRuntimeLayer,
+      reconcilerLayer,
+    ),
+  ),
 )
 
 export const MainLayer = Layer.mergeAll(

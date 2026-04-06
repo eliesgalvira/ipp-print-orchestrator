@@ -49,7 +49,7 @@ const idleCupsObserverLayer = Layer.succeed(
 )
 
 describe("ReconcilerLive", () => {
-  it.effect("re-enqueues persisted nonterminal jobs on startup", () =>
+  it.effect("rehydrates retryable jobs into the in-memory queue", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
       const dataDir = yield* fs.makeTempDirectory({ prefix: "ipp-orch-reconcile-" })
@@ -124,7 +124,7 @@ describe("ReconcilerLive", () => {
         const queueRuntime = yield* QueueRuntime
         const eventSink = yield* EventSink
 
-        const jobs = yield* reconciler.reconcileStartup()
+        const jobs = yield* reconciler.rehydrateRetryableJobs()
         const queueSize = yield* queueRuntime.size()
         const events = yield* eventSink.all()
 
@@ -134,14 +134,14 @@ describe("ReconcilerLive", () => {
       expect(result.jobs).toHaveLength(1)
       expect(result.queueSize).toBe(1)
       expect(result.events.map((event) => event.eventName)).toEqual([
-        "startup.reconciliation.started",
+        "queue.rehydration.started",
         "queue.job.enqueued",
-        "startup.reconciliation.completed",
+        "queue.rehydration.completed",
       ])
     }).pipe(Effect.provide(NodeFileSystem.layer)),
   )
 
-  it.effect("marks submitted jobs completed when CUPS no longer reports them", () =>
+  it.effect("repairs tracked CUPS jobs into terminal job transitions", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
       const dataDir = yield* fs.makeTempDirectory({
@@ -233,7 +233,7 @@ describe("ReconcilerLive", () => {
         const eventSink = yield* EventSink
 
         yield* repo.create(submittedJob)
-        yield* reconciler.reconcileStartup()
+        yield* reconciler.repairCupsTrackedJobs()
 
         const refreshed = yield* repo.get(submittedJob.id)
         const events = yield* eventSink.all()
@@ -243,10 +243,10 @@ describe("ReconcilerLive", () => {
 
       expect(result.refreshed.state).toBe("Completed")
       expect(result.events.map((event) => event.eventName)).toEqual([
-        "startup.reconciliation.started",
+        "cups.job.repair.started",
         "print.job.completed",
         "print.job.outcome",
-        "startup.reconciliation.completed",
+        "cups.job.repair.completed",
       ])
     }).pipe(Effect.provide(NodeFileSystem.layer)),
   )

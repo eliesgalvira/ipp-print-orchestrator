@@ -52,10 +52,12 @@ Current wide-event families:
 - `print.job.outcome`
 - `queue.job.enqueued`
 - `queue.job.dequeued`
+- `queue.rehydration.started`
+- `queue.rehydration.completed`
+- `cups.job.repair.started`
+- `cups.job.repair.completed`
 - `http.request.completed`
 - `heartbeat`
-- `startup.reconciliation.started`
-- `startup.reconciliation.completed`
 
 Important fields now available in logs:
 
@@ -697,22 +699,22 @@ Canonical printer status transitions:
 
 If your Axiom dataset has not yet materialized optional printer message columns, omit `['attributes.previousPrinterMessage']` and `['attributes.printerMessage']` from the projection.
 
-## Reconciliation
+## Recovery
 
-Reconciliation runs:
+Queue rehydration and CUPS job repair runs:
 
 ```apl
 ['ipp-print-logs']
-| where ['attributes.eventName'] in ("startup.reconciliation.started", "startup.reconciliation.completed")
+| where ['attributes.eventName'] in ("queue.rehydration.started", "queue.rehydration.completed", "cups.job.repair.started", "cups.job.repair.completed")
 | summarize count() by bin(_time, 1h), ['attributes.eventName']
 | order by _time asc
 ```
 
-Reconciliation completions:
+Most recent CUPS job repair completion:
 
 ```apl
 ['ipp-print-logs']
-| where ['attributes.eventName'] == "startup.reconciliation.completed"
+| where ['attributes.eventName'] == "cups.job.repair.completed"
 | order by _time desc
 ```
 

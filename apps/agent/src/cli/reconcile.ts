@@ -11,8 +11,8 @@ await startObservability()
 
 const program = Effect.gen(function* () {
   const reconciler = yield* Reconciler
-  const jobs = yield* reconciler.reconcileStartup()
-  yield* Console.log(`reconciled ${jobs.length} nonterminal jobs`)
+  const jobs = yield* reconciler.recoverStartup()
+  yield* Console.log(`recovered ${jobs.length} nonterminal jobs`)
 })
 
 const runtimeLayer = MainLayer.pipe(

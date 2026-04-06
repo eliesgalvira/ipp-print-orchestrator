@@ -173,11 +173,11 @@ export const ReconcilerLive = Layer.effect(
         yield* applyObservedJobState(job, observation)
       })
 
-    const reconcileStartup = Effect.fn("Reconciler.reconcileStartup")(function* () {
+    const rehydrateRetryableJobs = Effect.fn("Reconciler.rehydrateRetryableJobs")(function* () {
       const startedAt = new Date(yield* Clock.currentTimeMillis).toISOString()
       const startedEvent = new WideEvent({
         timestamp: startedAt,
-        eventName: "startup.reconciliation.started",
+        eventName: "queue.rehydration.started",
       })
       yield* emitEvent(startedEvent).pipe(
         Effect.mapError((error) =>
@@ -190,23 +190,20 @@ export const ReconcilerLive = Layer.effect(
           new StartupRecoveryFailed({ message: error.message }),
         ),
       )
+      const retryableJobs = jobs.filter((job) => requeueableStates.has(job.state))
 
-      yield* Effect.forEach(jobs, (job) =>
-        requeueableStates.has(job.state)
-          ? queueRuntime.enqueue(job.id).pipe(
-              Effect.mapError((error) =>
-                new StartupRecoveryFailed({ message: String(error) }),
-              ),
-            )
-          : cupsTrackedStates.has(job.state)
-            ? reconcileCupsTrackedJob(job)
-            : Effect.void,
+      yield* Effect.forEach(retryableJobs, (job) =>
+        queueRuntime.enqueue(job.id).pipe(
+          Effect.mapError((error) =>
+            new StartupRecoveryFailed({ message: String(error) }),
+          ),
+        ),
       )
 
       const completedAt = new Date(yield* Clock.currentTimeMillis).toISOString()
       const completedEvent = new WideEvent({
         timestamp: completedAt,
-        eventName: "startup.reconciliation.completed",
+        eventName: "queue.rehydration.completed",
       })
       yield* emitEvent(completedEvent).pipe(
         Effect.mapError((error) =>
@@ -214,11 +211,54 @@ export const ReconcilerLive = Layer.effect(
         ),
       )
 
-      return jobs
+      return retryableJobs
+    })
+
+    const repairCupsTrackedJobs = Effect.fn("Reconciler.repairCupsTrackedJobs")(function* () {
+      const startedAt = new Date(yield* Clock.currentTimeMillis).toISOString()
+      const startedEvent = new WideEvent({
+        timestamp: startedAt,
+        eventName: "cups.job.repair.started",
+      })
+      yield* emitEvent(startedEvent).pipe(
+        Effect.mapError((error) =>
+          new StartupRecoveryFailed({ message: String(error) }),
+        ),
+      )
+
+      const jobs = yield* jobRepo.listNonTerminal().pipe(
+        Effect.mapError((error) =>
+          new StartupRecoveryFailed({ message: error.message }),
+        ),
+      )
+      const cupsTrackedJobs = jobs.filter((job) => cupsTrackedStates.has(job.state))
+
+      yield* Effect.forEach(cupsTrackedJobs, (job) => reconcileCupsTrackedJob(job))
+
+      const completedAt = new Date(yield* Clock.currentTimeMillis).toISOString()
+      const completedEvent = new WideEvent({
+        timestamp: completedAt,
+        eventName: "cups.job.repair.completed",
+      })
+      yield* emitEvent(completedEvent).pipe(
+        Effect.mapError((error) =>
+          new StartupRecoveryFailed({ message: String(error) }),
+        ),
+      )
+
+      return cupsTrackedJobs
+    })
+
+    const recoverStartup = Effect.fn("Reconciler.recoverStartup")(function* () {
+      const rehydratedJobs = yield* rehydrateRetryableJobs()
+      const repairedJobs = yield* repairCupsTrackedJobs()
+      return [...rehydratedJobs, ...repairedJobs] as const
     })
 
     return Reconciler.of({
-      reconcileStartup,
+      rehydrateRetryableJobs,
+      repairCupsTrackedJobs,
+      recoverStartup,
     })
   }),
 )

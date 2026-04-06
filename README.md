@@ -10,7 +10,7 @@ Implemented so far:
 - Pure domain model, typed operational errors, and explicit state machine
 - Scripted testkit with in-memory and fault-injection layers
 - File-backed blob store, job repository, and durable event outbox
-- Startup reconciliation and queue re-enqueueing
+- Startup recovery with queue rehydration and targeted CUPS job repair
 - Live CUPS CLI adapter based on `lp` and `lpstat`
 - Local HTTP API with health and status endpoints
 - Internal heartbeat emission and local smoke testing
@@ -50,7 +50,7 @@ Key rules enforced in the current implementation:
 - External interactions are hidden behind Effect services
 - Operational failures are typed domain errors, not raw exceptions
 - `SubmissionUncertain` is explicit and blocks blind re-submit
-- Startup reconciliation is mandatory and re-enqueues retryable jobs
+- Startup recovery is mandatory and rehydrates retryable jobs
 
 Important services:
 
@@ -388,7 +388,7 @@ lpstat -t
 `Printer unavailable`
 
 - the worker moves jobs into `WaitingForPrinter`
-- startup reconciliation will reload them after restart
+- startup recovery will rehydrate them after restart
 
 `CUPS unavailable`
 
@@ -398,7 +398,7 @@ lpstat -t
 `Submission uncertain`
 
 - the job enters `SubmissionUncertain`
-- the system will not blindly resubmit until reconciliation determines what happened
+- the system will not blindly resubmit until CUPS job repair determines what happened
 
 `Telemetry unavailable`
 

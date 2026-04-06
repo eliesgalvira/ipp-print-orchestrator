@@ -52,17 +52,6 @@ const program = Effect.scoped(
       }),
     )
 
-    const reconcileLoop = Effect.forever(
-      Effect.gen(function* () {
-        yield* reconciler.reconcileStartup().pipe(
-          Effect.catch((error) =>
-            Console.error(`startup reconciliation failed: ${error.message}`),
-          ),
-        )
-        yield* Effect.sleep(config.reconcileIntervalMs)
-      }),
-    )
-
     const usbHotplugObservationLoop = Effect.gen(function* () {
       const deviceUri = yield* cupsClient.getPrinterDeviceUri().pipe(
         Effect.catch(() => Effect.succeed(null)),
@@ -101,6 +90,11 @@ const program = Effect.scoped(
     )
 
     yield* observeStatus("cold-start")
+    yield* reconciler.recoverStartup().pipe(
+      Effect.catch((error) =>
+        Console.error(`startup recovery failed: ${error.message}`),
+      ),
+    )
 
     return yield* Effect.all(
       [
@@ -110,7 +104,6 @@ const program = Effect.scoped(
           ),
         ),
         workerLoop,
-        reconcileLoop,
         usbHotplugObservationLoop,
         cupsEventStream.run(),
         heartbeatLoop,

@@ -18,10 +18,12 @@ export const WideEventName = Schema.Literals([
   "print.job.failed",
   "queue.job.enqueued",
   "queue.job.dequeued",
+  "queue.rehydration.started",
+  "queue.rehydration.completed",
+  "cups.job.repair.started",
+  "cups.job.repair.completed",
   "http.request.completed",
   "heartbeat",
-  "startup.reconciliation.started",
-  "startup.reconciliation.completed",
 ])
 
 export type WideEventName = typeof WideEventName.Type
