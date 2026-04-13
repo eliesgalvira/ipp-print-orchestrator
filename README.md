@@ -104,6 +104,7 @@ The app reads configuration from environment variables. The most important setti
 - `IPP_ORCH_PRINTER_NAME`
 - `IPP_ORCH_BIND_HOST`
 - `IPP_ORCH_BIND_PORT`
+- `IPP_ORCH_USB_SYSFS_ROOT`
 - `IPP_ORCH_HEARTBEAT_INTERVAL_MS`
 - `IPP_ORCH_RECONCILE_INTERVAL_MS`
 
@@ -113,7 +114,7 @@ Deprecated compatibility setting:
   - ignored by the current runtime
   - older installs may still have it in `/etc/ipp-print-orchestrator.env` from the previous polling-based design
 
-For local USB printers, the runtime checks both the configured CUPS queue and whether the queue's device URI is currently present in `lpinfo -v`. This lets the orchestrator treat a powered-off or disconnected USB printer as unavailable before handing jobs to CUPS.
+For local USB printers, the runtime checks both the configured CUPS queue and Linux USB presence under sysfs. USB hotplug events trigger a sysfs-backed attachment refresh, and cold-start status hydrates the same state without running `lpinfo -v` on the request path.
 
 Mandatory printer setup for home/USB printers:
 

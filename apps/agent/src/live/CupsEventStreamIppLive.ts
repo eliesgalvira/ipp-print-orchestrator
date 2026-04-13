@@ -183,12 +183,25 @@ const jobNotificationEvents = new Set([
   "job-stopped",
 ])
 
+const printerNotificationEvents = new Set([
+  "printer-modified",
+  "printer-state-changed",
+])
+
 export const notificationsIncludeJobEvent = (
   notifications: readonly Record<string, unknown>[],
 ): boolean =>
   notifications.some((notification) => {
     const eventName = notification["notify-subscribed-event"]
     return typeof eventName === "string" && jobNotificationEvents.has(eventName)
+  })
+
+export const notificationsIncludePrinterEvent = (
+  notifications: readonly Record<string, unknown>[],
+): boolean =>
+  notifications.some((notification) => {
+    const eventName = notification["notify-subscribed-event"]
+    return typeof eventName === "string" && printerNotificationEvents.has(eventName)
   })
 
 export const extractNotifyGetIntervalSeconds = (
@@ -328,12 +341,13 @@ export const CupsEventStreamIppLive = Layer.effect(
         const maxSeen = maxNotificationSequenceNumber(notifications)
         const notifyGetIntervalSeconds = extractNotifyGetIntervalSeconds(response)
         const hasJobEvent = notificationsIncludeJobEvent(notifications)
+        const hasPrinterEvent = notificationsIncludePrinterEvent(notifications)
 
         if (maxSeen >= nextSequenceNumber) {
           nextSequenceNumber = maxSeen + 1
         }
 
-        if (notifications.length > 0) {
+        if (hasPrinterEvent) {
           yield* statusRuntime.observeNow("cups-notification").pipe(
             Effect.catch(() => Effect.void),
           )

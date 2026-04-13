@@ -6,6 +6,7 @@ import {
   getNotificationsRequestMessage,
   maxNotificationSequenceNumber,
   notificationsIncludeJobEvent,
+  notificationsIncludePrinterEvent,
   notificationRecords,
 } from "./CupsEventStreamIppLive.js"
 
@@ -95,6 +96,22 @@ describe("CupsEventStreamIppLive", () => {
     expect(
       notificationsIncludeJobEvent([
         { "notify-subscribed-event": "printer-state-changed" },
+      ]),
+    ).toBe(false)
+  })
+
+  it("detects printer notifications that should trigger full status observation", () => {
+    expect(
+      notificationsIncludePrinterEvent([
+        { "notify-subscribed-event": "job-progress" },
+        { "notify-subscribed-event": "printer-state-changed" },
+      ]),
+    ).toBe(true)
+
+    expect(
+      notificationsIncludePrinterEvent([
+        { "notify-subscribed-event": "job-progress" },
+        { "notify-subscribed-event": "job-completed" },
       ]),
     ).toBe(false)
   })
