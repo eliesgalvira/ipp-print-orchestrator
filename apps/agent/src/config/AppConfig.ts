@@ -6,6 +6,7 @@ export interface AppConfigShape {
   readonly printerName: string
   readonly bindHost: string
   readonly bindPort: number
+  readonly usbSysfsRoot: string
   readonly statusObservationIntervalMs: number
   readonly heartbeatIntervalMs: number
   readonly reconcileIntervalMs: number
@@ -32,6 +33,9 @@ export class AppConfig extends ServiceMap.Service<
       const bindPort = yield* Config.int("IPP_ORCH_BIND_PORT").pipe(
         Config.withDefault(4310),
       )
+      const usbSysfsRoot = yield* Config.string("IPP_ORCH_USB_SYSFS_ROOT").pipe(
+        Config.withDefault("/sys/bus/usb/devices"),
+      )
       const statusObservationIntervalMs = yield* Config.int(
         "IPP_ORCH_STATUS_OBSERVATION_INTERVAL_MS",
       ).pipe(Config.withDefault(10_000))
@@ -53,6 +57,7 @@ export class AppConfig extends ServiceMap.Service<
         printerName,
         bindHost,
         bindPort,
+        usbSysfsRoot,
         statusObservationIntervalMs,
         heartbeatIntervalMs,
         reconcileIntervalMs,
