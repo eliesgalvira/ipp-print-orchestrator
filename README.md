@@ -35,6 +35,7 @@ apps/agent/
     services/
     util/
 packages/shared/
+packages/ipp/
 packages/testkit/
 scripts/
 systemd/
@@ -310,9 +311,11 @@ The runtime now emits canonical change events for network, CUPS, and printer sta
 
 By default, the daemon uses Linux USB hotplug events for USB printer attach/detach detection and an IPP notification stream for CUPS/printer state changes. The old periodic status observation loop has been removed from the daemon hot path.
 
-The CUPS notification stream now uses a local IPP request serializer for subscription-related operations instead of relying on the upstream `ipp` package request path. This is intentional: the package serializer dropped `subscription-attributes-tag` on outbound requests, which caused CUPS to reject `Create-Printer-Subscriptions` with `client-error-bad-request` and `status-message="No subscription attributes in request."`
+The CUPS notification stream now uses the in-repo `packages/ipp/` workspace package for IPP codec, transport, and subscription helpers instead of relying on the stale upstream `ipp` package request path. This is intentional: the upstream serializer dropped `subscription-attributes-tag` on outbound requests, which caused CUPS to reject `Create-Printer-Subscriptions` with `client-error-bad-request` and `status-message="No subscription attributes in request."`
 
 If you see a wide event with `observationReason="cups-stream-disconnect"` and a `printerMessage` like `IPP Create-Printer-Subscriptions request failed: client-error-bad-request (status-message="No subscription attributes in request.")`, the daemon is failing to establish the notification subscription. That symptom should no longer happen with the in-repo serializer path unless the local CUPS server is rejecting the request for some other reason.
+
+For a package-level reference of the local IPP library surface, see `docs/ipp-package.md`.
 
 `network.status.changed` remains a local durable fact, but should not be treated as a guaranteed remote Axiom fact during internet outages until a replay worker exists for the local outbox.
 

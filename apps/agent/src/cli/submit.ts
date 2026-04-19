@@ -1,11 +1,13 @@
-import * as FileSystem from "effect/FileSystem"
+import { randomUUID } from "node:crypto"
 import { NodeFileSystem, NodePath, NodeRuntime } from "@effect/platform-node"
 import { Console, Effect, Layer } from "effect"
-import { randomUUID } from "node:crypto"
-
-import { MainLayer } from "../live/MainLayer.js"
+import * as FileSystem from "effect/FileSystem"
 import { JobId } from "../domain/JobId.js"
-import { startObservability, withObservability } from "../observability/index.js"
+import { MainLayer } from "../live/MainLayer.js"
+import {
+  startObservability,
+  withObservability,
+} from "../observability/index.js"
 import { Orchestrator } from "../services/Orchestrator.js"
 import { loadAppEnv } from "../util/loadAppEnv.js"
 
@@ -49,10 +51,7 @@ const appLayer = MainLayer.pipe(
   Layer.provide(NodePath.layer),
 )
 
-const runtimeLayer = Layer.mergeAll(
-  NodeFileSystem.layer,
-  appLayer,
-)
+const runtimeLayer = Layer.mergeAll(NodeFileSystem.layer, appLayer)
 
 program.pipe(
   withObservability,

@@ -4,7 +4,10 @@ import * as ChildProcess from "effect/unstable/process/ChildProcess"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 
 import { MainLayer } from "../live/MainLayer.js"
-import { startObservability, withObservability } from "../observability/index.js"
+import {
+  startObservability,
+  withObservability,
+} from "../observability/index.js"
 import { CupsClient } from "../services/CupsClient.js"
 import { CupsEventStream } from "../services/CupsEventStream.js"
 import { Orchestrator } from "../services/Orchestrator.js"
@@ -27,11 +30,15 @@ export const workerProgram = Effect.scoped(
     const childProcessSpawner = yield* ChildProcessSpawner
 
     const observeStatus = (reason: string) =>
-      statusRuntime.observeNow(reason).pipe(
-        Effect.catch((error) =>
-          Console.error(`status observation failed: ${error._tag}: ${error.message}`),
-        ),
-      )
+      statusRuntime
+        .observeNow(reason)
+        .pipe(
+          Effect.catch((error) =>
+            Console.error(
+              `status observation failed: ${error._tag}: ${error.message}`,
+            ),
+          ),
+        )
 
     const workerLoop = Effect.forever(
       Effect.gen(function* () {
@@ -48,37 +55,41 @@ export const workerProgram = Effect.scoped(
     )
 
     const usbHotplugObservationLoop = Effect.gen(function* () {
-      const deviceUri = yield* cupsClient.getPrinterDeviceUri().pipe(
-        Effect.catch(() => Effect.succeed(null)),
-      )
+      const deviceUri = yield* cupsClient
+        .getPrinterDeviceUri()
+        .pipe(Effect.catch(() => Effect.succeed(null)))
 
       if (deviceUri === null || !deviceUri.startsWith("usb://")) {
         return yield* Effect.never
       }
 
-      yield* childProcessSpawner.streamLines(
-        ChildProcess.make("udevadm", [
-          "monitor",
-          "--udev",
-          "--subsystem-match=usb",
-          "--property",
-        ]),
-        { includeStderr: true },
-      ).pipe(
-        Stream.filter((line) => line.startsWith("UDEV")),
-        Stream.runForEach(() => observeStatus("udev-usb-event")),
-        Effect.catch((error) =>
-          Console.error(`usb hotplug monitor failed: ${String(error)}`),
-        ),
-      )
+      yield* childProcessSpawner
+        .streamLines(
+          ChildProcess.make("udevadm", [
+            "monitor",
+            "--udev",
+            "--subsystem-match=usb",
+            "--property",
+          ]),
+          { includeStderr: true },
+        )
+        .pipe(
+          Stream.filter((line) => line.startsWith("UDEV")),
+          Stream.runForEach(() => observeStatus("udev-usb-event")),
+          Effect.catch((error) =>
+            Console.error(`usb hotplug monitor failed: ${String(error)}`),
+          ),
+        )
     })
 
     yield* observeStatus("cold-start")
-    yield* reconciler.recoverStartup().pipe(
-      Effect.catch((error) =>
-        Console.error(`startup recovery failed: ${error.message}`),
-      ),
-    )
+    yield* reconciler
+      .recoverStartup()
+      .pipe(
+        Effect.catch((error) =>
+          Console.error(`startup recovery failed: ${error.message}`),
+        ),
+      )
     yield* Effect.forkScoped(workerLoop)
     yield* Effect.forkScoped(usbHotplugObservationLoop)
     yield* Effect.forkScoped(cupsEventStream.run())

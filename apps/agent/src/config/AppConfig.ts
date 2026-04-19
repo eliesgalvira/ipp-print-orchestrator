@@ -14,10 +14,9 @@ export interface AppConfigShape {
   readonly enableOtlp: boolean
 }
 
-export class AppConfig extends ServiceMap.Service<
-  AppConfig,
-  AppConfigShape
->()("@ipp/agent/AppConfig") {
+export class AppConfig extends ServiceMap.Service<AppConfig, AppConfigShape>()(
+  "@ipp/agent/AppConfig",
+) {
   static readonly layer = Layer.effect(
     AppConfig,
     Effect.gen(function* () {

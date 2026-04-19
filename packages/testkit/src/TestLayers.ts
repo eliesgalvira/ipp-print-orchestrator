@@ -2,27 +2,27 @@ import { Clock, Effect, Layer, Queue } from "effect"
 
 import { AppConfig } from "../../../apps/agent/src/config/AppConfig.js"
 import type { JobId } from "../../../apps/agent/src/domain/JobId.js"
+import { WideEventPublisherLive } from "../../../apps/agent/src/live/WideEventPublisherLive.js"
 import {
   makeQueueEvent,
   WideEventPublisher,
 } from "../../../apps/agent/src/observability/WideEventPublisher.js"
 import { Orchestrator } from "../../../apps/agent/src/services/Orchestrator.js"
 import { QueueRuntime } from "../../../apps/agent/src/services/QueueRuntime.js"
-import { WideEventPublisherLive } from "../../../apps/agent/src/live/WideEventPublisherLive.js"
 import { layer as blobStoreLayer } from "./InMemoryBlobStore.js"
 import { layer as eventSinkLayer } from "./InMemoryEventSink.js"
 import { layer as jobRepoLayer } from "./InMemoryJobRepo.js"
 import {
-  layer as scriptedCupsClientLayer,
   type CupsSubmitStep,
+  layer as scriptedCupsClientLayer,
 } from "./ScriptedCupsClient.js"
 import {
-  layer as scriptedNetworkProbeLayer,
   type NetworkProbeStep,
+  layer as scriptedNetworkProbeLayer,
 } from "./ScriptedNetworkProbe.js"
 import {
-  layer as scriptedPrinterProbeLayer,
   type PrinterProbeStep,
+  layer as scriptedPrinterProbeLayer,
 } from "./ScriptedPrinterProbe.js"
 import { layer as telemetryLayer } from "./TestTelemetry.js"
 
@@ -36,28 +36,32 @@ const queueRuntimeLayer = Layer.effect(
       yield* Queue.offer(queue, jobId).pipe(Effect.asVoid)
       const queueDepth = yield* Queue.size(queue)
       const timestamp = new Date(yield* Clock.currentTimeMillis).toISOString()
-      yield* wideEventPublisher.emit(
-        makeQueueEvent({
-          timestamp,
-          eventName: "queue.job.enqueued",
-          printId: jobId,
-          queueDepth,
-        }),
-      ).pipe(Effect.catch(() => Effect.void))
+      yield* wideEventPublisher
+        .emit(
+          makeQueueEvent({
+            timestamp,
+            eventName: "queue.job.enqueued",
+            printId: jobId,
+            queueDepth,
+          }),
+        )
+        .pipe(Effect.catch(() => Effect.void))
     })
 
     const take = Effect.fn("QueueRuntime.take")(function* () {
       const jobId = yield* Queue.take(queue)
       const queueDepth = yield* Queue.size(queue)
       const timestamp = new Date(yield* Clock.currentTimeMillis).toISOString()
-      yield* wideEventPublisher.emit(
-        makeQueueEvent({
-          timestamp,
-          eventName: "queue.job.dequeued",
-          printId: jobId,
-          queueDepth,
-        }),
-      ).pipe(Effect.catch(() => Effect.void))
+      yield* wideEventPublisher
+        .emit(
+          makeQueueEvent({
+            timestamp,
+            eventName: "queue.job.dequeued",
+            printId: jobId,
+            queueDepth,
+          }),
+        )
+        .pipe(Effect.catch(() => Effect.void))
       return jobId
     })
 
@@ -74,9 +78,15 @@ const queueRuntimeLayer = Layer.effect(
 )
 
 export interface TestLayerOptions {
-  readonly printer: readonly [PrinterProbeStep, ...readonly PrinterProbeStep[]]
-  readonly cups: readonly [CupsSubmitStep, ...readonly CupsSubmitStep[]]
-  readonly network?: readonly [NetworkProbeStep, ...readonly NetworkProbeStep[]]
+  readonly printer: readonly [
+    PrinterProbeStep,
+    ...(readonly PrinterProbeStep[]),
+  ]
+  readonly cups: readonly [CupsSubmitStep, ...(readonly CupsSubmitStep[])]
+  readonly network?: readonly [
+    NetworkProbeStep,
+    ...(readonly NetworkProbeStep[]),
+  ]
   readonly failTelemetry?: boolean
 }
 
@@ -111,15 +121,9 @@ export const makeTestLayer = (options: TestLayerOptions) => {
     Layer.provideMerge(supportLayer),
   )
 
-  const runtimeLayer = queueRuntimeLayer.pipe(
-    Layer.provideMerge(eventLayer),
-  )
+  const runtimeLayer = queueRuntimeLayer.pipe(Layer.provideMerge(eventLayer))
 
-  const baseLayer = Layer.mergeAll(
-    supportLayer,
-    eventLayer,
-    runtimeLayer,
-  )
+  const baseLayer = Layer.mergeAll(supportLayer, eventLayer, runtimeLayer)
 
   const orchestratorLayer = Orchestrator.layer.pipe(
     Layer.provideMerge(baseLayer),

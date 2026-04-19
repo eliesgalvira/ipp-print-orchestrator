@@ -1,16 +1,17 @@
-import * as FileSystem from "effect/FileSystem"
 import { Effect, Layer, Schema } from "effect"
+import * as FileSystem from "effect/FileSystem"
 import * as Path from "effect/Path"
 
-import {
-  BlobStoreDiskFull,
-  BlobStoreUnavailable,
-} from "../domain/Errors.js"
+import { BlobStoreDiskFull, BlobStoreUnavailable } from "../domain/Errors.js"
 import type { JobId } from "../domain/JobId.js"
 import { BlobStore } from "../services/BlobStore.js"
 import { decodeJson, encodeJson } from "../util/Json.js"
 import { makeAppPaths } from "../util/Paths.js"
-import { ensureAppDirectories, writeFileAtomic, writeFileStringAtomic } from "./FileSupport.js"
+import {
+  ensureAppDirectories,
+  writeFileAtomic,
+  writeFileStringAtomic,
+} from "./FileSupport.js"
 
 const mapBlobError = (error: unknown) =>
   String(error).toLowerCase().includes("no space") ||
@@ -32,8 +33,8 @@ export const BlobStoreLive = Layer.effect(
     const paths = yield* makeAppPaths
 
     yield* ensureAppDirectories(paths, fs).pipe(
-      Effect.mapError((error) =>
-        new BlobStoreUnavailable({ message: String(error) }),
+      Effect.mapError(
+        (error) => new BlobStoreUnavailable({ message: String(error) }),
       ),
     )
 
@@ -64,13 +65,13 @@ export const BlobStoreLive = Layer.effect(
 
     const getInfo = (jobId: JobId) =>
       fs.readFileString(paths.metadataFile(jobId)).pipe(
-        Effect.mapError((error) =>
-          new BlobStoreUnavailable({ message: String(error) }),
+        Effect.mapError(
+          (error) => new BlobStoreUnavailable({ message: String(error) }),
         ),
         Effect.flatMap((json) =>
           decodeJson(BlobMetadata)(json).pipe(
-            Effect.mapError((error) =>
-              new BlobStoreUnavailable({ message: String(error) }),
+            Effect.mapError(
+              (error) => new BlobStoreUnavailable({ message: String(error) }),
             ),
           ),
         ),
@@ -79,11 +80,13 @@ export const BlobStoreLive = Layer.effect(
     const getOriginal = (jobId: JobId) =>
       Effect.gen(function* () {
         const info = yield* getInfo(jobId)
-        return yield* fs.readFile(info.path).pipe(
-          Effect.mapError((error) =>
-            new BlobStoreUnavailable({ message: String(error) }),
-          ),
-        )
+        return yield* fs
+          .readFile(info.path)
+          .pipe(
+            Effect.mapError(
+              (error) => new BlobStoreUnavailable({ message: String(error) }),
+            ),
+          )
       })
 
     return BlobStore.of({

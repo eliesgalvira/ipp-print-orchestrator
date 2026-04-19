@@ -1,7 +1,6 @@
 import { describe, expect, it } from "@effect/vitest"
-
-import { createJob, transitionJob } from "./StateMachine.js"
 import { JobId } from "./JobId.js"
+import { createJob, transitionJob } from "./StateMachine.js"
 
 const createdAt = "2026-03-09T00:00:00.000Z"
 
@@ -57,7 +56,11 @@ describe("StateMachine", () => {
       return
     }
 
-    const completed = transitionJob(submitted.job, { _tag: "Completed" }, createdAt)
+    const completed = transitionJob(
+      submitted.job,
+      { _tag: "Completed" },
+      createdAt,
+    )
     expect(completed._tag).toBe("TransitionApplied")
     if (completed._tag !== "TransitionApplied") {
       return

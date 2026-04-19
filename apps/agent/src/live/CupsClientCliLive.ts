@@ -1,5 +1,5 @@
-import * as FileSystem from "effect/FileSystem"
 import { Effect, Layer } from "effect"
+import * as FileSystem from "effect/FileSystem"
 import * as Path from "effect/Path"
 import * as ChildProcess from "effect/unstable/process/ChildProcess"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
@@ -28,7 +28,9 @@ export const parseLpSubmitOutput = (output: string): string => {
   return match[1]
 }
 
-export const parseLpstatJobsOutput = (output: string): readonly CupsJobSummary[] =>
+export const parseLpstatJobsOutput = (
+  output: string,
+): readonly CupsJobSummary[] =>
   output
     .split("\n")
     .map((line) => line.trim())
@@ -49,16 +51,18 @@ export const parseLpstatJobsOutput = (output: string): readonly CupsJobSummary[]
 export const parseLpstatPrinterOutput = (output: string): PrinterSummary => {
   const normalized = output.trim()
   const match = normalized.match(/^printer\s+(\S+)\s+(is|now)\s+(.+)$/i)
-  if (match?.[1] === undefined || match[2] === undefined || match[3] === undefined) {
+  if (
+    match?.[1] === undefined ||
+    match[2] === undefined ||
+    match[3] === undefined
+  ) {
     throw new Error(`Unable to parse lpstat printer output: ${output}`)
   }
 
   const verb = match[2].toLowerCase()
   const rawStatus = match[3]
   const status =
-    verb === "now"
-      ? "printing"
-      : rawStatus.split(".")[0] ?? rawStatus
+    verb === "now" ? "printing" : (rawStatus.split(".")[0] ?? rawStatus)
 
   return {
     printerName: match[1],
@@ -105,8 +109,8 @@ export const CupsClientCliLive = Layer.effect(
     const paths = yield* makeAppPaths
 
     yield* ensureAppDirectories(paths, fs).pipe(
-      Effect.mapError((error) =>
-        new CupsUnavailable({ message: String(error) }),
+      Effect.mapError(
+        (error) => new CupsUnavailable({ message: String(error) }),
       ),
     )
 
@@ -123,32 +127,37 @@ export const CupsClientCliLive = Layer.effect(
         "cups.printer_name": job.printerName,
       })
 
-        const tempPath = path.join(paths.tmpDir, `${String(job.id)}-${job.fileName}`)
-        yield* writeFileAtomic(fs, path, tempPath, bytes).pipe(
-          Effect.mapError((error) =>
-            new CupsCommandFailed({ message: String(error) }),
-          ),
-        )
+      const tempPath = path.join(
+        paths.tmpDir,
+        `${String(job.id)}-${job.fileName}`,
+      )
+      yield* writeFileAtomic(fs, path, tempPath, bytes).pipe(
+        Effect.mapError(
+          (error) => new CupsCommandFailed({ message: String(error) }),
+        ),
+      )
 
-        const output = yield* runString(
-          ChildProcess.make("lp", ["-d", job.printerName, tempPath]),
-        ).pipe(
-          Effect.mapError((error) =>
-            String(error).includes("No such file")
-              ? new CupsRejectedJob({ message: String(error) })
-              : new CupsUnavailable({ message: String(error) }),
-          ),
-        )
+      const output = yield* runString(
+        ChildProcess.make("lp", ["-d", job.printerName, tempPath]),
+      ).pipe(
+        Effect.mapError((error) =>
+          String(error).includes("No such file")
+            ? new CupsRejectedJob({ message: String(error) })
+            : new CupsUnavailable({ message: String(error) }),
+        ),
+      )
 
-        return yield* Effect.try({
-          try: () => ({ cupsJobId: parseLpSubmitOutput(output) }),
-          catch: (error) =>
-            new SubmissionUncertainError({ message: String(error) }),
-        })
+      return yield* Effect.try({
+        try: () => ({ cupsJobId: parseLpSubmitOutput(output) }),
+        catch: (error) =>
+          new SubmissionUncertainError({ message: String(error) }),
+      })
     })
 
     const listRecentJobs = Effect.fn("CupsClient.listRecentJobs")(function* () {
-      return yield* runString(ChildProcess.make("lpstat", ["-W", "not-completed", "-o"])).pipe(
+      return yield* runString(
+        ChildProcess.make("lpstat", ["-W", "not-completed", "-o"]),
+      ).pipe(
         Effect.mapError(mapCommandFailure),
         Effect.flatMap((output) =>
           Effect.try({
@@ -177,49 +186,68 @@ export const CupsClientCliLive = Layer.effect(
       )
     })
 
-    const getPrinterSummary = Effect.fn("CupsClient.getPrinterSummary")(function* () {
-      yield* Effect.annotateCurrentSpan("cups.printer_name", appConfig.printerName)
-      return yield* runString(ChildProcess.make("lpstat", ["-p", appConfig.printerName])).pipe(
-        Effect.mapError((error) =>
-          new CupsUnavailable({ message: String(error) }),
-        ),
-        Effect.flatMap((output) =>
-          Effect.try({
-            try: () => parseLpstatPrinterOutput(output),
-            catch: (error) => new CupsCommandFailed({ message: String(error) }),
-          }),
-        ),
-      )
-    })
+    const getPrinterSummary = Effect.fn("CupsClient.getPrinterSummary")(
+      function* () {
+        yield* Effect.annotateCurrentSpan(
+          "cups.printer_name",
+          appConfig.printerName,
+        )
+        return yield* runString(
+          ChildProcess.make("lpstat", ["-p", appConfig.printerName]),
+        ).pipe(
+          Effect.mapError(
+            (error) => new CupsUnavailable({ message: String(error) }),
+          ),
+          Effect.flatMap((output) =>
+            Effect.try({
+              try: () => parseLpstatPrinterOutput(output),
+              catch: (error) =>
+                new CupsCommandFailed({ message: String(error) }),
+            }),
+          ),
+        )
+      },
+    )
 
-    const getPrinterDeviceUri = Effect.fn("CupsClient.getPrinterDeviceUri")(function* () {
-      yield* Effect.annotateCurrentSpan("cups.printer_name", appConfig.printerName)
-      return yield* runString(ChildProcess.make("lpstat", ["-v", appConfig.printerName])).pipe(
-        Effect.mapError((error) =>
-          new CupsUnavailable({ message: String(error) }),
-        ),
-        Effect.flatMap((output) =>
-          Effect.try({
-            try: () => parseLpstatDeviceOutput(output).deviceUri,
-            catch: (error) => new CupsCommandFailed({ message: String(error) }),
-          }),
-        ),
-      )
-    })
+    const getPrinterDeviceUri = Effect.fn("CupsClient.getPrinterDeviceUri")(
+      function* () {
+        yield* Effect.annotateCurrentSpan(
+          "cups.printer_name",
+          appConfig.printerName,
+        )
+        return yield* runString(
+          ChildProcess.make("lpstat", ["-v", appConfig.printerName]),
+        ).pipe(
+          Effect.mapError(
+            (error) => new CupsUnavailable({ message: String(error) }),
+          ),
+          Effect.flatMap((output) =>
+            Effect.try({
+              try: () => parseLpstatDeviceOutput(output).deviceUri,
+              catch: (error) =>
+                new CupsCommandFailed({ message: String(error) }),
+            }),
+          ),
+        )
+      },
+    )
 
-    const listAvailableDevices = Effect.fn("CupsClient.listAvailableDevices")(function* () {
-      return yield* runString(ChildProcess.make("lpinfo", ["-v"])).pipe(
-        Effect.mapError((error) =>
-          new CupsUnavailable({ message: String(error) }),
-        ),
-        Effect.flatMap((output) =>
-          Effect.try({
-            try: () => parseLpinfoDevicesOutput(output),
-            catch: (error) => new CupsCommandFailed({ message: String(error) }),
-          }),
-        ),
-      )
-    })
+    const listAvailableDevices = Effect.fn("CupsClient.listAvailableDevices")(
+      function* () {
+        return yield* runString(ChildProcess.make("lpinfo", ["-v"])).pipe(
+          Effect.mapError(
+            (error) => new CupsUnavailable({ message: String(error) }),
+          ),
+          Effect.flatMap((output) =>
+            Effect.try({
+              try: () => parseLpinfoDevicesOutput(output),
+              catch: (error) =>
+                new CupsCommandFailed({ message: String(error) }),
+            }),
+          ),
+        )
+      },
+    )
 
     return CupsClient.of({
       submitFile,

@@ -22,7 +22,9 @@ export type CupsSubmitStep =
   | { readonly _tag: "CupsCommandFailed"; readonly message: string }
   | { readonly _tag: "SubmissionUncertain"; readonly message: string }
 
-export const layer = (steps: readonly [CupsSubmitStep, ...readonly CupsSubmitStep[]]) =>
+export const layer = (
+  steps: readonly [CupsSubmitStep, ...(readonly CupsSubmitStep[])],
+) =>
   Layer.effect(
     CupsClient,
     Effect.gen(function* () {
@@ -39,28 +41,42 @@ export const layer = (steps: readonly [CupsSubmitStep, ...readonly CupsSubmitSte
         | SubmissionUncertainError
       > = (_job, _bytes) =>
         script.next.pipe(
-          Effect.flatMap((step): Effect.Effect<
-            SubmitResult,
-            | CupsUnavailable
-            | CupsRejectedJob
-            | CupsCommandFailed
-            | SubmissionUncertainError
-          > => {
-            switch (step._tag) {
-              case "Submitted":
-                return Effect.succeed({ cupsJobId: step.cupsJobId })
-              case "CupsUnavailable":
-                return Effect.fail(new CupsUnavailable({ message: step.message }))
-              case "CupsRejectedJob":
-                return Effect.fail(new CupsRejectedJob({ message: step.message }))
-              case "CupsCommandFailed":
-                return Effect.fail(new CupsCommandFailed({ message: step.message }))
-              case "SubmissionUncertain":
-                return Effect.fail(
-                  new SubmissionUncertainError({ message: step.message }),
-                )
-            }
-          }),
+          Effect.flatMap(
+            (
+              step,
+            ): Effect.Effect<
+              SubmitResult,
+              | CupsUnavailable
+              | CupsRejectedJob
+              | CupsCommandFailed
+              | SubmissionUncertainError
+            > => {
+              switch (step._tag) {
+                case "Submitted":
+                  return Effect.succeed({ cupsJobId: step.cupsJobId })
+                case "CupsUnavailable":
+                  return Effect.fail(
+                    new CupsUnavailable({ message: step.message }),
+                  )
+                case "CupsRejectedJob":
+                  return Effect.fail(
+                    new CupsRejectedJob({ message: step.message }),
+                  )
+                case "CupsCommandFailed":
+                  return Effect.fail(
+                    new CupsCommandFailed({ message: step.message }),
+                  )
+                case "SubmissionUncertain":
+                  return Effect.fail(
+                    new SubmissionUncertainError({ message: step.message }),
+                  )
+                default:
+                  return Effect.die(
+                    `Unhandled scripted cups step: ${String(step)}`,
+                  )
+              }
+            },
+          ),
         )
 
       const getJobStatus = (cupsJobId: string) =>
@@ -87,9 +103,7 @@ export const layer = (steps: readonly [CupsSubmitStep, ...readonly CupsSubmitSte
         } satisfies PrinterSummary)
 
       const getPrinterDeviceUri = () =>
-        Effect.succeed(
-          "usb://test-printer?serial=scripted&interface=1",
-        )
+        Effect.succeed("usb://test-printer?serial=scripted&interface=1")
 
       const listAvailableDevices = () =>
         Effect.succeed([

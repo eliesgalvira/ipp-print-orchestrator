@@ -1,7 +1,6 @@
 import { Effect, Layer, Ref } from "effect"
-
-import type { JobId } from "../../../apps/agent/src/domain/JobId.js"
 import { BlobStoreUnavailable } from "../../../apps/agent/src/domain/Errors.js"
+import type { JobId } from "../../../apps/agent/src/domain/JobId.js"
 import { BlobStore } from "../../../apps/agent/src/services/BlobStore.js"
 
 interface StoredBlob {

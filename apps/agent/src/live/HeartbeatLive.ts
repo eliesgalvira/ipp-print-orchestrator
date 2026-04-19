@@ -1,5 +1,5 @@
-import { Clock, Effect, Layer, Ref } from "effect"
 import { hostname } from "node:os"
+import { Clock, Effect, Layer, Ref } from "effect"
 
 import { WideEvent } from "../domain/WideEvent.js"
 import { WideEventPublisher } from "../observability/WideEventPublisher.js"

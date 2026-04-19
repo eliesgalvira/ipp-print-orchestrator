@@ -56,7 +56,10 @@ describe("loadAppEnv", () => {
   it("does not let repo .env override shell-defined values", () => {
     const tempDir = mkdtempSync(join(tmpdir(), "ipp-env-"))
     try {
-      writeFileSync(join(tempDir, ".env"), "IPP_ORCH_PRINTER_NAME=from-dotenv\n")
+      writeFileSync(
+        join(tempDir, ".env"),
+        "IPP_ORCH_PRINTER_NAME=from-dotenv\n",
+      )
 
       withCwd(tempDir, () =>
         withEnv("IPP_ORCH_PRINTER_NAME", "from-shell", () => {

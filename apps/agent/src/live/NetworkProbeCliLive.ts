@@ -1,5 +1,5 @@
-import { Effect, Layer } from "effect"
 import { networkInterfaces } from "node:os"
+import { Effect, Layer } from "effect"
 
 import { NetworkProbe } from "../services/NetworkProbe.js"
 

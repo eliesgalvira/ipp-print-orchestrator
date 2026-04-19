@@ -6,14 +6,15 @@ import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
 import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
 import * as HttpRouter from "effect/unstable/http/HttpRouter"
 import * as HttpServer from "effect/unstable/http/HttpServer"
-
+import { makeTestLayer } from "../../../../packages/testkit/src/TestLayers.js"
 import { HeartbeatLive } from "../live/HeartbeatLive.js"
 import { StatusRuntimeLive } from "../live/StatusRuntimeLive.js"
 import { EventSink } from "../services/EventSink.js"
 import { HttpRoutes } from "./Routes.js"
-import { makeTestLayer } from "../../../../packages/testkit/src/TestLayers.js"
 
-class SubmitJobResponse extends Schema.Class<SubmitJobResponse>("SubmitJobResponse")({
+class SubmitJobResponse extends Schema.Class<SubmitJobResponse>(
+  "SubmitJobResponse",
+)({
   jobId: Schema.String,
   state: Schema.String,
 }) {}
@@ -94,7 +95,8 @@ describe("HttpRoutes", () => {
       expect(status.printerAttached).toBe(true)
       expect(status.printerQueueAvailable).toBe(true)
       expect(status.nonterminalJobCount).toBeGreaterThanOrEqual(1)
-    }).pipe(Effect.provide(NodeHttpServer.layerTest), Effect.provide(apiLayer)))
+    }).pipe(Effect.provide(NodeHttpServer.layerTest), Effect.provide(apiLayer)),
+  )
 
   it.effect("returns 400 for unsupported file types", () =>
     Effect.gen(function* () {
@@ -111,7 +113,8 @@ describe("HttpRoutes", () => {
       )
 
       expect(response.status).toBe(400)
-    }).pipe(Effect.provide(NodeHttpServer.layerTest), Effect.provide(apiLayer)))
+    }).pipe(Effect.provide(NodeHttpServer.layerTest), Effect.provide(apiLayer)),
+  )
 
   it.effect("emits canonical http request events", () =>
     Effect.gen(function* () {
@@ -132,7 +135,9 @@ describe("HttpRoutes", () => {
 
       const eventSink = yield* EventSink
       const events = yield* eventSink.all()
-      const httpEvents = events.filter((event) => event.eventName === "http.request.completed")
+      const httpEvents = events.filter(
+        (event) => event.eventName === "http.request.completed",
+      )
 
       expect(httpEvents.length).toBeGreaterThanOrEqual(2)
       expect(
@@ -153,5 +158,6 @@ describe("HttpRoutes", () => {
             event.printId === submit.jobId,
         ),
       ).toBe(true)
-    }).pipe(Effect.provide(NodeHttpServer.layerTest), Effect.provide(apiLayer)))
+    }).pipe(Effect.provide(NodeHttpServer.layerTest), Effect.provide(apiLayer)),
+  )
 })

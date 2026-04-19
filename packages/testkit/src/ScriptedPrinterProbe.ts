@@ -13,7 +13,7 @@ export type PrinterProbeStep = {
 }
 
 export const layer = (
-  steps: readonly [PrinterProbeStep, ...readonly PrinterProbeStep[]],
+  steps: readonly [PrinterProbeStep, ...(readonly PrinterProbeStep[])],
 ) =>
   Layer.effect(
     PrinterProbe,

@@ -1,18 +1,21 @@
-import { Effect } from "effect"
+import type { Effect } from "effect"
 import * as ServiceMap from "effect/ServiceMap"
 
-import { EventSinkUnavailable, TelemetryUnavailable } from "../domain/Errors.js"
+import type {
+  EventSinkUnavailable,
+  TelemetryUnavailable,
+} from "../domain/Errors.js"
 import type { Job } from "../domain/Job.js"
 import type { JobId } from "../domain/JobId.js"
-import { terminalJobStates, type JobState } from "../domain/JobState.js"
+import { type JobState, terminalJobStates } from "../domain/JobState.js"
 import { WideEvent } from "../domain/WideEvent.js"
 
 export class WideEventPublisher extends ServiceMap.Service<
   WideEventPublisher,
   {
-  readonly emit: (
-    event: WideEvent,
-  ) => Effect.Effect<void, EventSinkUnavailable | TelemetryUnavailable>
+    readonly emit: (
+      event: WideEvent,
+    ) => Effect.Effect<void, EventSinkUnavailable | TelemetryUnavailable>
   }
 >()("@ipp/agent/observability/WideEventPublisher") {}
 
@@ -71,7 +74,9 @@ export const makeHttpRequestCompletedEvent = (
     ...(input.requestId === undefined ? {} : { requestId: input.requestId }),
     ...(input.printId === undefined ? {} : { printId: input.printId }),
     ...(input.errorTag === undefined ? {} : { errorTag: input.errorTag }),
-    ...(input.errorMessage === undefined ? {} : { errorMessage: input.errorMessage }),
+    ...(input.errorMessage === undefined
+      ? {}
+      : { errorMessage: input.errorMessage }),
   })
 
 export interface JobOutcomeEventInput {
@@ -109,6 +114,8 @@ export const makeJobOutcomeEvent = (
       ? {}
       : { timeToTerminalMs: elapsedMs(input.job.createdAt, input.timestamp) }),
     ...(input.errorTag === undefined ? {} : { errorTag: input.errorTag }),
-    ...(input.errorMessage === undefined ? {} : { errorMessage: input.errorMessage }),
+    ...(input.errorMessage === undefined
+      ? {}
+      : { errorMessage: input.errorMessage }),
   })
 }

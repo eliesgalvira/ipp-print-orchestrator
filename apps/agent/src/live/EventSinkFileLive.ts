@@ -1,5 +1,5 @@
-import * as FileSystem from "effect/FileSystem"
 import { Effect, Layer } from "effect"
+import * as FileSystem from "effect/FileSystem"
 
 import { EventSinkUnavailable } from "../domain/Errors.js"
 import { WideEvent } from "../domain/WideEvent.js"
@@ -15,31 +15,35 @@ export const EventSinkFileLive = Layer.effect(
     const paths = yield* makeAppPaths
 
     yield* ensureAppDirectories(paths, fs).pipe(
-      Effect.mapError((error) =>
-        new EventSinkUnavailable({ message: String(error) }),
+      Effect.mapError(
+        (error) => new EventSinkUnavailable({ message: String(error) }),
       ),
     )
 
     const all = () =>
       Effect.gen(function* () {
-        const exists = yield* fs.exists(paths.outboxFile).pipe(
-          Effect.mapError((error) =>
-            new EventSinkUnavailable({ message: String(error) }),
-          ),
-        )
+        const exists = yield* fs
+          .exists(paths.outboxFile)
+          .pipe(
+            Effect.mapError(
+              (error) => new EventSinkUnavailable({ message: String(error) }),
+            ),
+          )
         if (!exists) {
           return [] as readonly WideEvent[]
         }
 
-        const contents = yield* fs.readFileString(paths.outboxFile).pipe(
-          Effect.mapError((error) =>
-            new EventSinkUnavailable({ message: String(error) }),
-          ),
-        )
+        const contents = yield* fs
+          .readFileString(paths.outboxFile)
+          .pipe(
+            Effect.mapError(
+              (error) => new EventSinkUnavailable({ message: String(error) }),
+            ),
+          )
 
         return yield* decodeJsonLines(WideEvent, contents).pipe(
-          Effect.mapError((error) =>
-            new EventSinkUnavailable({ message: String(error) }),
+          Effect.mapError(
+            (error) => new EventSinkUnavailable({ message: String(error) }),
           ),
         )
       })
@@ -47,17 +51,19 @@ export const EventSinkFileLive = Layer.effect(
     const append = (event: WideEvent) =>
       Effect.gen(function* () {
         const line = yield* encodeJson(WideEvent)(event).pipe(
-          Effect.mapError((error) =>
-            new EventSinkUnavailable({ message: String(error) }),
+          Effect.mapError(
+            (error) => new EventSinkUnavailable({ message: String(error) }),
           ),
         )
-        yield* fs.writeFileString(paths.outboxFile, `${line}\n`, {
-          flag: "a",
-        }).pipe(
-          Effect.mapError((error) =>
-            new EventSinkUnavailable({ message: String(error) }),
-          ),
-        )
+        yield* fs
+          .writeFileString(paths.outboxFile, `${line}\n`, {
+            flag: "a",
+          })
+          .pipe(
+            Effect.mapError(
+              (error) => new EventSinkUnavailable({ message: String(error) }),
+            ),
+          )
       })
 
     return EventSink.of({

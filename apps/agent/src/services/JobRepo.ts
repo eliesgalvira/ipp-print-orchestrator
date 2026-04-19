@@ -1,7 +1,7 @@
-import { Effect } from "effect"
+import type { Effect } from "effect"
 import * as ServiceMap from "effect/ServiceMap"
 
-import { JobRepoUnavailable } from "../domain/Errors.js"
+import type { JobRepoUnavailable } from "../domain/Errors.js"
 import type { Job } from "../domain/Job.js"
 import type { JobId } from "../domain/JobId.js"
 import type { WideEvent } from "../domain/WideEvent.js"
@@ -22,6 +22,9 @@ export class JobRepo extends ServiceMap.Service<
     readonly getTransitions: (
       jobId: JobId,
     ) => Effect.Effect<readonly WideEvent[], JobRepoUnavailable>
-    readonly listNonTerminal: () => Effect.Effect<readonly Job[], JobRepoUnavailable>
+    readonly listNonTerminal: () => Effect.Effect<
+      readonly Job[],
+      JobRepoUnavailable
+    >
   }
 >()("@ipp/agent/JobRepo") {}

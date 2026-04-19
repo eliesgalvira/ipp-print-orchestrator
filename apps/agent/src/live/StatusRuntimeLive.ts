@@ -1,5 +1,5 @@
-import { Clock, Effect, Layer, Ref } from "effect"
 import { hostname } from "node:os"
+import { Clock, Effect, Layer, Ref } from "effect"
 
 import { WideEvent } from "../domain/WideEvent.js"
 import { WideEventPublisher } from "../observability/WideEventPublisher.js"
@@ -8,8 +8,8 @@ import { NetworkProbe } from "../services/NetworkProbe.js"
 import { PrinterProbe } from "../services/PrinterProbe.js"
 import { QueueRuntime } from "../services/QueueRuntime.js"
 import {
-  StatusRuntime,
   type StatusObservationInput,
+  StatusRuntime,
   type StatusSnapshot,
 } from "../services/StatusRuntime.js"
 
@@ -48,16 +48,22 @@ const mergeObservedSnapshot = (
     timestamp: input.timestamp,
     hostname: input.hostname,
     observationReason: input.observationReason,
-    ...(input.networkOnline === undefined ? {} : { networkOnline: input.networkOnline }),
+    ...(input.networkOnline === undefined
+      ? {}
+      : { networkOnline: input.networkOnline }),
     ...(input.localIps === undefined ? {} : { localIps: [...input.localIps] }),
-    ...(input.cupsReachable === undefined ? {} : { cupsReachable: input.cupsReachable }),
+    ...(input.cupsReachable === undefined
+      ? {}
+      : { cupsReachable: input.cupsReachable }),
     ...(input.printerAttached === undefined
       ? {}
       : { printerAttached: input.printerAttached }),
     ...(input.printerQueueAvailable === undefined
       ? {}
       : { printerQueueAvailable: input.printerQueueAvailable }),
-    ...(input.printerState === undefined ? {} : { printerState: input.printerState }),
+    ...(input.printerState === undefined
+      ? {}
+      : { printerState: input.printerState }),
     ...(input.printerReasons === undefined
       ? {}
       : { printerReasons: [...input.printerReasons] }),
@@ -71,7 +77,8 @@ const sameStringArray = (
   left: readonly string[],
   right: readonly string[],
 ): boolean =>
-  left.length === right.length && left.every((value, index) => value === right[index])
+  left.length === right.length &&
+  left.every((value, index) => value === right[index])
 
 export const StatusRuntimeLive = Layer.effect(
   StatusRuntime,
@@ -81,11 +88,13 @@ export const StatusRuntimeLive = Layer.effect(
     const printerProbe = yield* PrinterProbe
     const queueRuntime = yield* QueueRuntime
     const jobRepo = yield* JobRepo
-    const lastObservedStatusRef = yield* Ref.make<EmittedStatusSnapshot | null>(null)
+    const lastObservedStatusRef = yield* Ref.make<EmittedStatusSnapshot | null>(
+      null,
+    )
 
-    const enrichWithCurrentCounts = Effect.fn("StatusRuntime.enrichWithCurrentCounts")(function* (
-      observed: EmittedStatusSnapshot,
-    ) {
+    const enrichWithCurrentCounts = Effect.fn(
+      "StatusRuntime.enrichWithCurrentCounts",
+    )(function* (observed: EmittedStatusSnapshot) {
       const queueDepth = yield* queueRuntime.size()
       const nonterminalJobs = yield* jobRepo.listNonTerminal()
 
@@ -105,7 +114,9 @@ export const StatusRuntimeLive = Layer.effect(
       } satisfies StatusSnapshot
     })
 
-    const emitStatusChangeEvents = Effect.fn("StatusRuntime.emitStatusChangeEvents")(function* (
+    const emitStatusChangeEvents = Effect.fn(
+      "StatusRuntime.emitStatusChangeEvents",
+    )(function* (
       previous: EmittedStatusSnapshot | null,
       current: EmittedStatusSnapshot,
     ) {
@@ -182,15 +193,23 @@ export const StatusRuntimeLive = Layer.effect(
       yield* Ref.set(lastObservedStatusRef, current)
     })
 
-    const recordObservedStatus = Effect.fn("StatusRuntime.recordObservedStatus")(function* (
-      input: StatusObservationInput,
-    ) {
+    const recordObservedStatus = Effect.fn(
+      "StatusRuntime.recordObservedStatus",
+    )(function* (input: StatusObservationInput) {
       const previousObservedStatus = yield* Ref.get(lastObservedStatusRef)
-      const currentObservedStatus = mergeObservedSnapshot(previousObservedStatus, input)
-      yield* emitStatusChangeEvents(previousObservedStatus, currentObservedStatus)
+      const currentObservedStatus = mergeObservedSnapshot(
+        previousObservedStatus,
+        input,
+      )
+      yield* emitStatusChangeEvents(
+        previousObservedStatus,
+        currentObservedStatus,
+      )
     })
 
-    const observeNow = Effect.fn("StatusRuntime.observeNow")(function* (reason: string) {
+    const observeNow = Effect.fn("StatusRuntime.observeNow")(function* (
+      reason: string,
+    ) {
       yield* Effect.annotateCurrentSpan({
         "status.observation_reason": reason,
       })
@@ -216,7 +235,9 @@ export const StatusRuntimeLive = Layer.effect(
 
       const currentObservedStatus = yield* Ref.get(lastObservedStatusRef)
       if (currentObservedStatus === null) {
-        return yield* Effect.die("StatusRuntime.observeNow did not persist status")
+        return yield* Effect.die(
+          "StatusRuntime.observeNow did not persist status",
+        )
       }
 
       return yield* enrichWithCurrentCounts(currentObservedStatus)

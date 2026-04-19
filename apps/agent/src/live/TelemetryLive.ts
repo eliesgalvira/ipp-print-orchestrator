@@ -11,12 +11,14 @@ export const TelemetryLive = Layer.succeed(
   Telemetry.of({
     emit: (event) =>
       encodeJson(WideEvent)(event).pipe(
-        Effect.mapError((error) =>
-          new TelemetryUnavailable({ message: String(error) }),
+        Effect.mapError(
+          (error) => new TelemetryUnavailable({ message: String(error) }),
         ),
         Effect.flatMap((json) =>
           Effect.gen(function* () {
-            const currentSpan = yield* Effect.currentParentSpan.pipe(Effect.option)
+            const currentSpan = yield* Effect.currentParentSpan.pipe(
+              Effect.option,
+            )
             yield* Console.log(json)
             yield* Effect.sync(() =>
               emitWideEventLog(event, Option.getOrUndefined(currentSpan)),

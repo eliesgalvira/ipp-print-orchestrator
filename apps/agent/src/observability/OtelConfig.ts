@@ -114,9 +114,10 @@ const resolveSignal = (
 export const readOtelConfig = (
   env: NodeJS.ProcessEnv = process.env,
 ): OtelConfig => {
-  const resourceAttributes = parseResourceAttributes(env.OTEL_RESOURCE_ATTRIBUTES)
-  const serviceName =
-    resourceAttributes["service.name"] ?? DEFAULT_SERVICE_NAME
+  const resourceAttributes = parseResourceAttributes(
+    env.OTEL_RESOURCE_ATTRIBUTES,
+  )
+  const serviceName = resourceAttributes["service.name"] ?? DEFAULT_SERVICE_NAME
 
   return {
     enabled: env.IPP_ORCH_ENABLE_OTLP === "true",

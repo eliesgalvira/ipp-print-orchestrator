@@ -1,5 +1,9 @@
-import { createRequire } from "node:module"
-
+import {
+  type IppAttributeGroup,
+  type IppMessage,
+  type IppRequestMessage,
+  makePrinter,
+} from "@ipp/ipp"
 import { Effect, Layer } from "effect"
 import { AppConfig } from "../config/AppConfig.js"
 import {
@@ -17,34 +21,19 @@ import {
   ippFailureMessage,
 } from "./IppFailureMessage.js"
 
-const require = createRequire(import.meta.url)
-const ipp = require("ipp") as {
-  readonly Printer: (
-    url: string,
-    options?: {
-      readonly uri?: string
-      readonly language?: string
-      readonly version?: string
-    },
-  ) => {
-    readonly execute: (
-      operation: string,
-      message: Record<string, unknown> | null,
-      callback: (error: unknown, response: Record<string, unknown>) => void,
-    ) => void
+type IppResponse = IppMessage &
+  IppFailureResponse & {
+    readonly "printer-attributes-tag"?:
+      | IppAttributeGroup
+      | readonly IppAttributeGroup[]
+    readonly "job-attributes-tag"?:
+      | IppAttributeGroup
+      | readonly IppAttributeGroup[]
   }
-}
-
-interface IppResponse extends IppFailureResponse {
-  readonly "printer-attributes-tag"?: Record<string, unknown>
-  readonly "job-attributes-tag"?:
-    | Record<string, unknown>
-    | readonly Record<string, unknown>[]
-}
 
 const singleRecord = (
   value: IppResponse["job-attributes-tag"],
-): Record<string, unknown> | null => {
+): IppAttributeGroup | null => {
   if (value === undefined) {
     return null
   }
@@ -53,7 +42,7 @@ const singleRecord = (
     return value[0] ?? null
   }
 
-  return value as Record<string, unknown>
+  return value
 }
 
 const printerHttpUrlForName = (printerName: string): string =>
@@ -69,50 +58,34 @@ const parseJobId = (cupsJobId: string): number | null => {
 
 const requestMessage = (
   attributes: Record<string, unknown>,
-): Record<string, unknown> => ({
+): IppRequestMessage => ({
   "operation-attributes-tag": attributes,
 })
 
-export const printerAttributesRequestMessage = (): Record<string, unknown> =>
+export const printerAttributesRequestMessage = (): IppRequestMessage =>
   requestMessage({
     "requested-attributes": ["all", "media-col-database"],
   })
 
-export const jobAttributesRequestMessage = (
-  jobId: number,
-): Record<string, unknown> =>
+export const jobAttributesRequestMessage = (jobId: number): IppRequestMessage =>
   requestMessage({
     "job-id": jobId,
   })
 
 const executeIpp = (
-  printerHttpUrl: string,
-  printerIppUri: string,
+  printer: ReturnType<typeof makePrinter>,
   operation: string,
-  message: Record<string, unknown> | null,
+  message: IppRequestMessage | null,
 ): Effect.Effect<IppResponse, CupsIppUnavailable> =>
-  Effect.tryPromise({
-    try: () =>
-      new Promise<IppResponse>((resolve, reject) => {
-        ipp
-          .Printer(printerHttpUrl, {
-            language: "en",
-            uri: printerIppUri,
-          })
-          .execute(operation, message, (error, response) => {
-            if (error) {
-              reject(error)
-              return
-            }
-
-            resolve(response as IppResponse)
-          })
-      }),
-    catch: (error) =>
-      new CupsIppUnavailable({
-        message: String(error),
-      }),
-  })
+  printer.execute(operation, message).pipe(
+    Effect.map((response) => response as IppResponse),
+    Effect.mapError(
+      (error) =>
+        new CupsIppUnavailable({
+          message: String(error),
+        }),
+    ),
+  )
 
 const ensureSuccessfulPrinterResponse = <A extends IppResponse>(
   operation: string,
@@ -160,6 +133,11 @@ export const CupsObserverIppLive = Layer.effect(
     const appConfig = yield* AppConfig
     const printerHttpUrl = printerHttpUrlForName(appConfig.printerName)
     const printerIppUri = printerIppUriForName(appConfig.printerName)
+    const printer = makePrinter({
+      endpoint: printerHttpUrl,
+      language: "en",
+      uri: printerIppUri,
+    })
 
     const observePrinter = Effect.fn("CupsObserver.observePrinter")(
       function* () {
@@ -169,8 +147,7 @@ export const CupsObserverIppLive = Layer.effect(
         })
 
         const response = yield* executeIpp(
-          printerHttpUrl,
-          printerIppUri,
+          printer,
           "Get-Printer-Attributes",
           printerAttributesRequestMessage(),
         ).pipe(
@@ -183,6 +160,11 @@ export const CupsObserverIppLive = Layer.effect(
         if (attrs === undefined) {
           return yield* new CupsIppProtocolError({
             message: "IPP printer response missing printer-attributes-tag",
+          })
+        }
+        if (Array.isArray(attrs)) {
+          return yield* new CupsIppProtocolError({
+            message: "IPP printer response repeated printer-attributes-tag",
           })
         }
 
@@ -223,8 +205,7 @@ export const CupsObserverIppLive = Layer.effect(
       }
 
       const response = yield* executeIpp(
-        printerHttpUrl,
-        printerIppUri,
+        printer,
         "Get-Job-Attributes",
         jobAttributesRequestMessage(jobId),
       ).pipe(

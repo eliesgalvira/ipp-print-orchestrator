@@ -1,11 +1,10 @@
-import { Effect } from "effect"
+import type { Effect } from "effect"
 import * as ServiceMap from "effect/ServiceMap"
-
-import type { JobId } from "../domain/JobId.js"
-import {
+import type {
   BlobStoreDiskFull,
   BlobStoreUnavailable,
 } from "../domain/Errors.js"
+import type { JobId } from "../domain/JobId.js"
 
 export interface StoredBlobInfo {
   readonly path: string

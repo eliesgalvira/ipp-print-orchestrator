@@ -2,10 +2,7 @@ import { Clock, Effect, Layer } from "effect"
 import * as ServiceMap from "effect/ServiceMap"
 
 import { AppConfig } from "../config/AppConfig.js"
-import {
-  type OperationalError,
-  UnsupportedFileType,
-} from "../domain/Errors.js"
+import { type OperationalError, UnsupportedFileType } from "../domain/Errors.js"
 import type { Job } from "../domain/Job.js"
 import type { JobId } from "../domain/JobId.js"
 import { createJob, transitionJob } from "../domain/StateMachine.js"
@@ -35,9 +32,7 @@ export class Orchestrator extends ServiceMap.Service<
     readonly submit: (
       input: SubmitJobInput,
     ) => Effect.Effect<Job, OperationalError>
-    readonly processJob: (
-      jobId: JobId,
-    ) => Effect.Effect<Job, OperationalError>
+    readonly processJob: (jobId: JobId) => Effect.Effect<Job, OperationalError>
   }
 >()("@ipp/agent/Orchestrator") {
   static readonly layer = Layer.effect(
@@ -144,113 +139,118 @@ export class Orchestrator extends ServiceMap.Service<
         yield* jobRepo.appendTransition(initialJob.id, receivedEvent)
         yield* persistEvent(receivedEvent)
 
-        const storedJob = yield* applyTransition(initialJob, { _tag: "Stored" }, occurredAt)
-        const queuedJob = yield* applyTransition(storedJob, { _tag: "Queued" }, occurredAt)
+        const storedJob = yield* applyTransition(
+          initialJob,
+          { _tag: "Stored" },
+          occurredAt,
+        )
+        const queuedJob = yield* applyTransition(
+          storedJob,
+          { _tag: "Queued" },
+          occurredAt,
+        )
 
         yield* queueRuntime.enqueue(queuedJob.id)
 
         return queuedJob
       })
 
-      const processJob: (
-        jobId: JobId,
-      ) => Effect.Effect<Job, OperationalError> = Effect.fn(
-        "Orchestrator.processJob",
-      )(function* (jobId: JobId) {
-        yield* Effect.annotateCurrentSpan("print.id", String(jobId))
-        const network = yield* networkProbe.status()
-        if (!network.online) {
-          yield* Effect.void
-        }
-        const currentJob = yield* jobRepo.get(jobId)
-        yield* Effect.annotateCurrentSpan({
-          "print.file_name": currentJob.fileName,
-          "print.printer_name": currentJob.printerName,
-          "print.request_id": currentJob.requestId,
-          "print.state": currentJob.state,
-        })
-        if (
-          currentJob.state === "Completed" ||
-          currentJob.state === "Cancelled" ||
-          currentJob.state === "FailedTerminal" ||
-          currentJob.state === "SubmissionUncertain"
-        ) {
-          return currentJob
-        }
+      const processJob: (jobId: JobId) => Effect.Effect<Job, OperationalError> =
+        Effect.fn("Orchestrator.processJob")(function* (jobId: JobId) {
+          yield* Effect.annotateCurrentSpan("print.id", String(jobId))
+          const network = yield* networkProbe.status()
+          if (!network.online) {
+            yield* Effect.void
+          }
+          const currentJob = yield* jobRepo.get(jobId)
+          yield* Effect.annotateCurrentSpan({
+            "print.file_name": currentJob.fileName,
+            "print.printer_name": currentJob.printerName,
+            "print.request_id": currentJob.requestId,
+            "print.state": currentJob.state,
+          })
+          if (
+            currentJob.state === "Completed" ||
+            currentJob.state === "Cancelled" ||
+            currentJob.state === "FailedTerminal" ||
+            currentJob.state === "SubmissionUncertain"
+          ) {
+            return currentJob
+          }
 
-        const printer = yield* printerProbe.status()
-        const occurredAt = yield* nowIso
+          const printer = yield* printerProbe.status()
+          const occurredAt = yield* nowIso
 
-        if (!printer.attached || !printer.queueAvailable) {
-          return yield* applyTransition(
-            currentJob,
-            { _tag: "PrinterUnavailable", reason: "printer unavailable" },
-            occurredAt,
-          )
-        }
+          if (!printer.attached || !printer.queueAvailable) {
+            return yield* applyTransition(
+              currentJob,
+              { _tag: "PrinterUnavailable", reason: "printer unavailable" },
+              occurredAt,
+            )
+          }
 
-        const submittingJob =
-          currentJob.state === "Submitting"
-            ? currentJob
-            : yield* applyTransition(
-                currentJob,
-                { _tag: "SubmissionAttemptStarted" },
-                occurredAt,
-              )
+          const submittingJob =
+            currentJob.state === "Submitting"
+              ? currentJob
+              : yield* applyTransition(
+                  currentJob,
+                  { _tag: "SubmissionAttemptStarted" },
+                  occurredAt,
+                )
 
-        const bytes = yield* blobStore.getOriginal(jobId)
+          const bytes = yield* blobStore.getOriginal(jobId)
 
-        const submitResult: SubmitResult | Job = yield* cupsClient
-          .submitFile(submittingJob, bytes)
-          .pipe(
-            Effect.catch((error) => {
-              switch (error._tag) {
-                case "CupsUnavailable":
-                  return Effect.gen(function* () {
-                    const waitingAt = yield* nowIso
-                    const waitingJob = yield* applyTransition(
+          const submitResult: SubmitResult | Job = yield* cupsClient
+            .submitFile(submittingJob, bytes)
+            .pipe(
+              Effect.catch((error) => {
+                switch (error._tag) {
+                  case "CupsUnavailable":
+                    return Effect.gen(function* () {
+                      const waitingAt = yield* nowIso
+                      const waitingJob = yield* applyTransition(
+                        submittingJob,
+                        { _tag: "CupsUnavailable", reason: error.message },
+                        waitingAt,
+                      )
+                      const retryAt = yield* nowIso
+                      const retryJob = yield* applyTransition(
+                        waitingJob,
+                        { _tag: "RetryScheduled", reason: error.message },
+                        retryAt,
+                      )
+                      yield* Effect.sleep(config.reconcileIntervalMs)
+                      return yield* processJob(retryJob.id)
+                    })
+                  case "SubmissionUncertain":
+                    return applyTransition(
                       submittingJob,
-                      { _tag: "CupsUnavailable", reason: error.message },
-                      waitingAt,
+                      { _tag: "SubmissionUncertain", reason: error.message },
+                      occurredAt,
                     )
-                    const retryAt = yield* nowIso
-                    const retryJob = yield* applyTransition(
-                      waitingJob,
-                      { _tag: "RetryScheduled", reason: error.message },
-                      retryAt,
+                  case "CupsRejectedJob":
+                  case "CupsCommandFailed":
+                    return applyTransition(
+                      submittingJob,
+                      { _tag: "FailedTerminal", reason: error.message },
+                      occurredAt,
                     )
-                    yield* Effect.sleep(config.reconcileIntervalMs)
-                    return yield* processJob(retryJob.id)
-                  })
-                case "SubmissionUncertain":
-                  return applyTransition(
-                    submittingJob,
-                    { _tag: "SubmissionUncertain", reason: error.message },
-                    occurredAt,
-                  )
-                case "CupsRejectedJob":
-                case "CupsCommandFailed":
-                  return applyTransition(
-                    submittingJob,
-                    { _tag: "FailedTerminal", reason: error.message },
-                    occurredAt,
-                  )
-                default:
-                  return Effect.die(error)
-              }
-            }),
-        )
+                  default:
+                    return Effect.die(error)
+                }
+              }),
+            )
 
-        if ("state" in submitResult) {
-          return submitResult
-        }
+          if ("state" in submitResult) {
+            return submitResult
+          }
 
-        return yield* applyTransition(
-          submittingJob,
-          { _tag: "Submitted", cupsJobId: submitResult.cupsJobId },
-          yield* nowIso,
-        )
-      })
+          return yield* applyTransition(
+            submittingJob,
+            { _tag: "Submitted", cupsJobId: submitResult.cupsJobId },
+            yield* nowIso,
+          )
+        })
 
       return Orchestrator.of({
         submit,

@@ -1,14 +1,13 @@
 import { describe, expect, it } from "@effect/vitest"
 import { Effect, Fiber } from "effect"
 import { TestClock } from "effect/testing"
-
+import { makeTestLayer } from "../../../../packages/testkit/src/TestLayers.js"
 import { JobId } from "../domain/JobId.js"
-import { EventSink } from "./EventSink.js"
 import { BlobStore } from "./BlobStore.js"
+import { EventSink } from "./EventSink.js"
 import { JobRepo } from "./JobRepo.js"
 import { Orchestrator } from "./Orchestrator.js"
 import { QueueRuntime } from "./QueueRuntime.js"
-import { makeTestLayer } from "../../../../packages/testkit/src/TestLayers.js"
 
 const makeBytes = () => new TextEncoder().encode("test document")
 
@@ -91,44 +90,50 @@ describe("Orchestrator", () => {
     ),
   )
 
-  it.effect("retries cups unavailability under TestClock and then succeeds", () =>
-    Effect.gen(function* () {
-      const orchestrator = yield* Orchestrator
-      const jobRepo = yield* JobRepo
+  it.effect(
+    "retries cups unavailability under TestClock and then succeeds",
+    () =>
+      Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator
+        const jobRepo = yield* JobRepo
 
-      const job = yield* orchestrator.submit({
-        id: JobId.makeUnsafe("job-cups-retry"),
-        requestId: "req-cups-retry",
-        fileName: "document.pdf",
-        mimeType: "application/pdf",
-        bytes: makeBytes(),
-      })
+        const job = yield* orchestrator.submit({
+          id: JobId.makeUnsafe("job-cups-retry"),
+          requestId: "req-cups-retry",
+          fileName: "document.pdf",
+          mimeType: "application/pdf",
+          bytes: makeBytes(),
+        })
 
-      const fiber = yield* orchestrator.processJob(job.id).pipe(Effect.forkChild)
-      yield* TestClock.adjust(2_000)
-      const processed = yield* Fiber.join(fiber)
+        const fiber = yield* orchestrator
+          .processJob(job.id)
+          .pipe(Effect.forkChild)
+        yield* TestClock.adjust(2_000)
+        const processed = yield* Fiber.join(fiber)
 
-      expect(processed.state).toBe("Submitted")
+        expect(processed.state).toBe("Submitted")
 
-      const transitions = yield* jobRepo.getTransitions(job.id)
-      expect(
-        transitions.filter((event) => event.currentState === "WaitingForCups").length,
-      ).toBe(2)
-      expect(
-        transitions.filter((event) => event.currentState === "RetryScheduled").length,
-      ).toBe(2)
-    }).pipe(
-      Effect.provide(
-        makeTestLayer({
-          printer: [{ attached: true, queueAvailable: true }],
-          cups: [
-            { _tag: "CupsUnavailable", message: "cups is down" },
-            { _tag: "CupsUnavailable", message: "cups is still down" },
-            { _tag: "Submitted", cupsJobId: "cups-after-retry" },
-          ],
-        }),
+        const transitions = yield* jobRepo.getTransitions(job.id)
+        expect(
+          transitions.filter((event) => event.currentState === "WaitingForCups")
+            .length,
+        ).toBe(2)
+        expect(
+          transitions.filter((event) => event.currentState === "RetryScheduled")
+            .length,
+        ).toBe(2)
+      }).pipe(
+        Effect.provide(
+          makeTestLayer({
+            printer: [{ attached: true, queueAvailable: true }],
+            cups: [
+              { _tag: "CupsUnavailable", message: "cups is down" },
+              { _tag: "CupsUnavailable", message: "cups is still down" },
+              { _tag: "Submitted", cupsJobId: "cups-after-retry" },
+            ],
+          }),
+        ),
       ),
-    ),
   )
 
   it.effect("keeps printing working when telemetry is unavailable", () =>
@@ -217,7 +222,9 @@ describe("Orchestrator", () => {
       expect(processed.state).toBe("FailedTerminal")
 
       const events = yield* eventSink.all()
-      const outcome = events.find((event) => event.eventName === "print.job.outcome")
+      const outcome = events.find(
+        (event) => event.eventName === "print.job.outcome",
+      )
 
       expect(outcome?.printId).toBe("job-terminal-failure")
       expect(outcome?.finalState).toBe("FailedTerminal")

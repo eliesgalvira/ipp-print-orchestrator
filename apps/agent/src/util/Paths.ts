@@ -1,5 +1,5 @@
-import * as Path from "effect/Path"
 import { Effect } from "effect"
+import * as Path from "effect/Path"
 
 import { AppConfig } from "../config/AppConfig.js"
 import type { JobId } from "../domain/JobId.js"
@@ -39,9 +39,11 @@ export const makeAppPaths = Effect.gen(function* () {
     jobDir,
     requestFile: (jobId: JobId) => path.join(jobDir(jobId), "request.json"),
     stateFile: (jobId: JobId) => path.join(jobDir(jobId), "state.json"),
-    transitionsFile: (jobId: JobId) => path.join(jobDir(jobId), "transitions.jsonl"),
+    transitionsFile: (jobId: JobId) =>
+      path.join(jobDir(jobId), "transitions.jsonl"),
     metadataFile: (jobId: JobId) => path.join(jobDir(jobId), "metadata.json"),
-    originalFile: (jobId: JobId, fileName: string) => path.join(jobDir(jobId), fileName),
+    originalFile: (jobId: JobId, fileName: string) =>
+      path.join(jobDir(jobId), fileName),
     outboxFile: path.join(outboxDir, "events.jsonl"),
   } satisfies AppPaths
 })

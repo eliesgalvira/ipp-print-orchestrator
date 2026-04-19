@@ -1,9 +1,9 @@
+import { randomUUID } from "node:crypto"
 import { Clock, Effect, Layer, Option, Schema } from "effect"
 import * as Headers from "effect/unstable/http/Headers"
 import * as HttpRouter from "effect/unstable/http/HttpRouter"
 import * as HttpServerRequest from "effect/unstable/http/HttpServerRequest"
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse"
-import { randomUUID } from "node:crypto"
 
 import { JobId } from "../domain/JobId.js"
 import {
@@ -59,25 +59,35 @@ const instrumentRoute = <E, R>(
 
     const finishedAtMs = yield* Clock.currentTimeMillis
     const clientAddress = Option.getOrUndefined(request.remoteAddress)
-    const userAgent = Option.getOrUndefined(Headers.get(request.headers, "user-agent"))
+    const userAgent = Option.getOrUndefined(
+      Headers.get(request.headers, "user-agent"),
+    )
 
-    yield* wideEventPublisher.emit(
-      makeHttpRequestCompletedEvent({
-        timestamp: new Date(finishedAtMs).toISOString(),
-        route,
-        method,
-        statusCode: response.status,
-        durationMs: Math.max(0, finishedAtMs - startedAtMs),
-        clientAddress,
-        userAgent,
-        ...(context.requestId === undefined ? {} : { requestId: context.requestId }),
-        ...(context.printId === undefined ? {} : { printId: context.printId }),
-        ...(context.errorTag === undefined ? {} : { errorTag: context.errorTag }),
-        ...(context.errorMessage === undefined
-          ? {}
-          : { errorMessage: context.errorMessage }),
-      }),
-    ).pipe(Effect.catch(() => Effect.void))
+    yield* wideEventPublisher
+      .emit(
+        makeHttpRequestCompletedEvent({
+          timestamp: new Date(finishedAtMs).toISOString(),
+          route,
+          method,
+          statusCode: response.status,
+          durationMs: Math.max(0, finishedAtMs - startedAtMs),
+          clientAddress,
+          userAgent,
+          ...(context.requestId === undefined
+            ? {}
+            : { requestId: context.requestId }),
+          ...(context.printId === undefined
+            ? {}
+            : { printId: context.printId }),
+          ...(context.errorTag === undefined
+            ? {}
+            : { errorTag: context.errorTag }),
+          ...(context.errorMessage === undefined
+            ? {}
+            : { errorMessage: context.errorMessage }),
+        }),
+      )
+      .pipe(Effect.catch(() => Effect.void))
 
     return response
   })
@@ -88,10 +98,9 @@ export const HttpRoutes = Layer.mergeAll(
     "/v1/health",
     instrumentRoute("/v1/health", "GET", () =>
       HttpServerResponse.json({ ok: true }).pipe(
-        Effect.catch((error) =>
-          serviceUnavailable(String(error)),
-        ),
-      )),
+        Effect.catch((error) => serviceUnavailable(String(error))),
+      ),
+    ),
   ),
   HttpRouter.add(
     "GET",
@@ -117,9 +126,7 @@ export const HttpRoutes = Layer.mergeAll(
           localIps: snapshot.localIps,
           hostname: snapshot.hostname,
         })
-      }).pipe(
-        Effect.catch((error) => serviceUnavailable(String(error))),
-      ),
+      }).pipe(Effect.catch((error) => serviceUnavailable(String(error)))),
     ),
   ),
   HttpRouter.add(
