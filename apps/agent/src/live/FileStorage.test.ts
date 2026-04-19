@@ -20,6 +20,7 @@ const appConfigLayer = (dataDir: string) =>
     printerName: "test-printer",
     bindHost: "127.0.0.1",
     bindPort: 4310,
+    usbSysfsRoot: "/sys/bus/usb/devices",
     statusObservationIntervalMs: 2_000,
     heartbeatIntervalMs: 60_000,
     reconcileIntervalMs: 1_000,
@@ -56,7 +57,7 @@ const makeEvent = () =>
     previousState: "Stored",
   })
 
-const makeEventWith = (overrides: Partial<WideEvent["Type"]>) =>
+const makeEventWith = (overrides: Partial<WideEvent>) =>
   new WideEvent({
     ...makeEvent(),
     ...overrides,
