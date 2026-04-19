@@ -19,6 +19,10 @@ interface UsbSysfsDevice {
   readonly matchTokens: readonly string[]
 }
 
+const usbDeviceMissingReason = "usb-device-missing"
+const usbDeviceMissingMessage = "Configured USB printer device is not present in sysfs"
+const usbDevicePresentMessage = "Configured USB printer device is present in sysfs"
+
 class UsbSysfsReadFailed extends Schema.TaggedErrorClass<UsbSysfsReadFailed>()(
   "UsbSysfsReadFailed",
   {
@@ -78,7 +82,11 @@ export const listUsbSysfsDevices = (
       const entries = await readdir(usbSysfsRoot, { withFileTypes: true })
       const devices = await Promise.all(
         entries
-          .filter((entry) => entry.isDirectory() && !entry.name.includes(":"))
+          .filter(
+            (entry) =>
+              (entry.isDirectory() || entry.isSymbolicLink()) &&
+              !entry.name.includes(":"),
+          )
           .map(async (entry) => {
             const deviceRoot = join(usbSysfsRoot, entry.name)
             const manufacturer = await readOptionalTextFile(
@@ -221,13 +229,29 @@ export const PrinterProbeCliLive = Layer.effect(
         Effect.flatMap((observation) =>
           Effect.gen(function* () {
             const attached = yield* deriveAttached(observation.attached, reason)
+            const configuredDeviceUri = yield* getConfiguredDeviceUri()
+            const isUsbPrinter =
+              configuredDeviceUri !== null && configuredDeviceUri.startsWith("usb://")
+            const usbMissing = isUsbPrinter && observation.attached && !attached
+            const usbPresentEvent =
+              isUsbPrinter &&
+              reason === "udev-usb-event" &&
+              observation.attached &&
+              attached
+
             return {
               attached,
               queueAvailable: attached && observation.queueAvailable,
               cupsReachable: true,
               state: observation.state,
-              reasons: observation.reasons,
-              message: observation.message,
+              reasons: usbMissing
+                ? [usbDeviceMissingReason, ...observation.reasons]
+                : observation.reasons,
+              message: usbMissing
+                ? usbDeviceMissingMessage
+                : usbPresentEvent
+                  ? usbDevicePresentMessage
+                  : observation.message,
             }
           }),
         ),

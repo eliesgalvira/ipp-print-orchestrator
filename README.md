@@ -208,6 +208,16 @@ bash scripts/watch-pi-status.sh
 
 The watcher prints a compact status line on every poll, including printer attachment, CUPS reachability, network state, nonterminal job count, queue depth, heartbeat age, and the first local IP.
 
+USB hotplug diagnostics on the Pi:
+
+```bash
+bash scripts/diagnose-usb-hotplug.sh
+```
+
+The diagnostic prints the CUPS device URI, current `/v1/status`, matching USB
+sysfs devices, and raw `udevadm monitor` events while you unplug and replug the
+printer.
+
 The Pi smoke script checks:
 
 - local health endpoint
@@ -296,47 +306,37 @@ If you enable OTLP, the daemon exports:
 - Effect spans through an OpenTelemetry tracer bridge
 - wide-event logs as structured OTLP log records
 
-The runtime now emits canonical change events for network, CUPS, and printer status transitions. Heartbeat is now a minimal liveness event, not a sampled printer/CUPS status snapshot.
+The runtime now emits canonical change events for network, CUPS, and printer status transitions. Heartbeat is a periodic liveness event that also carries a sampled status summary for quiet periods with no status transitions.
 
 By default, the daemon uses Linux USB hotplug events for USB printer attach/detach detection and an IPP notification stream for CUPS/printer state changes. The old periodic status observation loop has been removed from the daemon hot path.
 
 `network.status.changed` remains a local durable fact, but should not be treated as a guaranteed remote Axiom fact during internet outages until a replay worker exists for the local outbox.
 
-Example Axiom query for canonical printer-detached transitions:
+Example Axiom match-monitor query for canonical printer status changes:
 
 ```apl
 ['ipp-print-logs']
 | where ['attributes.eventName'] == "printer.status.changed"
-| where ['attributes.previousPrinterAttached'] == true
-| where ['attributes.printerAttached'] == false
 | project _time,
-          ['attributes.hostname'],
-          ['attributes.cupsReachable'],
-          ['attributes.printerAttached'],
-          ['attributes.previousPrinterAttached'],
-          ['attributes.printerQueueAvailable'],
-          ['attributes.printerState'],
-          ['attributes.printerMessage'],
-          ['attributes.printerReasons']
-| order by _time desc
+          hostname = ['attributes.hostname'],
+          observation_reason = ['attributes.observationReason'],
+          cups_reachable = ['attributes.cupsReachable'],
+          previous_attached = ['attributes.previousPrinterAttached'],
+          attached = ['attributes.printerAttached'],
+          previous_queue_available = ['attributes.previousPrinterQueueAvailable'],
+          queue_available = ['attributes.printerQueueAvailable'],
+          previous_printer_state = ['attributes.previousPrinterState'],
+          printer_state = ['attributes.printerState'],
+          previous_printer_message = ['attributes.previousPrinterMessage'],
+          printer_message = ['attributes.printerMessage'],
+          previous_printer_reasons = ['attributes.previousPrinterReasons'],
+          printer_reasons = ['attributes.printerReasons']
 ```
 
-Example Axiom query for canonical printer-reattached transitions:
+For physical attach/detach-only notifications, add:
 
 ```apl
-['ipp-print-logs']
-| where ['attributes.eventName'] == "printer.status.changed"
-| where ['attributes.previousPrinterAttached'] == false
-| where ['attributes.printerAttached'] == true
-| project _time,
-          ['attributes.hostname'],
-          ['attributes.previousPrinterAttached'],
-          ['attributes.printerAttached'],
-          ['attributes.previousPrinterState'],
-          ['attributes.printerState'],
-          ['attributes.printerMessage'],
-          ['attributes.printerReasons']
-| order by _time desc
+| where ['attributes.previousPrinterAttached'] != ['attributes.printerAttached']
 ```
 
 Example Axiom-oriented environment:

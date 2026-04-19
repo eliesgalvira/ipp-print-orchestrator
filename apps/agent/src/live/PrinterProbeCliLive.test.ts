@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs"
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -136,6 +136,41 @@ describe("PrinterProbeCliLive", () => {
         expect(status.attached).toBe(false)
         expect(status.queueAvailable).toBe(false)
         expect(status.cupsReachable).toBe(true)
+        expect(status.reasons).toEqual(["usb-device-missing"])
+        expect(status.message).toBe(
+          "Configured USB printer device is not present in sysfs",
+        )
+      }).pipe(
+        Effect.provide(
+          PrinterProbeCliLive.pipe(
+            Layer.provide(appConfigLayer(usbSysfsRoot)),
+            Layer.provide(cupsObserverLayer()),
+            Layer.provide(
+              cupsClientLayer(
+                "usb://HP/Laser%20MFP%20131%20133%20135-138?serial=ABC123&interface=1",
+              ),
+            ),
+          ),
+        ),
+      ),
+    ))
+
+  it.effect("matches USB devices exposed as sysfs symlinks", () =>
+    withUsbSysfsRoot((usbSysfsRoot) =>
+      Effect.gen(function* () {
+        const targetRoot = join(usbSysfsRoot, "targets")
+        writeUsbDevice(targetRoot, "real-1-1", {
+          manufacturer: "HP",
+          product: "Laser MFP 131 133 135-138",
+          serial: "ABC123",
+        })
+        symlinkSync(join(targetRoot, "real-1-1"), join(usbSysfsRoot, "1-1"), "dir")
+
+        const printerProbe = yield* PrinterProbe
+        const status = yield* printerProbe.status("cold-start")
+
+        expect(status.attached).toBe(true)
+        expect(status.queueAvailable).toBe(true)
       }).pipe(
         Effect.provide(
           PrinterProbeCliLive.pipe(
@@ -218,6 +253,58 @@ describe("PrinterProbeCliLive", () => {
         expect(initial.attached).toBe(true)
         expect(refreshed.attached).toBe(false)
         expect(refreshed.queueAvailable).toBe(false)
+        expect(refreshed.reasons).toEqual(["usb-device-missing"])
+        expect(refreshed.message).toBe(
+          "Configured USB printer device is not present in sysfs",
+        )
+      }).pipe(
+        Effect.provide(
+          PrinterProbeCliLive.pipe(
+            Layer.provide(appConfigLayer(usbSysfsRoot)),
+            Layer.provide(cupsObserverLayer()),
+            Layer.provide(
+              cupsClientLayer(
+                "usb://HP/Laser%20MFP%20131%20133%20135-138?serial=ABC123&interface=1",
+              ),
+            ),
+          ),
+        ),
+      ),
+    ))
+
+  it.effect("refreshes USB attachment back to attached when sysfs device reappears", () =>
+    withUsbSysfsRoot((usbSysfsRoot) =>
+      Effect.gen(function* () {
+        writeUsbDevice(usbSysfsRoot, "1-1", {
+          manufacturer: "HP",
+          product: "Laser MFP 131 133 135-138",
+          serial: "ABC123",
+        })
+
+        const printerProbe = yield* PrinterProbe
+        const initial = yield* printerProbe.status("cold-start")
+        rmSync(join(usbSysfsRoot, "1-1"), { recursive: true, force: true })
+        const detached = yield* printerProbe.status("udev-usb-event")
+        writeUsbDevice(usbSysfsRoot, "1-2", {
+          manufacturer: "HP",
+          product: "Laser MFP 131 133 135-138",
+          serial: "ABC123",
+        })
+        const reattached = yield* printerProbe.status("udev-usb-event")
+
+        expect(initial.attached).toBe(true)
+        expect(detached.attached).toBe(false)
+        expect(detached.queueAvailable).toBe(false)
+        expect(detached.reasons).toEqual(["usb-device-missing"])
+        expect(detached.message).toBe(
+          "Configured USB printer device is not present in sysfs",
+        )
+        expect(reattached.attached).toBe(true)
+        expect(reattached.queueAvailable).toBe(true)
+        expect(reattached.reasons).toEqual([])
+        expect(reattached.message).toBe(
+          "Configured USB printer device is present in sysfs",
+        )
       }).pipe(
         Effect.provide(
           PrinterProbeCliLive.pipe(

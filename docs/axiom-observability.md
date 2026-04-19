@@ -6,7 +6,7 @@ This document describes the current observability model after the instrumentatio
 - HTTP request analytics are now log-native
 - terminal job analytics are now log-native
 - network, CUPS, and printer status transitions are now log-native
-- heartbeat is now a minimal liveness event and is not the source of truth for historical status analysis
+- heartbeat is a periodic liveness event with a sampled status summary for quiet periods
 
 ## Logging Model
 
@@ -90,11 +90,21 @@ Important fields now available in logs:
 - `['attributes.clientAddress']`
 - `['attributes.userAgent']`
 
-Heartbeat-only fields now reflect liveness only:
+Heartbeat events include liveness plus a sampled status summary:
 
 - `['attributes.appUp']`
 - `['attributes.hostname']`
 - `['attributes.lastSuccessfulHeartbeatAt']`
+- `['attributes.networkOnline']`
+- `['attributes.localIps']`
+- `['attributes.cupsReachable']`
+- `['attributes.printerAttached']`
+- `['attributes.printerQueueAvailable']`
+- `['attributes.printerState']`
+- `['attributes.printerReasons']`
+- `['attributes.printerMessage']`
+- `['attributes.queueDepth']`
+- `['attributes.nonterminalJobCount']`
 
 ## APL Syntax Notes
 
@@ -104,6 +114,21 @@ Your Axiom OTLP datasets flatten dotted attribute names into literal column name
 ['attributes.eventName']
 ['attributes.queueDepth']
 ['attributes.http.route']
+```
+
+Current Axiom OpenTelemetry log rows display application fields under an
+`attributes` object in the event JSON, but this dataset queries them as
+flattened literal APL fields:
+
+```apl
+['attributes.eventName']
+['attributes.printerAttached']
+```
+
+The runtime also sets the OTLP log body to the wide-event name:
+
+```apl
+body
 ```
 
 Useful schema checks:
@@ -137,7 +162,7 @@ Treat these as local-only unless replay exists:
 
 - `network.status.changed`
 
-Treat these as liveness-only:
+Use these for sampled current-state history:
 
 - `heartbeat`
 
@@ -155,7 +180,7 @@ That means:
 - use queue events for queue depth history
 - use HTTP wide events for route analytics
 - use `print.job.outcome` for terminal job analytics
-- use heartbeat to answer "is the daemon still alive?"
+- use heartbeat to answer "is the daemon still alive and what status did it last sample?"
 
 ## Queries Worth Saving
 
@@ -565,7 +590,7 @@ API writes to `/v1/jobs`:
 
 ## Printer And CUPS
 
-Use status-change events for canonical transitions. Heartbeat is only for liveness.
+Use status-change events for canonical transitions. Heartbeat is for liveness and regular sampled status.
 
 All events related to CUPS being unavailable:
 
@@ -638,44 +663,36 @@ Canonical CUPS reachability transitions:
 | order by _time desc
 ```
 
-Canonical printer-detached transitions:
+Canonical printer attach/detach transitions:
 
 ```apl
 ['ipp-print-logs']
 | where ['attributes.eventName'] == "printer.status.changed"
-| where ['attributes.previousPrinterAttached'] == true
-| where ['attributes.printerAttached'] == false
+| extend previous_attached = ['attributes.previousPrinterAttached']
+| extend attached = ['attributes.printerAttached']
+| where isnotnull(previous_attached) and isnotnull(attached)
+| where previous_attached != attached
+| extend attachment_change = iff(attached == true, "attached", "detached")
 | project _time,
-          ['attributes.hostname'],
-          ['attributes.observationReason'],
-          ['attributes.cupsReachable'],
-          ['attributes.previousPrinterAttached'],
-          ['attributes.printerAttached'],
-          ['attributes.previousPrinterQueueAvailable'],
-          ['attributes.printerQueueAvailable'],
-          ['attributes.previousPrinterState'],
-          ['attributes.printerState'],
-          ['attributes.previousPrinterReasons'],
-          ['attributes.printerReasons']
+          attachment_change,
+          hostname = ['attributes.hostname'],
+          observation_reason = ['attributes.observationReason'],
+          cups_reachable = ['attributes.cupsReachable'],
+          previous_attached,
+          attached,
+          previous_queue_available = ['attributes.previousPrinterQueueAvailable'],
+          queue_available = ['attributes.printerQueueAvailable'],
+          previous_printer_state = ['attributes.previousPrinterState'],
+          printer_state = ['attributes.printerState'],
+          previous_printer_reasons = ['attributes.previousPrinterReasons'],
+          printer_reasons = ['attributes.printerReasons']
 | order by _time desc
 ```
 
-Canonical printer-reattached transitions:
+For match monitors, omit `order by`. For detach-only notifications, add:
 
 ```apl
-['ipp-print-logs']
-| where ['attributes.eventName'] == "printer.status.changed"
-| where ['attributes.previousPrinterAttached'] == false
-| where ['attributes.printerAttached'] == true
-| project _time,
-          ['attributes.hostname'],
-          ['attributes.observationReason'],
-          ['attributes.previousPrinterAttached'],
-          ['attributes.printerAttached'],
-          ['attributes.previousPrinterState'],
-          ['attributes.printerState'],
-          ['attributes.printerReasons']
-| order by _time desc
+| where attached == false
 ```
 
 Canonical printer status transitions:
@@ -686,12 +703,15 @@ Canonical printer status transitions:
 | project _time,
           ['attributes.hostname'],
           ['attributes.observationReason'],
+          ['attributes.cupsReachable'],
           ['attributes.previousPrinterAttached'],
           ['attributes.printerAttached'],
           ['attributes.previousPrinterQueueAvailable'],
           ['attributes.printerQueueAvailable'],
           ['attributes.previousPrinterState'],
           ['attributes.printerState'],
+          ['attributes.previousPrinterMessage'],
+          ['attributes.printerMessage'],
           ['attributes.previousPrinterReasons'],
           ['attributes.printerReasons']
 | order by _time desc
