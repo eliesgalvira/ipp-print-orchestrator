@@ -32,13 +32,24 @@ describe("Heartbeat", () => {
       expect(snapshot.appUp).toBe(true)
       expect(snapshot.hostname.length).toBeGreaterThan(0)
       expect(snapshot.lastSuccessfulHeartbeatAt).not.toBeNull()
+      expect(snapshot.cupsReachable).toBe(true)
+      expect(snapshot.printerAttached).toBe(true)
+      expect(snapshot.printerQueueAvailable).toBe(true)
+      expect(snapshot.queueDepth).toBe(0)
+      expect(snapshot.nonterminalJobCount).toBe(0)
 
       const events = yield* eventSink.all()
       const heartbeatEvent = events.find((event) => event.eventName === "heartbeat")
       expect(heartbeatEvent).toBeDefined()
       expect(heartbeatEvent?.appUp).toBe(true)
       expect(heartbeatEvent?.hostname).toBe(snapshot.hostname)
-      expect(heartbeatEvent?.printerAttached).toBeUndefined()
+      expect(heartbeatEvent?.cupsReachable).toBe(true)
+      expect(heartbeatEvent?.printerAttached).toBe(true)
+      expect(heartbeatEvent?.printerQueueAvailable).toBe(true)
+      expect(heartbeatEvent?.printerState).toBe("idle")
+      expect(heartbeatEvent?.printerReasons).toEqual([])
+      expect(heartbeatEvent?.queueDepth).toBe(0)
+      expect(heartbeatEvent?.nonterminalJobCount).toBe(0)
     }).pipe(
       Effect.provide(
         heartbeatTestLayer,
@@ -108,6 +119,118 @@ describe("Heartbeat", () => {
             event.printerAttached === false &&
             event.previousPrinterState === "idle" &&
             event.printerState === "stopped",
+        ),
+      ).toBe(true)
+    }).pipe(
+      Effect.provide(
+        StatusRuntimeLive.pipe(
+          Layer.provideMerge(
+            makeTestLayer({
+              printer: [{ attached: true, queueAvailable: true, state: "idle" }],
+              cups: [{ _tag: "Submitted", cupsJobId: "unused" }],
+            }),
+          ),
+        ),
+      ),
+    ),
+  )
+
+  it.effect("emits printer attach and reattach changes from observed probe status", () =>
+    Effect.gen(function* () {
+      const statusRuntime = yield* StatusRuntime
+      const eventSink = yield* EventSink
+
+      yield* statusRuntime.observeNow("cold-start")
+      yield* statusRuntime.observeNow("udev-usb-event")
+      yield* statusRuntime.observeNow("udev-usb-event")
+
+      const printerEvents = (yield* eventSink.all()).filter(
+        (event) => event.eventName === "printer.status.changed",
+      )
+
+      expect(
+        printerEvents.some(
+          (event) =>
+            event.observationReason === "udev-usb-event" &&
+            event.previousPrinterAttached === true &&
+            event.printerAttached === false,
+        ),
+      ).toBe(true)
+      expect(
+        printerEvents.some(
+          (event) =>
+            event.observationReason === "udev-usb-event" &&
+            event.previousPrinterAttached === false &&
+            event.printerAttached === true,
+        ),
+      ).toBe(true)
+    }).pipe(
+      Effect.provide(
+        StatusRuntimeLive.pipe(
+          Layer.provideMerge(
+            makeTestLayer({
+              printer: [
+                { attached: true, queueAvailable: true, state: "idle" },
+                { attached: false, queueAvailable: false, state: "idle" },
+                { attached: true, queueAvailable: true, state: "idle" },
+              ],
+              cups: [{ _tag: "Submitted", cupsJobId: "unused" }],
+            }),
+          ),
+        ),
+      ),
+    ),
+  )
+
+  it.effect("does not infer physical detach from partial CUPS disconnect observations", () =>
+    Effect.gen(function* () {
+      const statusRuntime = yield* StatusRuntime
+      const eventSink = yield* EventSink
+
+      yield* statusRuntime.recordObservedStatus({
+        timestamp: "2026-04-01T10:00:00.000Z",
+        hostname: "test-host",
+        observationReason: "test-initial",
+        networkOnline: true,
+        localIps: ["127.0.0.1"],
+        cupsReachable: true,
+        printerAttached: true,
+        printerQueueAvailable: true,
+        printerState: "idle",
+        printerReasons: [],
+        printerMessage: null,
+      })
+
+      yield* statusRuntime.recordObservedStatus({
+        timestamp: "2026-04-01T10:01:00.000Z",
+        hostname: "test-host",
+        observationReason: "cups-stream-disconnect",
+        cupsReachable: false,
+        printerQueueAvailable: false,
+        printerState: null,
+        printerReasons: ["CupsIppProtocolError"],
+        printerMessage: "IPP request failed: client-error-bad-request",
+      })
+
+      const printerEvents = (yield* eventSink.all()).filter(
+        (event) => event.eventName === "printer.status.changed",
+      )
+
+      expect(
+        printerEvents.some(
+          (event) =>
+            event.observationReason === "cups-stream-disconnect" &&
+            event.previousPrinterAttached === true &&
+            event.printerAttached === false,
+        ),
+      ).toBe(false)
+      expect(
+        printerEvents.some(
+          (event) =>
+            event.observationReason === "cups-stream-disconnect" &&
+            event.previousPrinterAttached === true &&
+            event.printerAttached === true &&
+            event.printerQueueAvailable === false,
         ),
       ).toBe(true)
     }).pipe(

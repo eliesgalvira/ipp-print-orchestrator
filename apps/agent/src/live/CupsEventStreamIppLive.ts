@@ -259,7 +259,6 @@ export const CupsEventStreamIppLive = Layer.effect(
         hostname: hostname(),
         observationReason: "cups-stream-disconnect",
         cupsReachable: false,
-        printerAttached: false,
         printerQueueAvailable: false,
         printerState: null,
         printerReasons: [errorTag],
