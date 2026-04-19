@@ -1,4 +1,5 @@
 import {
+  IppClient,
   type IppAttributeGroup,
   type IppMessage,
   type IppRequestMessage,
@@ -31,14 +32,25 @@ type IppResponse = IppMessage &
       | readonly IppAttributeGroup[]
   }
 
+type IppAttributeGroups =
+  | IppAttributeGroup
+  | readonly IppAttributeGroup[]
+  | undefined
+
+type IppClientService = Parameters<typeof IppClient.of>[0]
+
+const isAttributeGroupList = (
+  value: IppAttributeGroups,
+): value is readonly IppAttributeGroup[] => Array.isArray(value)
+
 const singleRecord = (
-  value: IppResponse["job-attributes-tag"],
+  value: IppAttributeGroups,
 ): IppAttributeGroup | null => {
   if (value === undefined) {
     return null
   }
 
-  if (Array.isArray(value)) {
+  if (isAttributeGroupList(value)) {
     return value[0] ?? null
   }
 
@@ -57,7 +69,7 @@ const parseJobId = (cupsJobId: string): number | null => {
 }
 
 const requestMessage = (
-  attributes: Record<string, unknown>,
+  attributes: IppAttributeGroup,
 ): IppRequestMessage => ({
   "operation-attributes-tag": attributes,
 })
@@ -73,11 +85,13 @@ export const jobAttributesRequestMessage = (jobId: number): IppRequestMessage =>
   })
 
 const executeIpp = (
+  ippClient: IppClientService,
   printer: ReturnType<typeof makePrinter>,
   operation: string,
   message: IppRequestMessage | null,
 ): Effect.Effect<IppResponse, CupsIppUnavailable> =>
   printer.execute(operation, message).pipe(
+    Effect.provideService(IppClient, ippClient),
     Effect.map((response) => response as IppResponse),
     Effect.mapError(
       (error) =>
@@ -131,6 +145,7 @@ export const CupsObserverIppLive = Layer.effect(
   CupsObserver,
   Effect.gen(function* () {
     const appConfig = yield* AppConfig
+    const ippClient = yield* IppClient
     const printerHttpUrl = printerHttpUrlForName(appConfig.printerName)
     const printerIppUri = printerIppUriForName(appConfig.printerName)
     const printer = makePrinter({
@@ -147,6 +162,7 @@ export const CupsObserverIppLive = Layer.effect(
         })
 
         const response = yield* executeIpp(
+          ippClient,
           printer,
           "Get-Printer-Attributes",
           printerAttributesRequestMessage(),
@@ -162,7 +178,7 @@ export const CupsObserverIppLive = Layer.effect(
             message: "IPP printer response missing printer-attributes-tag",
           })
         }
-        if (Array.isArray(attrs)) {
+        if (isAttributeGroupList(attrs)) {
           return yield* new CupsIppProtocolError({
             message: "IPP printer response repeated printer-attributes-tag",
           })
@@ -205,6 +221,7 @@ export const CupsObserverIppLive = Layer.effect(
       }
 
       const response = yield* executeIpp(
+        ippClient,
         printer,
         "Get-Job-Attributes",
         jobAttributesRequestMessage(jobId),

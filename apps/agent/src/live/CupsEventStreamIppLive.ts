@@ -1,5 +1,6 @@
 import { hostname } from "node:os"
 import {
+  IppClient,
   cancelSubscriptionRequest,
   createPrinterSubscriptionRequest,
   extractNotifyGetIntervalSeconds,
@@ -34,6 +35,8 @@ type IppResponse = IppMessage &
       | readonly IppAttributeGroup[]
   }
 
+type IppClientService = Parameters<typeof IppClient.of>[0]
+
 const printerUriForName = (printerName: string): string =>
   `ipp://localhost:631/printers/${encodeURIComponent(printerName)}`
 
@@ -41,11 +44,13 @@ const printerHttpUrlForName = (printerName: string): string =>
   `http://localhost:631/printers/${encodeURIComponent(printerName)}`
 
 const executeIpp = (
+  ippClient: IppClientService,
   printer: ReturnType<typeof makePrinter>,
   operation: string,
   message: IppRequestMessage | null,
 ): Effect.Effect<IppResponse, CupsIppUnavailable> =>
   printer.execute(operation, message).pipe(
+    Effect.provideService(IppClient, ippClient),
     Effect.map((response) => response as IppResponse),
     Effect.mapError(
       (error) =>
@@ -113,6 +118,7 @@ export const CupsEventStreamIppLive = Layer.effect(
   CupsEventStream,
   Effect.gen(function* () {
     const appConfig = yield* AppConfig
+    const ippClient = yield* IppClient
     const reconciler = yield* Reconciler
     const statusRuntime = yield* StatusRuntime
     const printerUri = printerUriForName(appConfig.printerName)
@@ -139,6 +145,7 @@ export const CupsEventStreamIppLive = Layer.effect(
 
     const createPrinterSubscription = () =>
       executeIpp(
+        ippClient,
         printer,
         "Create-Printer-Subscriptions",
         createPrinterSubscriptionRequest(
@@ -155,6 +162,7 @@ export const CupsEventStreamIppLive = Layer.effect(
 
     const cancelSubscription = (subscriptionId: number) =>
       executeIpp(
+        ippClient,
         printer,
         "Cancel-Subscription",
         cancelSubscriptionRequest(
@@ -174,6 +182,7 @@ export const CupsEventStreamIppLive = Layer.effect(
       nextSequenceNumber: number,
     ) =>
       executeIpp(
+        ippClient,
         printer,
         "Get-Notifications",
         getNotificationsRequest(
