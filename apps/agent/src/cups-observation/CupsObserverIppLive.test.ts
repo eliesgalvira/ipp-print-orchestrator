@@ -1,10 +1,10 @@
 import { describe, expect, it } from "@effect/vitest"
 
 import {
-  ippFailureMessage,
   jobAttributesRequestMessage,
   printerAttributesRequestMessage,
 } from "./CupsObserverIppLive.js"
+import { ippFailureMessage } from "./IppFailureMessage.js"
 
 const operationAttributes = (
   message: Record<string, unknown>,
@@ -39,5 +39,16 @@ describe("CupsObserverIppLive request messages", () => {
     ).toBe(
       'IPP request failed: client-error-bad-request (status-message="Bad URI"; unsupported-attributes=printer-uri="ipp://localhost/printers/HP135a")',
     )
+  })
+
+  it("includes the failed operation when provided", () => {
+    expect(
+      ippFailureMessage(
+        {
+          statusCode: "client-error-bad-request",
+        },
+        { operation: "Get-Notifications" },
+      ),
+    ).toBe("IPP Get-Notifications request failed: client-error-bad-request")
   })
 })

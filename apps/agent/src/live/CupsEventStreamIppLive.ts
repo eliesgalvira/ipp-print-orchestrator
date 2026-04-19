@@ -1,13 +1,12 @@
 import { createRequire } from "node:module"
-
-import { Effect, Layer, Schedule } from "effect"
 import { hostname } from "node:os"
-
-import {
-  CupsIppProtocolError,
-  CupsIppUnavailable,
-} from "../domain/Errors.js"
+import { Effect, Layer, Schedule } from "effect"
 import { AppConfig } from "../config/AppConfig.js"
+import {
+  type IppFailureResponse,
+  ippFailureMessage,
+} from "../cups-observation/IppFailureMessage.js"
+import { CupsIppProtocolError, CupsIppUnavailable } from "../domain/Errors.js"
 import { CupsEventStream } from "../services/CupsEventStream.js"
 import { Reconciler } from "../services/Reconciler.js"
 import { StatusRuntime } from "../services/StatusRuntime.js"
@@ -24,6 +23,11 @@ interface IppAttributeSyntax {
 const ipp = require("ipp") as {
   readonly Printer: (
     url: string,
+    options?: {
+      readonly uri?: string
+      readonly language?: string
+      readonly version?: string
+    },
   ) => {
     readonly execute: (
       operation: string,
@@ -37,19 +41,20 @@ const ipp = require("ipp") as {
   readonly tags: Record<string, number>
 }
 
-interface IppResponse {
-  readonly statusCode?: string
-  readonly ["operation-attributes-tag"]?: Record<string, unknown>
-  readonly ["subscription-attributes-tag"]?:
+interface IppResponse extends IppFailureResponse {
+  readonly "subscription-attributes-tag"?:
     | Record<string, unknown>
     | readonly Record<string, unknown>[]
-  readonly ["event-notification-attributes-tag"]?:
+  readonly "event-notification-attributes-tag"?:
     | Record<string, unknown>
     | readonly Record<string, unknown>[]
 }
 
 const printerUriForName = (printerName: string): string =>
-  `http://127.0.0.1:631/printers/${encodeURIComponent(printerName)}`
+  `ipp://localhost:631/printers/${encodeURIComponent(printerName)}`
+
+const printerHttpUrlForName = (printerName: string): string =>
+  `http://localhost:631/printers/${encodeURIComponent(printerName)}`
 
 const installIppNotificationOperationAttributes = (): void => {
   const operationAttributes = ipp.attributes.Operation
@@ -97,21 +102,27 @@ const requestMessage = (
 })
 
 const executeIpp = (
-  printerUri: string,
+  printerHttpUrl: string,
+  printerIppUri: string,
   operation: string,
   message: Record<string, unknown> | null,
 ): Effect.Effect<IppResponse, CupsIppUnavailable> =>
   Effect.tryPromise({
     try: () =>
       new Promise<IppResponse>((resolve, reject) => {
-        ipp.Printer(printerUri).execute(operation, message, (error, response) => {
-          if (error) {
-            reject(error)
-            return
-          }
+        ipp
+          .Printer(printerHttpUrl, {
+            language: "en",
+            uri: printerIppUri,
+          })
+          .execute(operation, message, (error, response) => {
+            if (error) {
+              reject(error)
+              return
+            }
 
-          resolve(response as IppResponse)
-        })
+            resolve(response as IppResponse)
+          })
       }),
     catch: (error) =>
       new CupsIppUnavailable({
@@ -120,6 +131,7 @@ const executeIpp = (
   })
 
 const ensureSuccessfulResponse = <A extends IppResponse>(
+  operation: string,
   response: A,
 ): Effect.Effect<A, CupsIppProtocolError> => {
   const statusCode = response.statusCode
@@ -127,9 +139,11 @@ const ensureSuccessfulResponse = <A extends IppResponse>(
     return Effect.succeed(response)
   }
 
-  return Effect.fail(new CupsIppProtocolError({
-    message: `IPP request failed: ${statusCode}`,
-  }))
+  return Effect.fail(
+    new CupsIppProtocolError({
+      message: ippFailureMessage(response, { operation }),
+    }),
+  )
 }
 
 const singleRecord = (
@@ -201,7 +215,9 @@ export const notificationsIncludePrinterEvent = (
 ): boolean =>
   notifications.some((notification) => {
     const eventName = notification["notify-subscribed-event"]
-    return typeof eventName === "string" && printerNotificationEvents.has(eventName)
+    return (
+      typeof eventName === "string" && printerNotificationEvents.has(eventName)
+    )
   })
 
 export const extractNotifyGetIntervalSeconds = (
@@ -252,21 +268,25 @@ export const CupsEventStreamIppLive = Layer.effect(
     const reconciler = yield* Reconciler
     const statusRuntime = yield* StatusRuntime
     const printerUri = printerUriForName(appConfig.printerName)
+    const printerHttpUrl = printerHttpUrlForName(appConfig.printerName)
 
     const recordCupsDisconnected = (message: string, errorTag: string) =>
-      statusRuntime.recordObservedStatus({
-        timestamp: new Date().toISOString(),
-        hostname: hostname(),
-        observationReason: "cups-stream-disconnect",
-        cupsReachable: false,
-        printerQueueAvailable: false,
-        printerState: null,
-        printerReasons: [errorTag],
-        printerMessage: message,
-      }).pipe(Effect.catch(() => Effect.void))
+      statusRuntime
+        .recordObservedStatus({
+          timestamp: new Date().toISOString(),
+          hostname: hostname(),
+          observationReason: "cups-stream-disconnect",
+          cupsReachable: false,
+          printerQueueAvailable: false,
+          printerState: null,
+          printerReasons: [errorTag],
+          printerMessage: message,
+        })
+        .pipe(Effect.catch(() => Effect.void))
 
     const createPrinterSubscription = () =>
       executeIpp(
+        printerHttpUrl,
         printerUri,
         "Create-Printer-Subscriptions",
         requestMessage(
@@ -277,12 +297,15 @@ export const CupsEventStreamIppLive = Layer.effect(
           subscriptionTemplate,
         ),
       ).pipe(
-        Effect.flatMap(ensureSuccessfulResponse),
+        Effect.flatMap((response) =>
+          ensureSuccessfulResponse("Create-Printer-Subscriptions", response),
+        ),
         Effect.map((response) => extractSubscriptionId(response)),
       )
 
     const cancelSubscription = (subscriptionId: number) =>
       executeIpp(
+        printerHttpUrl,
         printerUri,
         "Cancel-Subscription",
         requestMessage(
@@ -295,12 +318,18 @@ export const CupsEventStreamIppLive = Layer.effect(
           },
         ),
       ).pipe(
-        Effect.flatMap(ensureSuccessfulResponse),
+        Effect.flatMap((response) =>
+          ensureSuccessfulResponse("Cancel-Subscription", response),
+        ),
         Effect.catch(() => Effect.void),
       )
 
-    const getNotifications = (subscriptionId: number, nextSequenceNumber: number) =>
+    const getNotifications = (
+      subscriptionId: number,
+      nextSequenceNumber: number,
+    ) =>
       executeIpp(
+        printerHttpUrl,
         printerUri,
         "Get-Notifications",
         getNotificationsRequestMessage(
@@ -309,7 +338,9 @@ export const CupsEventStreamIppLive = Layer.effect(
           nextSequenceNumber,
         ),
       ).pipe(
-        Effect.flatMap(ensureSuccessfulResponse),
+        Effect.flatMap((response) =>
+          ensureSuccessfulResponse("Get-Notifications", response),
+        ),
       )
 
     const runNotificationSession = Effect.gen(function* () {
@@ -328,17 +359,21 @@ export const CupsEventStreamIppLive = Layer.effect(
           }),
         ),
       )
-      yield* reconciler.repairCupsTrackedJobs().pipe(
-        Effect.catch(() => Effect.void),
-      )
+      yield* reconciler
+        .repairCupsTrackedJobs()
+        .pipe(Effect.catch(() => Effect.void))
 
       let nextSequenceNumber = 1
 
       while (true) {
-        const response = yield* getNotifications(subscriptionId, nextSequenceNumber)
+        const response = yield* getNotifications(
+          subscriptionId,
+          nextSequenceNumber,
+        )
         const notifications = notificationRecords(response)
         const maxSeen = maxNotificationSequenceNumber(notifications)
-        const notifyGetIntervalSeconds = extractNotifyGetIntervalSeconds(response)
+        const notifyGetIntervalSeconds =
+          extractNotifyGetIntervalSeconds(response)
         const hasJobEvent = notificationsIncludeJobEvent(notifications)
         const hasPrinterEvent = notificationsIncludePrinterEvent(notifications)
 
@@ -347,15 +382,15 @@ export const CupsEventStreamIppLive = Layer.effect(
         }
 
         if (hasPrinterEvent) {
-          yield* statusRuntime.observeNow("cups-notification").pipe(
-            Effect.catch(() => Effect.void),
-          )
+          yield* statusRuntime
+            .observeNow("cups-notification")
+            .pipe(Effect.catch(() => Effect.void))
         }
 
         if (hasJobEvent) {
-          yield* reconciler.repairCupsTrackedJobs().pipe(
-            Effect.catch(() => Effect.void),
-          )
+          yield* reconciler
+            .repairCupsTrackedJobs()
+            .pipe(Effect.catch(() => Effect.void))
         }
 
         if (notifyGetIntervalSeconds !== null && notifyGetIntervalSeconds > 0) {

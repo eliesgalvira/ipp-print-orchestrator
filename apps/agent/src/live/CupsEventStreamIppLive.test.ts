@@ -1,13 +1,13 @@
 import { describe, expect, it } from "@effect/vitest"
 
 import {
-  extractSubscriptionId,
   extractNotifyGetIntervalSeconds,
+  extractSubscriptionId,
   getNotificationsRequestMessage,
   maxNotificationSequenceNumber,
+  notificationRecords,
   notificationsIncludeJobEvent,
   notificationsIncludePrinterEvent,
-  notificationRecords,
 } from "./CupsEventStreamIppLive.js"
 
 describe("CupsEventStreamIppLive", () => {
@@ -70,13 +70,13 @@ describe("CupsEventStreamIppLive", () => {
   it("builds Get-Notifications requests in event wait mode", () => {
     expect(
       getNotificationsRequestMessage(
-        "http://127.0.0.1:631/printers/Test_Printer",
+        "ipp://localhost:631/printers/Test_Printer",
         42,
         9,
       ),
     ).toEqual({
       "operation-attributes-tag": {
-        "printer-uri": "http://127.0.0.1:631/printers/Test_Printer",
+        "printer-uri": "ipp://localhost:631/printers/Test_Printer",
         "requesting-user-name": "ipp-print-orchestrator",
         "notify-subscription-ids": [42],
         "notify-sequence-numbers": [9],
