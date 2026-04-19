@@ -223,12 +223,7 @@ export const StatusRuntimeLive = Layer.effect(
     })
 
     const current = Effect.fn("StatusRuntime.current")(function* () {
-      const cached = yield* Ref.get(lastObservedStatusRef)
-      if (cached !== null) {
-        return yield* enrichWithCurrentCounts(cached)
-      }
-
-      return yield* observeNow("cold-start")
+      return yield* observeNow("status-current")
     })
 
     return StatusRuntime.of({

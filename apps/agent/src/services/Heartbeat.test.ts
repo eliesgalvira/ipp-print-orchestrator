@@ -246,4 +246,42 @@ describe("Heartbeat", () => {
       ),
     ),
   )
+
+  it.effect("refreshes current status instead of returning stale cached observations", () =>
+    Effect.gen(function* () {
+      const statusRuntime = yield* StatusRuntime
+
+      yield* statusRuntime.recordObservedStatus({
+        timestamp: "2026-04-01T10:00:00.000Z",
+        hostname: "test-host",
+        observationReason: "cups-stream-disconnect",
+        cupsReachable: false,
+        printerAttached: true,
+        printerQueueAvailable: false,
+        printerState: null,
+        printerReasons: ["CupsIppProtocolError"],
+        printerMessage: "IPP request failed: client-error-bad-request",
+      })
+
+      const current = yield* statusRuntime.current()
+
+      expect(current.cupsReachable).toBe(true)
+      expect(current.printerAttached).toBe(true)
+      expect(current.printerQueueAvailable).toBe(true)
+      expect(current.printerState).toBe("idle")
+      expect(current.printerReasons).toEqual([])
+      expect(current.printerMessage).toBeNull()
+    }).pipe(
+      Effect.provide(
+        StatusRuntimeLive.pipe(
+          Layer.provideMerge(
+            makeTestLayer({
+              printer: [{ attached: true, queueAvailable: true, state: "idle" }],
+              cups: [{ _tag: "Submitted", cupsJobId: "unused" }],
+            }),
+          ),
+        ),
+      ),
+    ),
+  )
 })

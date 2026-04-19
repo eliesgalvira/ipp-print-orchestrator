@@ -20,6 +20,11 @@ const require = createRequire(import.meta.url)
 const ipp = require("ipp") as {
   readonly Printer: (
     url: string,
+    options?: {
+      readonly uri?: string
+      readonly language?: string
+      readonly version?: string
+    },
   ) => {
     readonly execute: (
       operation: string,
@@ -31,6 +36,10 @@ const ipp = require("ipp") as {
 
 interface IppResponse {
   readonly statusCode?: string
+  readonly ["operation-attributes-tag"]?: Record<string, unknown>
+  readonly ["unsupported-attributes-tag"]?:
+    | Record<string, unknown>
+    | readonly Record<string, unknown>[]
   readonly ["printer-attributes-tag"]?: Record<string, unknown>
   readonly ["job-attributes-tag"]?:
     | Record<string, unknown>
@@ -51,8 +60,11 @@ const singleRecord = (
   return value as Record<string, unknown>
 }
 
-const printerUriForName = (printerName: string): string =>
-  `http://127.0.0.1:631/printers/${encodeURIComponent(printerName)}`
+const printerHttpUrlForName = (printerName: string): string =>
+  `http://localhost:631/printers/${encodeURIComponent(printerName)}`
+
+const printerIppUriForName = (printerName: string): string =>
+  `ipp://localhost:631/printers/${encodeURIComponent(printerName)}`
 
 const parseJobId = (cupsJobId: string): number | null => {
   const numeric = Number(cupsJobId)
@@ -65,15 +77,68 @@ const requestMessage = (
   "operation-attributes-tag": attributes,
 })
 
+export const printerAttributesRequestMessage = (): Record<string, unknown> =>
+  requestMessage({
+    "requested-attributes": ["all", "media-col-database"],
+  })
+
+export const jobAttributesRequestMessage = (
+  jobId: number,
+): Record<string, unknown> =>
+  requestMessage({
+    "job-id": jobId,
+  })
+
+const summarizeRecord = (value: Record<string, unknown>): string =>
+  Object.entries(value)
+    .map(([key, item]) => `${key}=${JSON.stringify(item)}`)
+    .join(", ")
+
+const summarizeUnsupportedAttributes = (
+  value: IppResponse["unsupported-attributes-tag"],
+): string | null => {
+  if (value === undefined) {
+    return null
+  }
+
+  const records = Array.isArray(value) ? value : [value]
+  const summary = records.map(summarizeRecord).filter((item) => item.length > 0)
+  return summary.length === 0 ? null : summary.join("; ")
+}
+
+export const ippFailureMessage = (response: IppResponse): string => {
+  const statusCode = response.statusCode ?? "unknown"
+  const statusMessage = response["operation-attributes-tag"]?.["status-message"]
+  const unsupportedAttributes = summarizeUnsupportedAttributes(
+    response["unsupported-attributes-tag"],
+  )
+  const details = [
+    typeof statusMessage === "string" && statusMessage.length > 0
+      ? `status-message=${JSON.stringify(statusMessage)}`
+      : null,
+    unsupportedAttributes === null
+      ? null
+      : `unsupported-attributes=${unsupportedAttributes}`,
+  ].flatMap((item) => (item === null ? [] : [item]))
+
+  return details.length === 0
+    ? `IPP request failed: ${statusCode}`
+    : `IPP request failed: ${statusCode} (${details.join("; ")})`
+}
+
 const executeIpp = (
-  printerUri: string,
+  printerHttpUrl: string,
+  printerIppUri: string,
   operation: string,
   message: Record<string, unknown> | null,
 ): Effect.Effect<IppResponse, CupsIppUnavailable> =>
   Effect.tryPromise({
     try: () =>
       new Promise<IppResponse>((resolve, reject) => {
-        ipp.Printer(printerUri).execute(operation, message, (error, response) => {
+        ipp.Printer(printerHttpUrl, {
+          language: "en",
+          uri: printerIppUri,
+        }).execute(operation, message, (error, response) => {
           if (error) {
             reject(error)
             return
@@ -97,7 +162,7 @@ const ensureSuccessfulPrinterResponse = <A extends IppResponse>(
   }
 
   return Effect.fail(new CupsIppProtocolError({
-    message: `IPP request failed: ${statusCode}`,
+    message: ippFailureMessage(response),
   }))
 }
 
@@ -111,12 +176,12 @@ const ensureSuccessfulJobResponse = <A extends IppResponse>(
 
   if (statusCode.includes("not-found")) {
     return Effect.fail(new CupsIppJobNotFound({
-      message: `IPP object not found: ${statusCode}`,
+      message: `IPP object not found: ${ippFailureMessage(response)}`,
     }))
   }
 
   return Effect.fail(new CupsIppProtocolError({
-    message: `IPP request failed: ${statusCode}`,
+    message: ippFailureMessage(response),
   }))
 }
 
@@ -124,26 +189,20 @@ export const CupsObserverIppLive = Layer.effect(
   CupsObserver,
   Effect.gen(function* () {
     const appConfig = yield* AppConfig
-    const printerUri = printerUriForName(appConfig.printerName)
+    const printerHttpUrl = printerHttpUrlForName(appConfig.printerName)
+    const printerIppUri = printerIppUriForName(appConfig.printerName)
 
     const observePrinter = Effect.fn("CupsObserver.observePrinter")(function* () {
       yield* Effect.annotateCurrentSpan({
         "cups.printer_name": appConfig.printerName,
-        "cups.printer_uri": printerUri,
+        "cups.printer_uri": printerIppUri,
       })
 
       const response = yield* executeIpp(
-        printerUri,
+        printerHttpUrl,
+        printerIppUri,
         "Get-Printer-Attributes",
-        requestMessage({
-          "requested-attributes": [
-            "printer-name",
-            "printer-state",
-            "printer-state-reasons",
-            "printer-state-message",
-            "printer-is-accepting-jobs",
-          ],
-        }),
+        printerAttributesRequestMessage(),
       ).pipe(Effect.flatMap(ensureSuccessfulPrinterResponse))
 
       const attrs = response["printer-attributes-tag"]
@@ -189,21 +248,10 @@ export const CupsObserverIppLive = Layer.effect(
       }
 
       const response = yield* executeIpp(
-        printerUri,
+        printerHttpUrl,
+        printerIppUri,
         "Get-Job-Attributes",
-        requestMessage({
-          "job-id": jobId,
-          "requested-attributes": [
-            "job-id",
-            "job-state",
-            "job-state-reasons",
-            "job-media-sheets-completed",
-            "job-printer-state-message",
-            "job-printer-state-reasons",
-            "job-printer-up-time",
-            "job-printer-uri",
-          ],
-        }),
+        jobAttributesRequestMessage(jobId),
       ).pipe(
         Effect.flatMap(ensureSuccessfulJobResponse),
         Effect.catchTag("CupsIppJobNotFound", () => Effect.succeed(null)),
