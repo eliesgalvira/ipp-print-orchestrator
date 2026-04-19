@@ -57,7 +57,10 @@ describe("StateMachine property invariants", () => {
               if (sawTerminal) {
                 expect(result.reason).toContain("terminal")
               }
-              if (sawUncertain && action._tag === "SubmissionAttemptStarted") {
+              if (
+                job.state === "SubmissionUncertain" &&
+                action._tag === "SubmissionAttemptStarted"
+              ) {
                 expect(result.reason).toContain("SubmissionUncertain")
               }
               continue

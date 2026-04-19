@@ -8,7 +8,7 @@ export const makeFaultScript = <A>(
   steps: readonly [A, ...(readonly A[])],
 ): Effect.Effect<FaultScript<A>> =>
   Effect.gen(function* () {
-    const fallback = steps[steps.length - 1]
+    const fallback: A = steps[steps.length - 1] ?? steps[0]
     const ref = yield* Ref.make(0)
 
     const next = Ref.modify(ref, (index) => {
