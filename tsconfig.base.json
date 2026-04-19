@@ -5,6 +5,7 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "moduleDetection": "force",
+    "baseUrl": ".",
     "strict": true,
     "exactOptionalPropertyTypes": true,
     "noUncheckedIndexedAccess": true,
@@ -19,6 +20,10 @@
     "incremental": true,
     "composite": true,
     "types": ["node"],
+    "paths": {
+      "@ipp/shared": ["packages/shared/src/index.ts"],
+      "@ipp/ipp": ["packages/ipp/src/index.ts"]
+    },
     "plugins": [
       {
         "name": "@effect/language-service",

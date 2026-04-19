@@ -1,10 +1,9 @@
-import { describe, expect, it } from "@effect/vitest"
-import * as FileSystem from "effect/FileSystem"
 import { NodeFileSystem, NodePath } from "@effect/platform-node"
+import { describe, expect, it } from "@effect/vitest"
 import { Effect, Layer } from "effect"
-
-import { CupsObserver } from "../cups-observation/CupsObserver.js"
+import * as FileSystem from "effect/FileSystem"
 import { AppConfig } from "../config/AppConfig.js"
+import { CupsObserver } from "../cups-observation/CupsObserver.js"
 import { Job } from "../domain/Job.js"
 import { JobId } from "../domain/JobId.js"
 import { EventSink } from "../services/EventSink.js"
@@ -53,7 +52,9 @@ describe("ReconcilerLive", () => {
   it.effect("rehydrates retryable jobs into the in-memory queue", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
-      const dataDir = yield* fs.makeTempDirectory({ prefix: "ipp-orch-reconcile-" })
+      const dataDir = yield* fs.makeTempDirectory({
+        prefix: "ipp-orch-reconcile-",
+      })
 
       const repoLayer = JobRepoFileLive.pipe(
         Layer.provideMerge(appConfigLayer(dataDir)),
@@ -101,9 +102,7 @@ describe("ReconcilerLive", () => {
         Layer.provideMerge(supportLayer),
       )
 
-      const queueLayer = QueueRuntimeLive.pipe(
-        Layer.provideMerge(eventLayer),
-      )
+      const queueLayer = QueueRuntimeLive.pipe(Layer.provideMerge(eventLayer))
 
       const runtimeLayer = Layer.mergeAll(
         supportLayer,
@@ -111,11 +110,7 @@ describe("ReconcilerLive", () => {
         queueLayer,
         ReconcilerLive.pipe(
           Layer.provideMerge(
-            Layer.mergeAll(
-              supportLayer,
-              eventLayer,
-              queueLayer,
-            ),
+            Layer.mergeAll(supportLayer, eventLayer, queueLayer),
           ),
         ),
       )
@@ -209,9 +204,7 @@ describe("ReconcilerLive", () => {
         Layer.provideMerge(supportLayer),
       )
 
-      const queueLayer = QueueRuntimeLive.pipe(
-        Layer.provideMerge(eventLayer),
-      )
+      const queueLayer = QueueRuntimeLive.pipe(Layer.provideMerge(eventLayer))
 
       const runtimeLayer = Layer.mergeAll(
         supportLayer,
@@ -219,11 +212,7 @@ describe("ReconcilerLive", () => {
         queueLayer,
         ReconcilerLive.pipe(
           Layer.provideMerge(
-            Layer.mergeAll(
-              supportLayer,
-              eventLayer,
-              queueLayer,
-            ),
+            Layer.mergeAll(supportLayer, eventLayer, queueLayer),
           ),
         ),
       )

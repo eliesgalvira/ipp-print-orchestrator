@@ -1,17 +1,17 @@
 import { logs as otelLogsApi, SeverityNumber } from "@opentelemetry/api-logs"
 import { OTLPLogExporter } from "@opentelemetry/exporter-logs-otlp-http"
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http"
-import { NodeSDK, tracing } from "@opentelemetry/sdk-node"
 import { BatchLogRecordProcessor } from "@opentelemetry/sdk-logs"
-import { Effect } from "effect"
+import { NodeSDK, tracing } from "@opentelemetry/sdk-node"
 import type { Tracer as EffectTracer } from "effect"
+import { Effect } from "effect"
 
 import type { WideEvent } from "../domain/WideEvent.js"
+import { readOtelConfig } from "./OtelConfig.js"
 import {
   effectSpanToOtelContext,
   makeOtelEffectTracer,
 } from "./OtelEffectTracer.js"
-import { readOtelConfig } from "./OtelConfig.js"
 
 let sdk: NodeSDK | null = null
 let effectTracer: EffectTracer.Tracer | null = null
@@ -41,7 +41,10 @@ const logAttributesForEvent = (
       continue
     }
 
-    if (Array.isArray(value) && value.every((item) => typeof item === "string")) {
+    if (
+      Array.isArray(value) &&
+      value.every((item) => typeof item === "string")
+    ) {
       attributes[key] = [...value]
     }
   }

@@ -9,7 +9,7 @@ export type NetworkProbeStep = {
 }
 
 export const layer = (
-  steps: readonly [NetworkProbeStep, ...readonly NetworkProbeStep[]],
+  steps: readonly [NetworkProbeStep, ...(readonly NetworkProbeStep[])],
 ) =>
   Layer.effect(
     NetworkProbe,

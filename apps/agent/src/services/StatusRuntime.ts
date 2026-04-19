@@ -1,4 +1,4 @@
-import { Effect } from "effect"
+import type { Effect } from "effect"
 import * as ServiceMap from "effect/ServiceMap"
 
 import type { OperationalError } from "../domain/Errors.js"

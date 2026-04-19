@@ -11,7 +11,9 @@ export const WideEventPublisherLive = Layer.effect(
     const eventSink = yield* EventSink
     const telemetry = yield* Telemetry
 
-    const emit = Effect.fn("WideEventPublisher.emit")(function* (event: WideEvent) {
+    const emit = Effect.fn("WideEventPublisher.emit")(function* (
+      event: WideEvent,
+    ) {
       yield* eventSink.append(event)
       yield* telemetry.emit(event).pipe(Effect.catch(() => Effect.void))
     })

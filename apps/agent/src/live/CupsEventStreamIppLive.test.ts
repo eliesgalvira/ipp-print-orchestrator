@@ -1,22 +1,18 @@
-import { createRequire } from "node:module"
-
 import { describe, expect, it } from "@effect/vitest"
-
 import {
   extractNotifyGetIntervalSeconds,
   extractSubscriptionId,
-  getNotificationsRequestMessage,
+  getNotificationsRequest,
   maxNotificationSequenceNumber,
   notificationRecords,
+  parseIppMessage,
+  serializeIppRequest,
+} from "@ipp/ipp"
+
+import {
   notificationsIncludeJobEvent,
   notificationsIncludePrinterEvent,
-  serializeIppRequest,
 } from "./CupsEventStreamIppLive.js"
-
-const require = createRequire(import.meta.url)
-const ipp = require("ipp") as {
-  readonly parse: (buffer: Buffer) => Record<string, unknown>
-}
 
 describe("CupsEventStreamIppLive", () => {
   it("extracts subscription ids from IPP subscription responses", () => {
@@ -77,8 +73,9 @@ describe("CupsEventStreamIppLive", () => {
 
   it("builds Get-Notifications requests in event wait mode", () => {
     expect(
-      getNotificationsRequestMessage(
+      getNotificationsRequest(
         "ipp://localhost:631/printers/Test_Printer",
+        "ipp-print-orchestrator",
         42,
         9,
       ),
@@ -102,29 +99,28 @@ describe("CupsEventStreamIppLive", () => {
     }
     const subscriptionAttributes = {
       "notify-pull-method": "ippget",
-      "notify-events": [
-        "printer-state-changed",
-        "printer-modified",
-      ],
+      "notify-events": ["printer-state-changed", "printer-modified"],
       "notify-lease-duration": 0,
     }
 
-    const bytes = serializeIppRequest(
-      "Create-Printer-Subscriptions",
-      "ipp://localhost:631/printers/Test_Printer",
-      {
+    const bytes = serializeIppRequest({
+      operation: "Create-Printer-Subscriptions",
+      printerUri: "ipp://localhost:631/printers/Test_Printer",
+      message: {
         "operation-attributes-tag": {
           "requesting-user-name": "ipp-print-orchestrator",
         },
         "subscription-attributes-tag": subscriptionAttributes,
       },
-    )
+    })
 
-    const parsed = ipp.parse(bytes)
+    const parsed = parseIppMessage(bytes)
     expect(parsed.version).toBe("2.0")
     expect(parsed.operation).toBe("Create-Printer-Subscriptions")
     expect(parsed["operation-attributes-tag"]).toEqual(operationAttributes)
-    expect(parsed["subscription-attributes-tag"]).toEqual(subscriptionAttributes)
+    expect(parsed["subscription-attributes-tag"]).toEqual(
+      subscriptionAttributes,
+    )
   })
 
   it("detects job notifications that should trigger targeted repair", () => {

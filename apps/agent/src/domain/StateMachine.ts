@@ -72,12 +72,7 @@ const allowedTransitions: Record<JobState, readonly TransitionActionTag[]> = {
     "Cancelled",
     "FailedTerminal",
   ],
-  Printing: [
-    "Completed",
-    "SubmissionUncertain",
-    "Cancelled",
-    "FailedTerminal",
-  ],
+  Printing: ["Completed", "SubmissionUncertain", "Cancelled", "FailedTerminal"],
   Completed: [],
   WaitingForPrinter: [
     "RetryScheduled",
@@ -99,7 +94,13 @@ const allowedTransitions: Record<JobState, readonly TransitionActionTag[]> = {
     "Cancelled",
     "FailedTerminal",
   ],
-  SubmissionUncertain: ["Submitted", "Printing", "Completed", "Cancelled", "FailedTerminal"],
+  SubmissionUncertain: [
+    "Submitted",
+    "Printing",
+    "Completed",
+    "Cancelled",
+    "FailedTerminal",
+  ],
   FailedTerminal: [],
   Cancelled: [],
 }
@@ -133,7 +134,9 @@ const nextStateForAction = (action: TransitionAction): JobState => {
   }
 }
 
-const eventNameForAction = (action: TransitionAction): WideEvent["eventName"] => {
+const eventNameForAction = (
+  action: TransitionAction,
+): WideEvent["eventName"] => {
   switch (action._tag) {
     case "Stored":
       return "print.job.stored"
@@ -237,7 +240,9 @@ export const transitionJob = (
   const attemptNumber = nextRetryCount + 1
   const jobDurationMs = elapsedMs(job.createdAt, occurredAt)
   const timeToSubmitMs =
-    action._tag === "Submitted" ? elapsedMs(job.createdAt, occurredAt) : undefined
+    action._tag === "Submitted"
+      ? elapsedMs(job.createdAt, occurredAt)
+      : undefined
   const timeToTerminalMs = terminalJobStates.has(nextState)
     ? elapsedMs(job.createdAt, occurredAt)
     : undefined

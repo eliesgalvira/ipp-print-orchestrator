@@ -1,9 +1,8 @@
 import { Effect, Layer, Ref } from "effect"
-
-import { terminalJobStates } from "../../../apps/agent/src/domain/JobState.js"
 import { JobRepoUnavailable } from "../../../apps/agent/src/domain/Errors.js"
 import type { Job } from "../../../apps/agent/src/domain/Job.js"
 import type { JobId } from "../../../apps/agent/src/domain/JobId.js"
+import { terminalJobStates } from "../../../apps/agent/src/domain/JobState.js"
 import type { WideEvent } from "../../../apps/agent/src/domain/WideEvent.js"
 import { JobRepo } from "../../../apps/agent/src/services/JobRepo.js"
 
@@ -11,7 +10,9 @@ export const layer = Layer.effect(
   JobRepo,
   Effect.gen(function* () {
     const jobsRef = yield* Ref.make(new Map<string, Job>())
-    const transitionsRef = yield* Ref.make(new Map<string, readonly WideEvent[]>())
+    const transitionsRef = yield* Ref.make(
+      new Map<string, readonly WideEvent[]>(),
+    )
 
     const create = (job: Job) =>
       Ref.update(jobsRef, (jobs) => {

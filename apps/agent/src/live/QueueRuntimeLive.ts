@@ -1,7 +1,10 @@
 import { Clock, Effect, Layer, Queue } from "effect"
 
 import type { JobId } from "../domain/JobId.js"
-import { makeQueueEvent, WideEventPublisher } from "../observability/WideEventPublisher.js"
+import {
+  makeQueueEvent,
+  WideEventPublisher,
+} from "../observability/WideEventPublisher.js"
 import { QueueRuntime } from "../services/QueueRuntime.js"
 
 export const QueueRuntimeLive = Layer.effect(
@@ -14,28 +17,32 @@ export const QueueRuntimeLive = Layer.effect(
       yield* Queue.offer(queue, jobId).pipe(Effect.asVoid)
       const queueDepth = yield* Queue.size(queue)
       const timestamp = new Date(yield* Clock.currentTimeMillis).toISOString()
-      yield* wideEventPublisher.emit(
-        makeQueueEvent({
-          timestamp,
-          eventName: "queue.job.enqueued",
-          printId: jobId,
-          queueDepth,
-        }),
-      ).pipe(Effect.catch(() => Effect.void))
+      yield* wideEventPublisher
+        .emit(
+          makeQueueEvent({
+            timestamp,
+            eventName: "queue.job.enqueued",
+            printId: jobId,
+            queueDepth,
+          }),
+        )
+        .pipe(Effect.catch(() => Effect.void))
     })
 
     const take = Effect.fn("QueueRuntime.take")(function* () {
       const jobId = yield* Queue.take(queue)
       const queueDepth = yield* Queue.size(queue)
       const timestamp = new Date(yield* Clock.currentTimeMillis).toISOString()
-      yield* wideEventPublisher.emit(
-        makeQueueEvent({
-          timestamp,
-          eventName: "queue.job.dequeued",
-          printId: jobId,
-          queueDepth,
-        }),
-      ).pipe(Effect.catch(() => Effect.void))
+      yield* wideEventPublisher
+        .emit(
+          makeQueueEvent({
+            timestamp,
+            eventName: "queue.job.dequeued",
+            printId: jobId,
+            queueDepth,
+          }),
+        )
+        .pipe(Effect.catch(() => Effect.void))
       return jobId
     })
 

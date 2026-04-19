@@ -3,8 +3,8 @@ export { layer as inMemoryBlobStoreLayer } from "./InMemoryBlobStore.js"
 export { layer as inMemoryEventSinkLayer } from "./InMemoryEventSink.js"
 export { layer as inMemoryJobRepoLayer } from "./InMemoryJobRepo.js"
 export {
-  layer as scriptedCupsClientLayer,
   type CupsSubmitStep,
+  layer as scriptedCupsClientLayer,
 } from "./ScriptedCupsClient.js"
 export {
   layer as scriptedNetworkProbeLayer,

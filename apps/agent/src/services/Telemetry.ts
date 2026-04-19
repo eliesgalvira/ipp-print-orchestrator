@@ -1,7 +1,7 @@
-import { Effect } from "effect"
+import type { Effect } from "effect"
 import * as ServiceMap from "effect/ServiceMap"
 
-import { TelemetryUnavailable } from "../domain/Errors.js"
+import type { TelemetryUnavailable } from "../domain/Errors.js"
 import type { WideEvent } from "../domain/WideEvent.js"
 
 export class Telemetry extends ServiceMap.Service<

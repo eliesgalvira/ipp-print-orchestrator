@@ -1,17 +1,24 @@
 import {
-  ROOT_CONTEXT,
-  SpanKind,
-  SpanStatusCode,
-  TraceFlags,
-  context as otelContextApi,
-  trace as otelTraceApi,
   type Context as OtelContext,
   type Link as OtelLink,
   type Span as OtelSpan,
   type SpanContext as OtelSpanContext,
   type Tracer as OtelTracer,
+  context as otelContextApi,
+  trace as otelTraceApi,
+  ROOT_CONTEXT,
+  SpanKind,
+  SpanStatusCode,
+  TraceFlags,
 } from "@opentelemetry/api"
-import { Cause, Exit, Option, ServiceMap, Tracer as EffectTracer, type Fiber } from "effect"
+import {
+  Cause,
+  Tracer as EffectTracer,
+  Exit,
+  type Fiber,
+  Option,
+  type ServiceMap,
+} from "effect"
 
 class OtelEffectSpan implements EffectTracer.Span {
   readonly _tag = "Span"
@@ -70,8 +77,16 @@ class OtelEffectSpan implements EffectTracer.Span {
     this.otelSpan.setAttribute(key, toOtelAttributeValue(value))
   }
 
-  event(name: string, startTime: bigint, attributes?: Record<string, unknown>): void {
-    this.otelSpan.addEvent(name, mapAttributes(attributes), nanosToMillis(startTime))
+  event(
+    name: string,
+    startTime: bigint,
+    attributes?: Record<string, unknown>,
+  ): void {
+    this.otelSpan.addEvent(
+      name,
+      mapAttributes(attributes),
+      nanosToMillis(startTime),
+    )
   }
 
   addLinks(links: ReadonlyArray<EffectTracer.SpanLink>): void {
@@ -109,7 +124,9 @@ const toOtelAttributeValue = (
 
 const mapAttributes = (
   attributes: Readonly<Record<string, unknown>> | undefined,
-): Record<string, string | number | boolean | string[] | number[] | boolean[]> | undefined => {
+):
+  | Record<string, string | number | boolean | string[] | number[] | boolean[]>
+  | undefined => {
   if (attributes === undefined) {
     return undefined
   }
@@ -137,9 +154,7 @@ const toOtelSpanKind = (kind: EffectTracer.SpanKind): SpanKind => {
   }
 }
 
-const toSpanContext = (
-  span: EffectTracer.AnySpan,
-): OtelSpanContext => ({
+const toSpanContext = (span: EffectTracer.AnySpan): OtelSpanContext => ({
   spanId: span.spanId,
   traceId: span.traceId,
   traceFlags: span.sampled ? TraceFlags.SAMPLED : TraceFlags.NONE,
@@ -165,9 +180,7 @@ export const effectSpanToOtelContext = (
 ): OtelContext | undefined =>
   span === undefined ? undefined : otelContextForSpan(span)
 
-export const makeOtelEffectTracer = (
-  tracerName: string,
-): EffectTracer.Tracer =>
+export const makeOtelEffectTracer = (tracerName: string): EffectTracer.Tracer =>
   EffectTracer.make({
     span(options) {
       const parentContext = Option.match(options.parent, {
@@ -204,7 +217,7 @@ export const makeOtelEffectTracer = (
     },
     context: <X>(
       primitive: EffectTracer.EffectPrimitive<X>,
-      fiber: Fiber.Fiber<any, any>,
+      fiber: Fiber.Fiber<unknown, unknown>,
     ) =>
       otelContextApi.with(
         effectSpanToOtelContext(fiber.currentSpan) ?? ROOT_CONTEXT,

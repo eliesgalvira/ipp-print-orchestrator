@@ -1,5 +1,5 @@
-import * as FileSystem from "effect/FileSystem"
 import { Effect, Layer } from "effect"
+import * as FileSystem from "effect/FileSystem"
 import * as Path from "effect/Path"
 
 import { JobRepoUnavailable } from "../domain/Errors.js"
@@ -16,10 +16,7 @@ import {
   encodeJsonLines,
 } from "../util/Json.js"
 import { makeAppPaths } from "../util/Paths.js"
-import {
-  ensureAppDirectories,
-  writeFileStringAtomic,
-} from "./FileSupport.js"
+import { ensureAppDirectories, writeFileStringAtomic } from "./FileSupport.js"
 
 const mapRepoError = (error: unknown) =>
   new JobRepoUnavailable({ message: String(error) })
@@ -68,13 +65,16 @@ export const JobRepoFileLive = Layer.effect(
         const encodedJob = yield* encodeJson(Job)(job).pipe(
           Effect.mapError(mapRepoError),
         )
-        yield* writeFileStringAtomic(fs, path, paths.stateFile(job.id), encodedJob).pipe(
-          Effect.mapError(mapRepoError),
-        )
+        yield* writeFileStringAtomic(
+          fs,
+          path,
+          paths.stateFile(job.id),
+          encodedJob,
+        ).pipe(Effect.mapError(mapRepoError))
 
-        const exists = yield* fs.exists(paths.transitionsFile(job.id)).pipe(
-          Effect.mapError(mapRepoError),
-        )
+        const exists = yield* fs
+          .exists(paths.transitionsFile(job.id))
+          .pipe(Effect.mapError(mapRepoError))
         if (!exists) {
           yield* writeTransitions(job.id, [])
         }
@@ -83,37 +83,44 @@ export const JobRepoFileLive = Layer.effect(
     const get = (jobId: JobId) =>
       fs.readFileString(paths.stateFile(jobId)).pipe(
         Effect.mapError(mapRepoError),
-        Effect.flatMap((json) => decodeJson(Job)(json).pipe(Effect.mapError(mapRepoError))),
+        Effect.flatMap((json) =>
+          decodeJson(Job)(json).pipe(Effect.mapError(mapRepoError)),
+        ),
       )
 
     const getOption = (jobId: JobId) =>
       fs.exists(paths.stateFile(jobId)).pipe(
         Effect.mapError(mapRepoError),
-        Effect.flatMap((exists) => (exists ? get(jobId) : Effect.succeed(null))),
+        Effect.flatMap((exists) =>
+          exists ? get(jobId) : Effect.succeed(null),
+        ),
       )
 
     const save = (job: Job) =>
       encodeJson(Job)(job).pipe(
         Effect.mapError(mapRepoError),
         Effect.flatMap((encodedJob) =>
-          writeFileStringAtomic(fs, path, paths.stateFile(job.id), encodedJob).pipe(
-            Effect.mapError(mapRepoError),
-          ),
+          writeFileStringAtomic(
+            fs,
+            path,
+            paths.stateFile(job.id),
+            encodedJob,
+          ).pipe(Effect.mapError(mapRepoError)),
         ),
       )
 
     const getTransitions = (jobId: JobId) =>
       Effect.gen(function* () {
-        const exists = yield* fs.exists(paths.transitionsFile(jobId)).pipe(
-          Effect.mapError(mapRepoError),
-        )
+        const exists = yield* fs
+          .exists(paths.transitionsFile(jobId))
+          .pipe(Effect.mapError(mapRepoError))
         if (!exists) {
           return [] as readonly WideEvent[]
         }
 
-        const contents = yield* fs.readFileString(paths.transitionsFile(jobId)).pipe(
-          Effect.mapError(mapRepoError),
-        )
+        const contents = yield* fs
+          .readFileString(paths.transitionsFile(jobId))
+          .pipe(Effect.mapError(mapRepoError))
 
         return yield* decodeJsonLines(WideEvent, contents).pipe(
           Effect.mapError(mapRepoError),
@@ -128,14 +135,16 @@ export const JobRepoFileLive = Layer.effect(
 
     const listNonTerminal = () =>
       Effect.gen(function* () {
-        const exists = yield* fs.exists(paths.jobsDir).pipe(Effect.mapError(mapRepoError))
+        const exists = yield* fs
+          .exists(paths.jobsDir)
+          .pipe(Effect.mapError(mapRepoError))
         if (!exists) {
           return [] as readonly Job[]
         }
 
-        const jobDirs = yield* fs.readDirectory(paths.jobsDir).pipe(
-          Effect.mapError(mapRepoError),
-        )
+        const jobDirs = yield* fs
+          .readDirectory(paths.jobsDir)
+          .pipe(Effect.mapError(mapRepoError))
 
         const loaded = yield* Effect.forEach(jobDirs, (jobDirName) =>
           get(jobDirName as JobId).pipe(
@@ -144,7 +153,8 @@ export const JobRepoFileLive = Layer.effect(
         )
 
         return loaded.filter(
-          (job): job is Job => job !== null && !terminalJobStates.has(job.state),
+          (job): job is Job =>
+            job !== null && !terminalJobStates.has(job.state),
         )
       })
 

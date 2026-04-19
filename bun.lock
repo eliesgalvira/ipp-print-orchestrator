@@ -24,6 +24,7 @@
       "name": "@ipp/agent",
       "dependencies": {
         "@effect/platform-node": "^4.0.0-beta.36",
+        "@ipp/ipp": "workspace:*",
         "@ipp/shared": "workspace:*",
         "@opentelemetry/api": "^1.9.0",
         "@opentelemetry/api-logs": "^0.213.0",
@@ -33,7 +34,12 @@
         "@opentelemetry/sdk-logs": "^0.213.0",
         "@opentelemetry/sdk-node": "^0.213.0",
         "effect": "^4.0.0-beta.36",
-        "ipp": "^2.0.1",
+      },
+    },
+    "packages/ipp": {
+      "name": "@ipp/ipp",
+      "dependencies": {
+        "effect": "^4.0.0-beta.36",
       },
     },
     "packages/shared": {
@@ -141,6 +147,8 @@
     "@ioredis/commands": ["@ioredis/commands@1.5.1", "", {}, "sha512-JH8ZL/ywcJyR9MmJ5BNqZllXNZQqQbnVZOqpPQqE1vHiFgAw4NHbvE0FOduNU8IX9babitBT46571OnPTT0Zcw=="],
 
     "@ipp/agent": ["@ipp/agent@workspace:apps/agent"],
+
+    "@ipp/ipp": ["@ipp/ipp@workspace:packages/ipp"],
 
     "@ipp/shared": ["@ipp/shared@workspace:packages/shared"],
 
@@ -391,8 +399,6 @@
     "ini": ["ini@6.0.0", "", {}, "sha512-IBTdIkzZNOpqm7q3dRqJvMaldXjDHWkEDfrwGEQTs5eaQMWV+djAhR+wahyNNMAa+qpbDUhBMVt4ZKNwpPm7xQ=="],
 
     "ioredis": ["ioredis@5.10.1", "", { "dependencies": { "@ioredis/commands": "1.5.1", "cluster-key-slot": "^1.1.0", "debug": "^4.3.4", "denque": "^2.1.0", "lodash.defaults": "^4.2.0", "lodash.isarguments": "^3.1.0", "redis-errors": "^1.2.0", "redis-parser": "^3.0.0", "standard-as-callback": "^2.1.0" } }, "sha512-HuEDBTI70aYdx1v6U97SbNx9F1+svQKBDo30o0b9fw055LMepzpOOd0Ccg9Q6tbqmBSJaMuY0fB7yw9/vjBYCA=="],
-
-    "ipp": ["ipp@2.0.1", "", {}, "sha512-p5dO2BXAVDnkv6IhUBupwydkq5/uw+DE+MGXnYzziNK1AtuLgbT9dFfJ3f8pA+J21n43TYipm6et/hTDEFJU/A=="],
 
     "is-extendable": ["is-extendable@0.1.1", "", {}, "sha512-5BMULNob1vgFX6EjQw5izWDxrecWK9AM72rugNr0TFldMOi0fj6Jk+zeKIt0xGj4cEfQIJth4w3OKWOJ4f+AFw=="],
 

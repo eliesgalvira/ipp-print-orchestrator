@@ -1,20 +1,20 @@
-import { Layer } from "effect"
 import {
   NodeChildProcessSpawner,
   NodeFileSystem,
   NodePath,
 } from "@effect/platform-node"
-
-import { CupsObserverIppLive } from "../cups-observation/CupsObserverIppLive.js"
+import { NodeIppClientLive } from "@ipp/ipp"
+import { Layer } from "effect"
 import { AppConfig } from "../config/AppConfig.js"
+import { CupsObserverIppLive } from "../cups-observation/CupsObserverIppLive.js"
 import { Orchestrator } from "../services/Orchestrator.js"
 import { BlobStoreLive } from "./BlobStoreLive.js"
-import { CupsEventStreamIppLive } from "./CupsEventStreamIppLive.js"
 import { CupsClientCliLive } from "./CupsClientCliLive.js"
+import { CupsEventStreamIppLive } from "./CupsEventStreamIppLive.js"
 import { EventSinkFileLive } from "./EventSinkFileLive.js"
+import { HeartbeatLive } from "./HeartbeatLive.js"
 import { JobRepoFileLive } from "./JobRepoFileLive.js"
 import { NetworkProbeCliLive } from "./NetworkProbeCliLive.js"
-import { HeartbeatLive } from "./HeartbeatLive.js"
 import { PrinterProbeCliLive } from "./PrinterProbeCliLive.js"
 import { QueueRuntimeLive } from "./QueueRuntimeLive.js"
 import { ReconcilerLive } from "./ReconcilerLive.js"
@@ -24,15 +24,9 @@ import { WideEventPublisherLive } from "./WideEventPublisherLive.js"
 
 const configLayer = AppConfig.layer
 
-const fileSupportLayer = Layer.mergeAll(
-  NodeFileSystem.layer,
-  NodePath.layer,
-)
+const fileSupportLayer = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer)
 
-const storageSupportLayer = Layer.mergeAll(
-  configLayer,
-  fileSupportLayer,
-)
+const storageSupportLayer = Layer.mergeAll(configLayer, fileSupportLayer)
 
 const commandLayer = NodeChildProcessSpawner.layer
 
@@ -49,6 +43,7 @@ const cupsLayer = CupsClientCliLive.pipe(
 
 const cupsObservationLayer = CupsObserverIppLive.pipe(
   Layer.provide(configLayer),
+  Layer.provide(NodeIppClientLive),
 )
 
 const probeLayer = Layer.mergeAll(
@@ -79,14 +74,9 @@ const eventRuntimeLayer = Layer.mergeAll(
   eventLayer,
 )
 
-const queueLayer = QueueRuntimeLive.pipe(
-  Layer.provide(eventRuntimeLayer),
-)
+const queueLayer = QueueRuntimeLive.pipe(Layer.provide(eventRuntimeLayer))
 
-const queueRuntimeLayer = Layer.merge(
-  eventRuntimeLayer,
-  queueLayer,
-)
+const queueRuntimeLayer = Layer.merge(eventRuntimeLayer, queueLayer)
 
 const statusRuntimeLayer = StatusRuntimeLive.pipe(
   Layer.provide(queueRuntimeLayer),
@@ -101,21 +91,15 @@ const orchestratorLayer = Orchestrator.layer.pipe(
   Layer.provide(queueRuntimeLayer),
 )
 
-const reconcilerLayer = ReconcilerLive.pipe(
-  Layer.provide(queueRuntimeLayer),
-)
+const reconcilerLayer = ReconcilerLive.pipe(Layer.provide(queueRuntimeLayer))
 
 const heartbeatLayer = HeartbeatLive.pipe(
   Layer.provide(statusAwareRuntimeLayer),
 )
 
 const cupsEventStreamLayer = CupsEventStreamIppLive.pipe(
-  Layer.provide(
-    Layer.merge(
-      statusAwareRuntimeLayer,
-      reconcilerLayer,
-    ),
-  ),
+  Layer.provide(Layer.merge(statusAwareRuntimeLayer, reconcilerLayer)),
+  Layer.provide(NodeIppClientLive),
 )
 
 export const MainLayer = Layer.mergeAll(

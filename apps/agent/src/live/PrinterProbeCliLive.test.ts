@@ -1,4 +1,10 @@
-import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -10,8 +16,8 @@ import { CupsObserver } from "../cups-observation/CupsObserver.js"
 import { CupsClient } from "../services/CupsClient.js"
 import { PrinterProbe } from "../services/PrinterProbe.js"
 import {
-  parseUsbDeviceUri,
   PrinterProbeCliLive,
+  parseUsbDeviceUri,
   usbDeviceUriMatchesSysfsDevice,
 } from "./PrinterProbeCliLive.js"
 
@@ -115,7 +121,9 @@ describe("PrinterProbeCliLive", () => {
   })
 
   it("matches serial-less USB device URIs by manufacturer and product tokens", () => {
-    const parsed = parseUsbDeviceUri("usb://HP/Laser%20MFP%20131%20133%20135-138")
+    const parsed = parseUsbDeviceUri(
+      "usb://HP/Laser%20MFP%20131%20133%20135-138",
+    )
 
     expect(parsed).not.toBeNull()
     expect(
@@ -127,33 +135,36 @@ describe("PrinterProbeCliLive", () => {
     ).toBe(true)
   })
 
-  it.effect("marks USB printers detached when the configured device is missing from sysfs", () =>
-    withUsbSysfsRoot((usbSysfsRoot) =>
-      Effect.gen(function* () {
-        const printerProbe = yield* PrinterProbe
-        const status = yield* printerProbe.status("cold-start")
+  it.effect(
+    "marks USB printers detached when the configured device is missing from sysfs",
+    () =>
+      withUsbSysfsRoot((usbSysfsRoot) =>
+        Effect.gen(function* () {
+          const printerProbe = yield* PrinterProbe
+          const status = yield* printerProbe.status("cold-start")
 
-        expect(status.attached).toBe(false)
-        expect(status.queueAvailable).toBe(false)
-        expect(status.cupsReachable).toBe(true)
-        expect(status.reasons).toEqual(["usb-device-missing"])
-        expect(status.message).toBe(
-          "Configured USB printer device is not present in sysfs",
-        )
-      }).pipe(
-        Effect.provide(
-          PrinterProbeCliLive.pipe(
-            Layer.provide(appConfigLayer(usbSysfsRoot)),
-            Layer.provide(cupsObserverLayer()),
-            Layer.provide(
-              cupsClientLayer(
-                "usb://HP/Laser%20MFP%20131%20133%20135-138?serial=ABC123&interface=1",
+          expect(status.attached).toBe(false)
+          expect(status.queueAvailable).toBe(false)
+          expect(status.cupsReachable).toBe(true)
+          expect(status.reasons).toEqual(["usb-device-missing"])
+          expect(status.message).toBe(
+            "Configured USB printer device is not present in sysfs",
+          )
+        }).pipe(
+          Effect.provide(
+            PrinterProbeCliLive.pipe(
+              Layer.provide(appConfigLayer(usbSysfsRoot)),
+              Layer.provide(cupsObserverLayer()),
+              Layer.provide(
+                cupsClientLayer(
+                  "usb://HP/Laser%20MFP%20131%20133%20135-138?serial=ABC123&interface=1",
+                ),
               ),
             ),
           ),
         ),
       ),
-    ))
+  )
 
   it.effect("matches USB devices exposed as sysfs symlinks", () =>
     withUsbSysfsRoot((usbSysfsRoot) =>
@@ -164,7 +175,11 @@ describe("PrinterProbeCliLive", () => {
           product: "Laser MFP 131 133 135-138",
           serial: "ABC123",
         })
-        symlinkSync(join(targetRoot, "real-1-1"), join(usbSysfsRoot, "1-1"), "dir")
+        symlinkSync(
+          join(targetRoot, "real-1-1"),
+          join(usbSysfsRoot, "1-1"),
+          "dir",
+        )
 
         const printerProbe = yield* PrinterProbe
         const status = yield* printerProbe.status("cold-start")
@@ -184,139 +199,152 @@ describe("PrinterProbeCliLive", () => {
           ),
         ),
       ),
-    ))
+    ),
+  )
 
-  it.effect("keeps network printers attached without the USB presence check", () =>
-    withUsbSysfsRoot((usbSysfsRoot) =>
-      Effect.gen(function* () {
-        const printerProbe = yield* PrinterProbe
-        const status = yield* printerProbe.status()
+  it.effect(
+    "keeps network printers attached without the USB presence check",
+    () =>
+      withUsbSysfsRoot((usbSysfsRoot) =>
+        Effect.gen(function* () {
+          const printerProbe = yield* PrinterProbe
+          const status = yield* printerProbe.status()
 
-        expect(status.attached).toBe(true)
-        expect(status.queueAvailable).toBe(true)
-      }).pipe(
-        Effect.provide(
-          PrinterProbeCliLive.pipe(
-            Layer.provide(appConfigLayer(usbSysfsRoot)),
-            Layer.provide(cupsObserverLayer()),
-            Layer.provide(cupsClientLayer("ipp://printer.local/ipp/print")),
+          expect(status.attached).toBe(true)
+          expect(status.queueAvailable).toBe(true)
+        }).pipe(
+          Effect.provide(
+            PrinterProbeCliLive.pipe(
+              Layer.provide(appConfigLayer(usbSysfsRoot)),
+              Layer.provide(cupsObserverLayer()),
+              Layer.provide(cupsClientLayer("ipp://printer.local/ipp/print")),
+            ),
           ),
         ),
       ),
-    ))
+  )
 
-  it.effect("reuses cached sysfs attachment outside explicit udev refreshes", () =>
-    withUsbSysfsRoot((usbSysfsRoot) =>
-      Effect.gen(function* () {
-        writeUsbDevice(usbSysfsRoot, "1-1", {
-          manufacturer: "HP",
-          product: "Laser MFP 131 133 135-138",
-          serial: "ABC123",
-        })
+  it.effect(
+    "reuses cached sysfs attachment outside explicit udev refreshes",
+    () =>
+      withUsbSysfsRoot((usbSysfsRoot) =>
+        Effect.gen(function* () {
+          writeUsbDevice(usbSysfsRoot, "1-1", {
+            manufacturer: "HP",
+            product: "Laser MFP 131 133 135-138",
+            serial: "ABC123",
+          })
 
-        const printerProbe = yield* PrinterProbe
-        const initial = yield* printerProbe.status("cold-start")
-        rmSync(join(usbSysfsRoot, "1-1"), { recursive: true, force: true })
-        const cached = yield* printerProbe.status("cups-notification")
+          const printerProbe = yield* PrinterProbe
+          const initial = yield* printerProbe.status("cold-start")
+          rmSync(join(usbSysfsRoot, "1-1"), { recursive: true, force: true })
+          const cached = yield* printerProbe.status("cups-notification")
 
-        expect(initial.attached).toBe(true)
-        expect(cached.attached).toBe(true)
-      }).pipe(
-        Effect.provide(
-          PrinterProbeCliLive.pipe(
-            Layer.provide(appConfigLayer(usbSysfsRoot)),
-            Layer.provide(cupsObserverLayer()),
-            Layer.provide(
-              cupsClientLayer(
-                "usb://HP/Laser%20MFP%20131%20133%20135-138?serial=ABC123&interface=1",
+          expect(initial.attached).toBe(true)
+          expect(cached.attached).toBe(true)
+        }).pipe(
+          Effect.provide(
+            PrinterProbeCliLive.pipe(
+              Layer.provide(appConfigLayer(usbSysfsRoot)),
+              Layer.provide(cupsObserverLayer()),
+              Layer.provide(
+                cupsClientLayer(
+                  "usb://HP/Laser%20MFP%20131%20133%20135-138?serial=ABC123&interface=1",
+                ),
               ),
             ),
           ),
         ),
       ),
-    ))
+  )
 
-  it.effect("refreshes USB attachment from sysfs on udev-triggered observations", () =>
-    withUsbSysfsRoot((usbSysfsRoot) =>
-      Effect.gen(function* () {
-        writeUsbDevice(usbSysfsRoot, "1-1", {
-          manufacturer: "HP",
-          product: "Laser MFP 131 133 135-138",
-          serial: "ABC123",
-        })
+  it.effect(
+    "refreshes USB attachment from sysfs on udev-triggered observations",
+    () =>
+      withUsbSysfsRoot((usbSysfsRoot) =>
+        Effect.gen(function* () {
+          writeUsbDevice(usbSysfsRoot, "1-1", {
+            manufacturer: "HP",
+            product: "Laser MFP 131 133 135-138",
+            serial: "ABC123",
+          })
 
-        const printerProbe = yield* PrinterProbe
-        const initial = yield* printerProbe.status("cold-start")
-        rmSync(join(usbSysfsRoot, "1-1"), { recursive: true, force: true })
-        const refreshed = yield* printerProbe.status("udev-usb-event")
+          const printerProbe = yield* PrinterProbe
+          const initial = yield* printerProbe.status("cold-start")
+          rmSync(join(usbSysfsRoot, "1-1"), { recursive: true, force: true })
+          const refreshed = yield* printerProbe.status("udev-usb-event")
 
-        expect(initial.attached).toBe(true)
-        expect(refreshed.attached).toBe(false)
-        expect(refreshed.queueAvailable).toBe(false)
-        expect(refreshed.reasons).toEqual(["usb-device-missing"])
-        expect(refreshed.message).toBe(
-          "Configured USB printer device is not present in sysfs",
-        )
-      }).pipe(
-        Effect.provide(
-          PrinterProbeCliLive.pipe(
-            Layer.provide(appConfigLayer(usbSysfsRoot)),
-            Layer.provide(cupsObserverLayer()),
-            Layer.provide(
-              cupsClientLayer(
-                "usb://HP/Laser%20MFP%20131%20133%20135-138?serial=ABC123&interface=1",
+          expect(initial.attached).toBe(true)
+          expect(refreshed.attached).toBe(false)
+          expect(refreshed.queueAvailable).toBe(false)
+          expect(refreshed.reasons).toEqual(["usb-device-missing"])
+          expect(refreshed.message).toBe(
+            "Configured USB printer device is not present in sysfs",
+          )
+        }).pipe(
+          Effect.provide(
+            PrinterProbeCliLive.pipe(
+              Layer.provide(appConfigLayer(usbSysfsRoot)),
+              Layer.provide(cupsObserverLayer()),
+              Layer.provide(
+                cupsClientLayer(
+                  "usb://HP/Laser%20MFP%20131%20133%20135-138?serial=ABC123&interface=1",
+                ),
               ),
             ),
           ),
         ),
       ),
-    ))
+  )
 
-  it.effect("refreshes USB attachment back to attached when sysfs device reappears", () =>
-    withUsbSysfsRoot((usbSysfsRoot) =>
-      Effect.gen(function* () {
-        writeUsbDevice(usbSysfsRoot, "1-1", {
-          manufacturer: "HP",
-          product: "Laser MFP 131 133 135-138",
-          serial: "ABC123",
-        })
+  it.effect(
+    "refreshes USB attachment back to attached when sysfs device reappears",
+    () =>
+      withUsbSysfsRoot((usbSysfsRoot) =>
+        Effect.gen(function* () {
+          writeUsbDevice(usbSysfsRoot, "1-1", {
+            manufacturer: "HP",
+            product: "Laser MFP 131 133 135-138",
+            serial: "ABC123",
+          })
 
-        const printerProbe = yield* PrinterProbe
-        const initial = yield* printerProbe.status("cold-start")
-        rmSync(join(usbSysfsRoot, "1-1"), { recursive: true, force: true })
-        const detached = yield* printerProbe.status("udev-usb-event")
-        writeUsbDevice(usbSysfsRoot, "1-2", {
-          manufacturer: "HP",
-          product: "Laser MFP 131 133 135-138",
-          serial: "ABC123",
-        })
-        const reattached = yield* printerProbe.status("udev-usb-event")
+          const printerProbe = yield* PrinterProbe
+          const initial = yield* printerProbe.status("cold-start")
+          rmSync(join(usbSysfsRoot, "1-1"), { recursive: true, force: true })
+          const detached = yield* printerProbe.status("udev-usb-event")
+          writeUsbDevice(usbSysfsRoot, "1-2", {
+            manufacturer: "HP",
+            product: "Laser MFP 131 133 135-138",
+            serial: "ABC123",
+          })
+          const reattached = yield* printerProbe.status("udev-usb-event")
 
-        expect(initial.attached).toBe(true)
-        expect(detached.attached).toBe(false)
-        expect(detached.queueAvailable).toBe(false)
-        expect(detached.reasons).toEqual(["usb-device-missing"])
-        expect(detached.message).toBe(
-          "Configured USB printer device is not present in sysfs",
-        )
-        expect(reattached.attached).toBe(true)
-        expect(reattached.queueAvailable).toBe(true)
-        expect(reattached.reasons).toEqual([])
-        expect(reattached.message).toBe(
-          "Configured USB printer device is present in sysfs",
-        )
-      }).pipe(
-        Effect.provide(
-          PrinterProbeCliLive.pipe(
-            Layer.provide(appConfigLayer(usbSysfsRoot)),
-            Layer.provide(cupsObserverLayer()),
-            Layer.provide(
-              cupsClientLayer(
-                "usb://HP/Laser%20MFP%20131%20133%20135-138?serial=ABC123&interface=1",
+          expect(initial.attached).toBe(true)
+          expect(detached.attached).toBe(false)
+          expect(detached.queueAvailable).toBe(false)
+          expect(detached.reasons).toEqual(["usb-device-missing"])
+          expect(detached.message).toBe(
+            "Configured USB printer device is not present in sysfs",
+          )
+          expect(reattached.attached).toBe(true)
+          expect(reattached.queueAvailable).toBe(true)
+          expect(reattached.reasons).toEqual([])
+          expect(reattached.message).toBe(
+            "Configured USB printer device is present in sysfs",
+          )
+        }).pipe(
+          Effect.provide(
+            PrinterProbeCliLive.pipe(
+              Layer.provide(appConfigLayer(usbSysfsRoot)),
+              Layer.provide(cupsObserverLayer()),
+              Layer.provide(
+                cupsClientLayer(
+                  "usb://HP/Laser%20MFP%20131%20133%20135-138?serial=ABC123&interface=1",
+                ),
               ),
             ),
           ),
         ),
       ),
-    ))
+  )
 })

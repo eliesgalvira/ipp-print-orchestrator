@@ -1,8 +1,6 @@
-import { Clock } from "effect"
-import { Effect, Layer } from "effect"
-
-import { CupsObserver } from "../cups-observation/CupsObserver.js"
+import { Clock, Effect, Layer } from "effect"
 import type { CupsJobObservation } from "../cups-observation/CupsObservation.js"
+import { CupsObserver } from "../cups-observation/CupsObserver.js"
 import { StartupRecoveryFailed } from "../domain/Errors.js"
 import type { Job } from "../domain/Job.js"
 import { transitionJob } from "../domain/StateMachine.js"
@@ -67,7 +65,9 @@ export const ReconcilerLive = Layer.effect(
             return
           }
 
-          const occurredAt = new Date(yield* Clock.currentTimeMillis).toISOString()
+          const occurredAt = new Date(
+            yield* Clock.currentTimeMillis,
+          ).toISOString()
           const result = transitionJob(
             job,
             {
@@ -81,8 +81,8 @@ export const ReconcilerLive = Layer.effect(
           }
 
           return yield* persistTransition(result.job, result.event).pipe(
-            Effect.mapError((error) =>
-              new StartupRecoveryFailed({ message: String(error) }),
+            Effect.mapError(
+              (error) => new StartupRecoveryFailed({ message: String(error) }),
             ),
           )
         }
@@ -92,7 +92,9 @@ export const ReconcilerLive = Layer.effect(
           "cups.job_state_reasons": observation.reasons.join(","),
         })
 
-        const occurredAt = new Date(yield* Clock.currentTimeMillis).toISOString()
+        const occurredAt = new Date(
+          yield* Clock.currentTimeMillis,
+        ).toISOString()
         switch (observation.state) {
           case "processing":
           case "processing-stopped": {
@@ -104,8 +106,9 @@ export const ReconcilerLive = Layer.effect(
               return yield* Effect.die(new Error(result.reason))
             }
             return yield* persistTransition(result.job, result.event).pipe(
-              Effect.mapError((error) =>
-                new StartupRecoveryFailed({ message: String(error) }),
+              Effect.mapError(
+                (error) =>
+                  new StartupRecoveryFailed({ message: String(error) }),
               ),
             )
           }
@@ -115,8 +118,9 @@ export const ReconcilerLive = Layer.effect(
               return yield* Effect.die(new Error(result.reason))
             }
             return yield* persistTransition(result.job, result.event).pipe(
-              Effect.mapError((error) =>
-                new StartupRecoveryFailed({ message: String(error) }),
+              Effect.mapError(
+                (error) =>
+                  new StartupRecoveryFailed({ message: String(error) }),
               ),
             )
           }
@@ -126,8 +130,9 @@ export const ReconcilerLive = Layer.effect(
               return yield* Effect.die(new Error(result.reason))
             }
             return yield* persistTransition(result.job, result.event).pipe(
-              Effect.mapError((error) =>
-                new StartupRecoveryFailed({ message: String(error) }),
+              Effect.mapError(
+                (error) =>
+                  new StartupRecoveryFailed({ message: String(error) }),
               ),
             )
           }
@@ -145,8 +150,9 @@ export const ReconcilerLive = Layer.effect(
               return yield* Effect.die(new Error(result.reason))
             }
             return yield* persistTransition(result.job, result.event).pipe(
-              Effect.mapError((error) =>
-                new StartupRecoveryFailed({ message: String(error) }),
+              Effect.mapError(
+                (error) =>
+                  new StartupRecoveryFailed({ message: String(error) }),
               ),
             )
           }
@@ -163,41 +169,50 @@ export const ReconcilerLive = Layer.effect(
 
         const observation = yield* cupsObserver.observeJob(job.cupsJobId).pipe(
           Effect.catchTag("CupsIppJobNotFound", () => Effect.succeed(null)),
-          Effect.mapError((error) =>
-            new StartupRecoveryFailed({
-              message: error.message,
-            }),
+          Effect.mapError(
+            (error) =>
+              new StartupRecoveryFailed({
+                message: error.message,
+              }),
           ),
         )
 
         yield* applyObservedJobState(job, observation)
       })
 
-    const rehydrateRetryableJobs = Effect.fn("Reconciler.rehydrateRetryableJobs")(function* () {
+    const rehydrateRetryableJobs = Effect.fn(
+      "Reconciler.rehydrateRetryableJobs",
+    )(function* () {
       const startedAt = new Date(yield* Clock.currentTimeMillis).toISOString()
       const startedEvent = new WideEvent({
         timestamp: startedAt,
         eventName: "queue.rehydration.started",
       })
       yield* emitEvent(startedEvent).pipe(
-        Effect.mapError((error) =>
-          new StartupRecoveryFailed({ message: String(error) }),
+        Effect.mapError(
+          (error) => new StartupRecoveryFailed({ message: String(error) }),
         ),
       )
 
-      const jobs = yield* jobRepo.listNonTerminal().pipe(
-        Effect.mapError((error) =>
-          new StartupRecoveryFailed({ message: error.message }),
-        ),
+      const jobs = yield* jobRepo
+        .listNonTerminal()
+        .pipe(
+          Effect.mapError(
+            (error) => new StartupRecoveryFailed({ message: error.message }),
+          ),
+        )
+      const retryableJobs = jobs.filter((job) =>
+        requeueableStates.has(job.state),
       )
-      const retryableJobs = jobs.filter((job) => requeueableStates.has(job.state))
 
       yield* Effect.forEach(retryableJobs, (job) =>
-        queueRuntime.enqueue(job.id).pipe(
-          Effect.mapError((error) =>
-            new StartupRecoveryFailed({ message: String(error) }),
+        queueRuntime
+          .enqueue(job.id)
+          .pipe(
+            Effect.mapError(
+              (error) => new StartupRecoveryFailed({ message: String(error) }),
+            ),
           ),
-        ),
       )
 
       const completedAt = new Date(yield* Clock.currentTimeMillis).toISOString()
@@ -206,48 +221,58 @@ export const ReconcilerLive = Layer.effect(
         eventName: "queue.rehydration.completed",
       })
       yield* emitEvent(completedEvent).pipe(
-        Effect.mapError((error) =>
-          new StartupRecoveryFailed({ message: String(error) }),
+        Effect.mapError(
+          (error) => new StartupRecoveryFailed({ message: String(error) }),
         ),
       )
 
       return retryableJobs
     })
 
-    const repairCupsTrackedJobs = Effect.fn("Reconciler.repairCupsTrackedJobs")(function* () {
-      const startedAt = new Date(yield* Clock.currentTimeMillis).toISOString()
-      const startedEvent = new WideEvent({
-        timestamp: startedAt,
-        eventName: "cups.job.repair.started",
-      })
-      yield* emitEvent(startedEvent).pipe(
-        Effect.mapError((error) =>
-          new StartupRecoveryFailed({ message: String(error) }),
-        ),
-      )
+    const repairCupsTrackedJobs = Effect.fn("Reconciler.repairCupsTrackedJobs")(
+      function* () {
+        const startedAt = new Date(yield* Clock.currentTimeMillis).toISOString()
+        const startedEvent = new WideEvent({
+          timestamp: startedAt,
+          eventName: "cups.job.repair.started",
+        })
+        yield* emitEvent(startedEvent).pipe(
+          Effect.mapError(
+            (error) => new StartupRecoveryFailed({ message: String(error) }),
+          ),
+        )
 
-      const jobs = yield* jobRepo.listNonTerminal().pipe(
-        Effect.mapError((error) =>
-          new StartupRecoveryFailed({ message: error.message }),
-        ),
-      )
-      const cupsTrackedJobs = jobs.filter((job) => cupsTrackedStates.has(job.state))
+        const jobs = yield* jobRepo
+          .listNonTerminal()
+          .pipe(
+            Effect.mapError(
+              (error) => new StartupRecoveryFailed({ message: error.message }),
+            ),
+          )
+        const cupsTrackedJobs = jobs.filter((job) =>
+          cupsTrackedStates.has(job.state),
+        )
 
-      yield* Effect.forEach(cupsTrackedJobs, (job) => reconcileCupsTrackedJob(job))
+        yield* Effect.forEach(cupsTrackedJobs, (job) =>
+          reconcileCupsTrackedJob(job),
+        )
 
-      const completedAt = new Date(yield* Clock.currentTimeMillis).toISOString()
-      const completedEvent = new WideEvent({
-        timestamp: completedAt,
-        eventName: "cups.job.repair.completed",
-      })
-      yield* emitEvent(completedEvent).pipe(
-        Effect.mapError((error) =>
-          new StartupRecoveryFailed({ message: String(error) }),
-        ),
-      )
+        const completedAt = new Date(
+          yield* Clock.currentTimeMillis,
+        ).toISOString()
+        const completedEvent = new WideEvent({
+          timestamp: completedAt,
+          eventName: "cups.job.repair.completed",
+        })
+        yield* emitEvent(completedEvent).pipe(
+          Effect.mapError(
+            (error) => new StartupRecoveryFailed({ message: String(error) }),
+          ),
+        )
 
-      return cupsTrackedJobs
-    })
+        return cupsTrackedJobs
+      },
+    )
 
     const recoverStartup = Effect.fn("Reconciler.recoverStartup")(function* () {
       const rehydratedJobs = yield* rehydrateRetryableJobs()

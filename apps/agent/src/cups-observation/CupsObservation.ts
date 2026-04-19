@@ -55,7 +55,9 @@ export interface CupsJobObservation {
 const normalizeReasons = (value: unknown): readonly string[] => {
   if (Array.isArray(value)) {
     return value.flatMap((item) =>
-      typeof item === "string" && item.length > 0 && item !== "none" ? [item] : [],
+      typeof item === "string" && item.length > 0 && item !== "none"
+        ? [item]
+        : [],
     )
   }
 

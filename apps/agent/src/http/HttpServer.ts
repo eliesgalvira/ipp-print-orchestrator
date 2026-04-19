@@ -1,9 +1,9 @@
+import { createServer } from "node:http"
 import { NodeHttpServer } from "@effect/platform-node"
 import { Console, Effect, Layer } from "effect"
 import * as HttpMiddleware from "effect/unstable/http/HttpMiddleware"
 import * as HttpRouter from "effect/unstable/http/HttpRouter"
 import * as HttpServer from "effect/unstable/http/HttpServer"
-import { createServer } from "node:http"
 
 import { AppConfig } from "../config/AppConfig.js"
 import { HttpRoutes } from "./Routes.js"

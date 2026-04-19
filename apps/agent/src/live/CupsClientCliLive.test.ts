@@ -10,7 +10,9 @@ import {
 
 describe("CupsClientCliLive parsers", () => {
   it("parses lp submit output", () => {
-    expect(parseLpSubmitOutput("request id is printer-42 (1 file(s))")).toBe("42")
+    expect(parseLpSubmitOutput("request id is printer-42 (1 file(s))")).toBe(
+      "42",
+    )
   })
 
   it("parses lpstat jobs output", () => {
@@ -64,7 +66,8 @@ printer-42 bigweld 2048 Mon 09 Mar 2026 08:05:00 PM UTC
       ),
     ).toEqual({
       printerName: "HP135a",
-      deviceUri: "usb://HP/Laser%20MFP%20131%20133%20135-138?serial=ABC123&interface=1",
+      deviceUri:
+        "usb://HP/Laser%20MFP%20131%20133%20135-138?serial=ABC123&interface=1",
     })
   })
 

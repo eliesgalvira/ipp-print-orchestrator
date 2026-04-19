@@ -1,7 +1,7 @@
-import { describe, expect, it } from "@effect/vitest"
-import * as FileSystem from "effect/FileSystem"
 import { NodeFileSystem, NodePath } from "@effect/platform-node"
+import { describe, expect, it } from "@effect/vitest"
 import { Effect, Layer } from "effect"
+import * as FileSystem from "effect/FileSystem"
 
 import { AppConfig } from "../config/AppConfig.js"
 import { Job } from "../domain/Job.js"
@@ -82,7 +82,9 @@ describe("file-backed storage", () => {
           "document.pdf",
           bytes,
         )
-        const loaded = yield* blobStore.getOriginal(JobId.makeUnsafe("job-file-1"))
+        const loaded = yield* blobStore.getOriginal(
+          JobId.makeUnsafe("job-file-1"),
+        )
         return { info, loaded }
       }).pipe(Effect.provide(liveLayer))
 
@@ -94,7 +96,9 @@ describe("file-backed storage", () => {
   it.effect("persists jobs and transitions across layer reloads", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
-      const dataDir = yield* fs.makeTempDirectory({ prefix: "ipp-orch-jobrepo-" })
+      const dataDir = yield* fs.makeTempDirectory({
+        prefix: "ipp-orch-jobrepo-",
+      })
 
       const liveLayer = JobRepoFileLive.pipe(
         Layer.provideMerge(appConfigLayer(dataDir)),
@@ -127,7 +131,9 @@ describe("file-backed storage", () => {
   it.effect("writes wide events to the durable outbox", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
-      const dataDir = yield* fs.makeTempDirectory({ prefix: "ipp-orch-events-" })
+      const dataDir = yield* fs.makeTempDirectory({
+        prefix: "ipp-orch-events-",
+      })
 
       const liveLayer = EventSinkFileLive.pipe(
         Layer.provideMerge(appConfigLayer(dataDir)),
