@@ -319,31 +319,51 @@ For a package-level reference of the local IPP library surface, see `docs/ipp-pa
 
 `network.status.changed` remains a local durable fact, but should not be treated as a guaranteed remote Axiom fact during internet outages until a replay worker exists for the local outbox.
 
-Example Axiom match-monitor query for canonical printer status changes:
+Example Axiom match-monitor query for actionable printer availability changes:
 
 ```apl
 ['ipp-print-logs']
-| where ['attributes.eventName'] == "printer.status.changed"
+| extend event_name = ['attributes.eventName'],
+         hostname = ['attributes.hostname'],
+         observation_reason = ['attributes.observationReason'],
+         previous_cups_reachable = ['attributes.previousCupsReachable'],
+         cups_reachable = ['attributes.cupsReachable'],
+         previous_attached = ['attributes.previousPrinterAttached'],
+         attached = ['attributes.printerAttached'],
+         previous_queue_available = ['attributes.previousPrinterQueueAvailable'],
+         queue_available = ['attributes.printerQueueAvailable'],
+         previous_printer_state = ['attributes.previousPrinterState'],
+         printer_state = ['attributes.printerState']
+| where (event_name == "cups.status.changed"
+         and isnotnull(previous_cups_reachable)
+         and previous_cups_reachable != cups_reachable)
+     or (event_name == "printer.status.changed"
+         and ((isnotnull(previous_attached) and previous_attached != attached)
+              or (isnotnull(previous_queue_available) and previous_queue_available != queue_available)
+              or (coalesce(previous_printer_state, "<null>") != coalesce(printer_state, "<null>"))))
 | project _time,
-          hostname = ['attributes.hostname'],
-          observation_reason = ['attributes.observationReason'],
-          cups_reachable = ['attributes.cupsReachable'],
-          previous_attached = ['attributes.previousPrinterAttached'],
-          attached = ['attributes.printerAttached'],
-          previous_queue_available = ['attributes.previousPrinterQueueAvailable'],
-          queue_available = ['attributes.printerQueueAvailable'],
-          previous_printer_state = ['attributes.previousPrinterState'],
-          printer_state = ['attributes.printerState'],
-          previous_printer_message = ['attributes.previousPrinterMessage'],
-          printer_message = ['attributes.printerMessage'],
-          previous_printer_reasons = ['attributes.previousPrinterReasons'],
-          printer_reasons = ['attributes.printerReasons']
+          event_name,
+          hostname,
+          observation_reason,
+          previous_cups_reachable,
+          cups_reachable,
+          previous_attached,
+          attached,
+          previous_queue_available,
+          queue_available,
+          previous_printer_state,
+          printer_state
 ```
 
-For physical attach/detach-only notifications, add:
+Use the broader `printer.status.changed` query from `docs/axiom-observability.md`
+for diagnostics only; it can match message/reason-only churn that is not
+actionable for alerting.
+
+For physical attach/detach-only notifications, replace the `where` clause with:
 
 ```apl
-| where ['attributes.previousPrinterAttached'] != ['attributes.printerAttached']
+| where event_name == "printer.status.changed"
+| where isnotnull(previous_attached) and previous_attached != attached
 ```
 
 Example Axiom-oriented environment:

@@ -695,7 +695,51 @@ For match monitors, omit `order by`. For detach-only notifications, add:
 | where attached == false
 ```
 
+Match-monitor-safe printer availability transitions:
+
+Use this query for alerts about actionable status changes such as USB
+attach/detach, queue availability flips, printer state flips, or CUPS going
+down/up. Do not alert on the broader diagnostic query below because
+`printer.status.changed` also includes message/reason-only changes.
+
+```apl
+['ipp-print-logs']
+| extend event_name = ['attributes.eventName'],
+         hostname = ['attributes.hostname'],
+         observation_reason = ['attributes.observationReason'],
+         previous_cups_reachable = ['attributes.previousCupsReachable'],
+         cups_reachable = ['attributes.cupsReachable'],
+         previous_attached = ['attributes.previousPrinterAttached'],
+         attached = ['attributes.printerAttached'],
+         previous_queue_available = ['attributes.previousPrinterQueueAvailable'],
+         queue_available = ['attributes.printerQueueAvailable'],
+         previous_printer_state = ['attributes.previousPrinterState'],
+         printer_state = ['attributes.printerState']
+| where (event_name == "cups.status.changed"
+         and isnotnull(previous_cups_reachable)
+         and previous_cups_reachable != cups_reachable)
+     or (event_name == "printer.status.changed"
+         and ((isnotnull(previous_attached) and previous_attached != attached)
+              or (isnotnull(previous_queue_available) and previous_queue_available != queue_available)
+              or (coalesce(previous_printer_state, "<null>") != coalesce(printer_state, "<null>"))))
+| project _time,
+          event_name,
+          hostname,
+          observation_reason,
+          previous_cups_reachable,
+          cups_reachable,
+          previous_attached,
+          attached,
+          previous_queue_available,
+          queue_available,
+          previous_printer_state,
+          printer_state
+```
+
 Canonical printer status transitions:
+
+Use this broader diagnostic query for investigation. It can match non-actionable
+events where only `printerMessage` or `printerReasons` changed.
 
 ```apl
 ['ipp-print-logs']
