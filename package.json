@@ -15,9 +15,9 @@
     "test:watch": "vitest",
     "lint": "biome check .",
     "format": "biome format --write .",
-    "smoke:local": "bash scripts/smoke-test-local.sh",
-    "smoke:pi": "bash scripts/smoke-test-pi.sh",
-    "deploy:pi": "bash scripts/deploy-pi.sh"
+    "smoke:local": "nu scripts/smoke-test-local.nu",
+    "smoke:pi": "nu scripts/smoke-test-pi.nu",
+    "deploy:pi": "nu scripts/deploy-pi.nu"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.6",

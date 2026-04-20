@@ -14,7 +14,7 @@
     "worker": "tsx src/cli/run-worker.ts",
     "reconcile": "tsx src/cli/reconcile.ts",
     "submit": "tsx src/cli/submit.ts",
-    "smoke": "bash ../../scripts/smoke-test-local.sh"
+    "smoke": "nu ../../scripts/smoke-test-local.nu"
   },
   "dependencies": {
     "@effect/platform-node": "^4.0.0-beta.36",

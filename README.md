@@ -192,19 +192,19 @@ bun --filter @ipp/agent smoke
 Local smoke test:
 
 ```bash
-bash scripts/smoke-test-local.sh
+nu scripts/smoke-test-local.nu
 ```
 
 Pi smoke test:
 
 ```bash
-bash scripts/smoke-test-pi.sh
+nu scripts/smoke-test-pi.nu
 ```
 
 Continuous Pi status watch from your laptop:
 
 ```bash
-bash scripts/watch-pi-status.sh
+nu scripts/watch-pi-status.nu
 ```
 
 The watcher prints a compact status line on every poll, including printer attachment, CUPS reachability, network state, nonterminal job count, queue depth, heartbeat age, and the first local IP.
@@ -212,7 +212,7 @@ The watcher prints a compact status line on every poll, including printer attach
 USB hotplug diagnostics on the Pi:
 
 ```bash
-bash scripts/diagnose-usb-hotplug.sh
+nu scripts/diagnose-usb-hotplug.nu
 ```
 
 The diagnostic prints the CUPS device URI, current `/v1/status`, matching USB
@@ -237,27 +237,48 @@ Expected target:
 One-time bootstrap on the Pi:
 
 ```bash
-bash scripts/bootstrap-pi.sh
+nu scripts/bootstrap-pi.nu
 ```
 
-Bootstrap creates `/etc/ipp-print-orchestrator.env` on first run. If the Pi already has exactly one CUPS printer queue, the script uses that queue name automatically for `IPP_ORCH_PRINTER_NAME`. If there are multiple queues or none yet, set `IPP_ORCH_PRINTER_NAME` manually after bootstrap.
+Bootstrap installs base packages, installs Nushell on the Pi from the official Nushell Debian/Ubuntu apt repository when `nu` is missing, installs Bun when needed, and creates `/etc/ipp-print-orchestrator.env` on first run. If the Pi already has exactly one CUPS printer queue, the script uses that queue name automatically for `IPP_ORCH_PRINTER_NAME`. If there are multiple queues or none yet, set `IPP_ORCH_PRINTER_NAME` manually after bootstrap.
 
 Before treating the Pi setup as complete, verify on the physical printer itself that any `Auto Power Off`, `Sleep`, `Deep Sleep`, `Eco`, or similar automatic power-saving mode is disabled. This is a mandatory step for reliable USB-attached printing.
 
 Deploy from the development machine:
 
 ```bash
-bash scripts/deploy-pi.sh
+nu scripts/deploy-pi.nu
 ```
+
+Local deploy requirements:
+
+- `nu`
+- `bun`
+- `ssh`
+- `rsync`
+- `sshpass` only when using password-based SSH deployment auth
+
+Deployment target and auth can be configured in the ignored local `.env` file:
+
+```dotenv
+PI_HOST=pi@print-server.local
+APP_DIR=/home/pi/apps/ipp-print-orchestrator
+PI_PASSWORD=
+PI_SSH_PASSWORD=
+PI_SUDO_PASSWORD=
+```
+
+Password resolution uses `PI_SSH_PASSWORD`, then `PI_PASSWORD` for SSH, and `PI_SUDO_PASSWORD`, then `PI_PASSWORD` for remote sudo. Passwords are passed through `SSHPASS` for the child `sshpass` process and through `sudo -S` on the Pi; they are not printed or passed as CLI arguments. SSH keys plus sudoers rules are more secure, but `.env` password automation is supported for this private Pi workflow.
 
 The deploy script:
 
-- rsyncs the repository to the Pi
-- runs `bun install --frozen-lockfile --ignore-scripts`
-- runs `bun run build`
+- runs the local `bun run build`
+- rsyncs the repository to the Pi with generated/runtime directories excluded
+- runs `bun install --frozen-lockfile --ignore-scripts --production` on the Pi
 - installs systemd units
 - restarts the service and heartbeat timer
-- prints phase timings for the local rsync step and each remote deployment step
+- verifies `/v1/health`
+- prints phase timings for the local build/rsync steps and each remote deployment step
 
 The deploy install step skips lifecycle scripts on the Pi. This is intentional:
 
@@ -271,8 +292,7 @@ If a deploy already failed on the Pi with an OOM in `effect-language-service pat
 ssh pi@print-server.local
 cd /home/pi/apps/ipp-print-orchestrator
 bun install --frozen-lockfile --ignore-scripts
-bun run build
-bash scripts/install-systemd.sh
+nu scripts/install-systemd.nu
 sudo systemctl restart ipp-print-orchestrator
 sudo systemctl restart ipp-print-orchestrator-heartbeat.timer
 ```
