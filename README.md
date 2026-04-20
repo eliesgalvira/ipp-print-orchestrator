@@ -192,19 +192,19 @@ bun --filter @ipp/agent smoke
 Local smoke test:
 
 ```bash
-bash scripts/smoke-test-local.sh
+nu scripts/smoke-test-local.nu
 ```
 
 Pi smoke test:
 
 ```bash
-bash scripts/smoke-test-pi.sh
+nu scripts/smoke-test-pi.nu
 ```
 
 Continuous Pi status watch from your laptop:
 
 ```bash
-bash scripts/watch-pi-status.sh
+nu scripts/watch-pi-status.nu
 ```
 
 The watcher prints a compact status line on every poll, including printer attachment, CUPS reachability, network state, nonterminal job count, queue depth, heartbeat age, and the first local IP.
@@ -212,7 +212,7 @@ The watcher prints a compact status line on every poll, including printer attach
 USB hotplug diagnostics on the Pi:
 
 ```bash
-bash scripts/diagnose-usb-hotplug.sh
+nu scripts/diagnose-usb-hotplug.nu
 ```
 
 The diagnostic prints the CUPS device URI, current `/v1/status`, matching USB
@@ -237,27 +237,64 @@ Expected target:
 One-time bootstrap on the Pi:
 
 ```bash
-bash scripts/bootstrap-pi.sh
+nu scripts/bootstrap-pi.nu
 ```
 
-Bootstrap creates `/etc/ipp-print-orchestrator.env` on first run. If the Pi already has exactly one CUPS printer queue, the script uses that queue name automatically for `IPP_ORCH_PRINTER_NAME`. If there are multiple queues or none yet, set `IPP_ORCH_PRINTER_NAME` manually after bootstrap.
+Bootstrap installs base packages, installs Nushell on the Pi from the official Nushell Debian/Ubuntu apt repository when `nu` is missing, installs Bun when needed, and creates `/etc/ipp-print-orchestrator.env` on first run. If the Pi already has exactly one CUPS printer queue, the script uses that queue name automatically for `IPP_ORCH_PRINTER_NAME`. If there are multiple queues or none yet, set `IPP_ORCH_PRINTER_NAME` manually after bootstrap.
 
 Before treating the Pi setup as complete, verify on the physical printer itself that any `Auto Power Off`, `Sleep`, `Deep Sleep`, `Eco`, or similar automatic power-saving mode is disabled. This is a mandatory step for reliable USB-attached printing.
 
 Deploy from the development machine:
 
 ```bash
-bash scripts/deploy-pi.sh
+nu scripts/deploy-pi.nu
 ```
+
+Local deploy requirements:
+
+- `nu`
+- `bun`
+- `ssh`
+- `ssh-keygen`
+- `rsync`
+- ability to password-login once with `ssh pi@print-server.local` for first-time bootstrap
+- passwordless `sudo` for the Pi user
+
+Deployment target and auth can be configured in the ignored local `.env` file:
+
+```dotenv
+PI_HOST=pi@print-server.local
+APP_DIR=/home/pi/apps/ipp-print-orchestrator
+```
+
+Optionally set `PI_SSH_KEY_PATH` in local `.env` if you want to override the default key location of `~/.ssh/ipp-print-orchestrator-pi`.
+
+Run `nu scripts/bootstrap-pi.nu` first. If SSH key auth is not already configured, bootstrap creates or reuses `PI_SSH_KEY_PATH` (default: `~/.ssh/ipp-print-orchestrator-pi`), opens one normal interactive OpenSSH password login to the Pi, and uses a temporary OpenSSH control connection for first-time setup. If remote `nu` already exists, SSH key setup runs directly in Nushell and no remote bash is run. If remote `nu` is missing, bootstrap runs only the minimal bash needed to install Nushell, then switches to remote Nushell to append the public key to `~/.ssh/authorized_keys`. Empty `PI_SSH_KEY_PATH` values are treated as unset so the default key path is used. Subsequent bootstrap, deploy, smoke, watch, and update commands use OpenSSH key auth with `BatchMode=yes` and fail fast if the key is missing.
+
+The scripts do not use `sshpass`, `PI_PASSWORD`, or `PI_SUDO_PASSWORD`. They assume the Pi user can run the required `sudo` commands without storing a password in this repository.
+
+Your local `.env` is the source of truth for the Pi service environment. Each deploy filters the runtime keys (`IPP_ORCH_*` and `OTEL_*`) from local `.env` plus `.env.example` defaults and installs them to `/etc/ipp-print-orchestrator.env` on the Pi before restarting services. Deploy-only keys such as `PI_HOST`, `APP_DIR`, and `PI_SSH_KEY_PATH` are not written to the Pi service env, and `.env` is excluded from the rsync copy.
+
+Directory-valued runtime settings such as `IPP_ORCH_DATA_DIR=data` are relative to the systemd service `WorkingDirectory`. During deploy, `scripts/install-systemd.nu` renders the installed service unit so `WorkingDirectory` and `ExecStart` point at the configured `APP_DIR`. Use an absolute path for a runtime directory only if you intentionally want it outside `APP_DIR`.
 
 The deploy script:
 
-- rsyncs the repository to the Pi
-- runs `bun install --frozen-lockfile --ignore-scripts`
-- runs `bun run build`
+- runs the local `bun run build`
+- rsyncs the repository to the Pi with generated/runtime directories excluded
+- syncs the filtered local service environment to `/etc/ipp-print-orchestrator.env`
+- checks the production dependency stamp and only runs `bun install --frozen-lockfile --ignore-scripts --production` on the Pi when dependency manifests changed
 - installs systemd units
 - restarts the service and heartbeat timer
-- prints phase timings for the local rsync step and each remote deployment step
+- verifies `/v1/health`
+- prints phase timings for the local build/rsync steps and each remote deployment step
+
+To intentionally update already-installed Pi packages and production dependencies:
+
+```bash
+bun run update:pi
+```
+
+The update script upgrades only related apt packages that are already installed, skips missing packages, upgrades Bun only when Bun is present, refreshes production dependencies, and prints `timeit` timings for each update phase.
 
 The deploy install step skips lifecycle scripts on the Pi. This is intentional:
 
@@ -271,8 +308,7 @@ If a deploy already failed on the Pi with an OOM in `effect-language-service pat
 ssh pi@print-server.local
 cd /home/pi/apps/ipp-print-orchestrator
 bun install --frozen-lockfile --ignore-scripts
-bun run build
-bash scripts/install-systemd.sh
+nu scripts/install-systemd.nu
 sudo systemctl restart ipp-print-orchestrator
 sudo systemctl restart ipp-print-orchestrator-heartbeat.timer
 ```
