@@ -1,17 +1,13 @@
 #!/usr/bin/env nu
 
 use lib/env.nu *
-use lib/remote.nu [ssh-args run-timed]
+use lib/remote.nu [remote-target run-remote-nu-source run-ssh-with-input ssh-args run-timed]
 use lib/repo.nu repo-root
 
 def require-command [name: string] {
   if (which $name | is-empty) {
     error make {msg: $"missing required command: ($name)"}
   }
-}
-
-def default-ssh-key-path [] {
-  $nu.home-dir | path join ".ssh/ipp-print-orchestrator-pi"
 }
 
 def public-key-path [private_key_path: path] {
@@ -36,26 +32,9 @@ def ensure-local-ssh-key [private_key_path: path] {
 }
 
 def key-auth-works [host: string, key_path: path] {
-  let command = ((ssh-args $host $key_path --batch) ++ ["true"])
-  let result = (run-external ...$command | complete)
+  let command = (ssh-args $host $key_path null --batch)
+  let result = (run-external ...$command "true" | complete)
   $result.exit_code == 0
-}
-
-def ssh-args-with-control [
-  host: string
-  key_path?: any
-  control_path?: any
-  --batch
-  --tty
-] {
-  let base = (ssh-args $host $key_path --batch=$batch --tty=$tty)
-
-  if (has-value $control_path) {
-    let host_index = (($base | length) - 1)
-    ($base | first $host_index) | append ["-S" $control_path] | append ($base | last 1)
-  } else {
-    $base
-  }
 }
 
 def open-control-master [host: string, control_path: path] {
@@ -79,22 +58,9 @@ def close-control-master [host: string, control_path: path] {
 }
 
 def remote-nu-installed [host: string, key_path?: any, control_path?: any, --batch] {
-  let command = ((ssh-args-with-control $host $key_path $control_path --batch=$batch) ++ ["nu" "--version"])
-  let result = (run-external ...$command | complete)
+  let command = (ssh-args $host $key_path $control_path --batch=$batch)
+  let result = (run-external ...$command "nu" "--version" | complete)
   $result.exit_code == 0
-}
-
-def run-ssh-with-input [
-  host: string
-  key_path: any
-  input: string
-  remote_args: list<string>
-  --control-path: any
-  --batch
-  --tty
-] {
-  let command = ((ssh-args-with-control $host $key_path $control_path --batch=$batch --tty=$tty) ++ $remote_args)
-  $input | run-external ...$command
 }
 
 def nu-call-script [
@@ -104,25 +70,14 @@ def nu-call-script [
   $script + "\n" + $call + "\n"
 }
 
-def run-remote-nu-script [
-  host: string
-  key_path: any
-  script: string
-  control_path?: any
-  --batch
-] {
-  let command = ((ssh-args-with-control $host $key_path $control_path --batch=$batch) ++ ["nu --no-config-file -c 'source /dev/stdin'"])
-  $script | run-external ...$command
-}
-
 def run-remote-prereqs [host: string, key_path: path, script: string] {
-  run-ssh-with-input $host $key_path $script ["bash" "-s" "--" $host] --batch
+  run-ssh-with-input $host $key_path $script ["bash" "-s" "--" $host] null --batch
 }
 
 def run-remote-nu-bootstrap [host: string, key_path: path, app_dir: string, script: string] {
   let call = $"main ($app_dir | to nuon) ($host | to nuon)"
   let remote_script = (nu-call-script $script $call)
-  run-remote-nu-script $host $key_path $remote_script --batch
+  run-remote-nu-source $host $key_path $remote_script null --batch
 }
 
 def first-time-nu-script [remote_nu_script: string, public_key: string, app_dir: string, host: string] {
@@ -160,7 +115,7 @@ def run-first-time-bootstrap [
   let remote_nu_command = $remote_nu_script + "\n" + $remote_call + "\n"
   let script = (first-time-wrapper-script $remote_prereq_script $remote_nu_command)
 
-  run-ssh-with-input $host null $script ["bash" "-s" "--" $app_dir $host] --control-path=$control_path
+  run-ssh-with-input $host null $script ["bash" "-s" "--" $app_dir $host] $control_path
 }
 
 def run-first-time-nu-bootstrap [
@@ -173,15 +128,16 @@ def run-first-time-nu-bootstrap [
   let public_key = (open --raw (public-key-path $key_path) | str trim)
   let remote_script = (first-time-nu-script $remote_nu_script $public_key $app_dir $host)
 
-  run-remote-nu-script $host null $remote_script $control_path
+  run-remote-nu-source $host null $remote_script $control_path
 }
 
 def main [] {
   let root_dir = (repo-root)
   let dotenv = (load-dotenv ($root_dir | path join ".env"))
-  let pi_host = (get-config $dotenv PI_HOST "pi@print-server.local")
+  let target = (remote-target $dotenv)
+  let pi_host = $target.host
   let app_dir = (get-config $dotenv APP_DIR "/home/pi/apps/ipp-print-orchestrator")
-  let ssh_key_path = (ensure-local-ssh-key (get-config $dotenv PI_SSH_KEY_PATH (default-ssh-key-path)))
+  let ssh_key_path = (ensure-local-ssh-key $target.key_path)
 
   require-command ssh
   require-command ssh-keygen
@@ -243,7 +199,7 @@ echo "nushell ready on ${PI_HOST_LABEL}"
   let remote_nu_script = (open --raw $remote_nu_script_path)
 
   if (key-auth-works $pi_host $ssh_key_path) {
-    if not (remote-nu-installed $pi_host $ssh_key_path --batch) {
+    if not (remote-nu-installed $pi_host $ssh_key_path null --batch) {
       run-timed "remote bootstrap prerequisites" {
         run-remote-prereqs $pi_host $ssh_key_path $remote_prereq_script
       }

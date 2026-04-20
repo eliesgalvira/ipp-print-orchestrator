@@ -10,18 +10,6 @@ def require-command [name: string] {
   }
 }
 
-def default-ssh-key-path [] {
-  $nu.home-dir | path join ".ssh/ipp-print-orchestrator-pi"
-}
-
-def run-with-input [input: string, command: list<string>] {
-  $input | run-external ...$command
-}
-
-def ssh-command [host: string, key_path: path, remote_command: string, use_tty: bool] {
-  (ssh-args $host $key_path --batch --tty=$use_tty) ++ [$remote_command]
-}
-
 def service-env-keys [] {
   [
     "IPP_ORCH_DATA_DIR"
@@ -74,8 +62,7 @@ rm --force $tmp_env
     $remote_script_template
     | str replace "__ENV_CONTENT_NUON__" ($env_content | to nuon)
   )
-  let command = ((ssh-args $host $key_path --batch) ++ ["nu --no-config-file -c 'source /dev/stdin'"])
-  run-with-input $remote_script $command
+  run-remote-nu-source $host $key_path $remote_script --batch
 }
 
 def dependency-manifest-paths [] {
@@ -127,12 +114,7 @@ def install-production-dependencies [] {
 }
 
 def remote-deploy [app_dir: string] {
-  let bun_bin = ($nu.home-dir | path join ".bun/bin")
-  if (($env.PATH | describe) =~ "^list") {
-    $env.PATH = ([$bun_bin] ++ $env.PATH)
-  } else {
-    $env.PATH = $"($bun_bin):($env.PATH)"
-  }
+  ensure-user-bun-on-path
 
   cd $app_dir
 
@@ -176,9 +158,10 @@ def remote-deploy [app_dir: string] {
 def local-deploy [] {
   let root_dir = (repo-root)
   let dotenv = (load-dotenv ($root_dir | path join ".env"))
-  let pi_host = (get-config $dotenv PI_HOST "pi@print-server.local")
+  let target = (remote-target $dotenv)
+  let pi_host = $target.host
+  let ssh_key_path = $target.key_path
   let app_dir = (get-config $dotenv APP_DIR "/home/pi/apps/ipp-print-orchestrator")
-  let ssh_key_path = ((get-config $dotenv PI_SSH_KEY_PATH (default-ssh-key-path)) | path expand)
   let env_content = (local-service-env-content $root_dir $dotenv)
 
   [nu bun rsync ssh] | each {|command| require-command $command} | ignore
@@ -205,12 +188,7 @@ def local-deploy [] {
 
   run-timed "remote install/build/restart" {
     let remote_script = ($app_dir | path join "scripts/deploy-pi.nu")
-    let remote_command = (
-      ["nu" "--no-config-file" $remote_script "--remote-run" "--app-dir" $app_dir]
-    )
-
-    let command = ((ssh-args $pi_host $ssh_key_path --batch --tty) ++ $remote_command)
-    run-external ...$command
+    run-ssh $pi_host $ssh_key_path ["nu" "--no-config-file" $remote_script "--remote-run" "--app-dir" $app_dir] --batch --tty
   }
 
   let port = (get-config $dotenv IPP_ORCH_BIND_PORT "4310")
