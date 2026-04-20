@@ -56,27 +56,44 @@ def local-service-env-content [root_dir: path, dotenv: record] {
 }
 
 def sync-service-env [host: string, key_path: path, sudo_password: any, env_content: string] {
-  let remote_args = if (has-value $sudo_password) {
-    [
-      "bash"
-      "-c"
-      "IFS= read -r SUDO_PASSWORD_FROM_STDIN; export SUDO_PASSWORD_FROM_STDIN; tmp_env=$(mktemp); cat > \"$tmp_env\"; printf \"%s\\n\" \"$SUDO_PASSWORD_FROM_STDIN\" | sudo -S -p \"\" install -m 0644 \"$tmp_env\" /etc/ipp-print-orchestrator.env; status=$?; rm -f \"$tmp_env\"; exit \"$status\""
-    ]
+  let remote_script_template = '
+def has-value [value] {
+  if $value == null {
+    false
   } else {
-    [
-      "bash"
-      "-c"
-      "tmp_env=$(mktemp); cat > \"$tmp_env\"; sudo install -m 0644 \"$tmp_env\" /etc/ipp-print-orchestrator.env; status=$?; rm -f \"$tmp_env\"; exit \"$status\""
-    ]
+    (($value | into string | str trim | str length) > 0)
   }
-  let command = ((ssh-args $host $key_path --batch) ++ $remote_args)
-  let payload = if (has-value $sudo_password) {
-    (($sudo_password | into string) + "\n" + $env_content)
-  } else {
-    $env_content
-  }
+}
 
-  run-with-input $payload $command
+def run-sudo [sudo_password: any, args: list<string>] {
+  if (has-value $sudo_password) {
+    (($sudo_password | into string) + "\n") | run-external "sudo" "-S" "-p" "" ...$args
+  } else {
+    run-external "sudo" ...$args
+  }
+}
+
+let sudo_password = __SUDO_PASSWORD_NUON__
+let env_content = __ENV_CONTENT_NUON__
+let tmp_env = (mktemp)
+
+try {
+  ($env_content + "\n") | save --force $tmp_env
+  run-sudo $sudo_password ["install" "-m" "0644" $tmp_env "/etc/ipp-print-orchestrator.env"]
+} catch {|err|
+  rm --force $tmp_env
+  error make $err
+}
+
+rm --force $tmp_env
+'
+  let remote_script = (
+    $remote_script_template
+    | str replace "__SUDO_PASSWORD_NUON__" (if (has-value $sudo_password) { (($sudo_password | into string) | to nuon) } else { "null" })
+    | str replace "__ENV_CONTENT_NUON__" ($env_content | to nuon)
+  )
+  let command = ((ssh-args $host $key_path --batch) ++ ["nu --no-config-file -c 'source /dev/stdin'"])
+  run-with-input $remote_script $command
 }
 
 def dependency-manifest-paths [] {
@@ -210,14 +227,17 @@ def local-deploy [] {
   }
 
   run-timed "remote install/build/restart" {
-    let sudo_flag = if (has-value $sudo_password) { " --sudo-stdin" } else { "" }
-    let remote_command = $"cd ($app_dir) && nu scripts/deploy-pi.nu --remote-run --app-dir ($app_dir)($sudo_flag)"
+    let remote_script = ($app_dir | path join "scripts/deploy-pi.nu")
+    let remote_command = (
+      ["nu" "--no-config-file" $remote_script "--remote-run" "--app-dir" $app_dir]
+      | append (if (has-value $sudo_password) { ["--sudo-stdin"] } else { [] })
+    )
 
     if (has-value $sudo_password) {
-      let command = (ssh-command $pi_host $ssh_key_path $remote_command false)
+      let command = ((ssh-args $pi_host $ssh_key_path --batch) ++ $remote_command)
       run-with-input (($sudo_password | into string) + "\n") $command
     } else {
-      let command = (ssh-command $pi_host $ssh_key_path $remote_command true)
+      let command = ((ssh-args $pi_host $ssh_key_path --batch --tty) ++ $remote_command)
       run-external ...$command
     }
   }

@@ -269,7 +269,7 @@ PI_PASSWORD=
 PI_SUDO_PASSWORD=
 ```
 
-Run `nu scripts/bootstrap-pi.nu` first. If SSH key auth is not already configured, bootstrap creates or reuses `PI_SSH_KEY_PATH` (default: `~/.ssh/ipp-print-orchestrator-pi`), opens one normal interactive OpenSSH password login to the Pi, installs Nushell with a minimal bash wrapper, then uses remote Nushell to append the public key to `~/.ssh/authorized_keys`. Subsequent bootstrap, deploy, smoke, watch, and update commands use OpenSSH key auth with `BatchMode=yes` and fail fast if the key is missing.
+Run `nu scripts/bootstrap-pi.nu` first. If SSH key auth is not already configured, bootstrap creates or reuses `PI_SSH_KEY_PATH` (default: `~/.ssh/ipp-print-orchestrator-pi`), opens one normal interactive OpenSSH password login to the Pi, and uses a temporary OpenSSH control connection for first-time setup. If remote `nu` already exists, SSH key setup runs directly in Nushell and no remote bash is run. If remote `nu` is missing, bootstrap runs only the minimal bash needed to install Nushell, then switches to remote Nushell to append the public key to `~/.ssh/authorized_keys`. Subsequent bootstrap, deploy, smoke, watch, and update commands use OpenSSH key auth with `BatchMode=yes` and fail fast if the key is missing.
 
 `PI_SUDO_PASSWORD`, then `PI_PASSWORD`, is still used only for remote `sudo -S` when the Pi user requires a sudo password. If the Pi user has passwordless sudo, leave both unset.
 

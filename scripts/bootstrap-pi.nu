@@ -41,16 +41,85 @@ def key-auth-works [host: string, key_path: path] {
   $result.exit_code == 0
 }
 
-def run-ssh-with-input [
+def ssh-args-with-control [
   host: string
-  key_path: path
-  input: string
-  remote_args: list<string>
+  key_path?: any
+  control_path?: any
   --batch
   --tty
 ] {
-  let command = ((ssh-args $host $key_path --batch=$batch --tty=$tty) ++ $remote_args)
+  let base = (ssh-args $host $key_path --batch=$batch --tty=$tty)
+
+  if (has-value $control_path) {
+    let host_index = (($base | length) - 1)
+    ($base | first $host_index) | append ["-S" $control_path] | append ($base | last 1)
+  } else {
+    $base
+  }
+}
+
+def open-control-master [host: string, control_path: path] {
+  let command = ["ssh" "-M" "-N" "-f" "-S" $control_path $host]
+  let result = (run-external ...$command | complete)
+
+  if $result.exit_code != 0 {
+    error make {msg: $"failed to open first-time SSH control connection to ($host): ($result.stderr | str trim)"}
+  }
+}
+
+def close-control-master [host: string, control_path: path] {
+  let result = (run-external "ssh" "-S" $control_path "-O" "exit" $host | complete)
+
+  if $result.exit_code != 0 {
+    let stderr = ($result.stderr | str trim)
+    if (($stderr | str length) > 0) {
+      print $"warning: failed to close first-time SSH control connection: ($stderr)"
+    }
+  }
+}
+
+def remote-nu-installed [host: string, key_path?: any, control_path?: any, --batch] {
+  let command = ((ssh-args-with-control $host $key_path $control_path --batch=$batch) ++ ["nu" "--version"])
+  let result = (run-external ...$command | complete)
+  $result.exit_code == 0
+}
+
+def run-ssh-with-input [
+  host: string
+  key_path: any
+  input: string
+  remote_args: list<string>
+  --control-path: any
+  --batch
+  --tty
+] {
+  let command = ((ssh-args-with-control $host $key_path $control_path --batch=$batch --tty=$tty) ++ $remote_args)
   $input | run-external ...$command
+}
+
+def nu-call-script [
+  script: string
+  call: string
+  sudo_password?: any
+] {
+  let sudo_setup = if (has-value $sudo_password) {
+    $"$env.SUDO_PASSWORD_FROM_STDIN = (($sudo_password | into string) | to nuon)\n"
+  } else {
+    ""
+  }
+
+  $sudo_setup + "\n" + $script + "\n" + $call + "\n"
+}
+
+def run-remote-nu-script [
+  host: string
+  key_path: any
+  script: string
+  control_path?: any
+  --batch
+] {
+  let command = ((ssh-args-with-control $host $key_path $control_path --batch=$batch) ++ ["nu --no-config-file -c 'source /dev/stdin'"])
+  $script | run-external ...$command
 }
 
 def run-remote-prereqs [host: string, key_path: path, sudo_password: any, script: string] {
@@ -77,35 +146,17 @@ def run-remote-prereqs [host: string, key_path: path, sudo_password: any, script
 }
 
 def run-remote-nu-bootstrap [host: string, key_path: path, sudo_password: any, app_dir: string, script: string] {
-  let remote_args = if (has-value $sudo_password) {
-    [
-      "bash"
-      "-c"
-      "IFS= read -r SUDO_PASSWORD_FROM_STDIN; export SUDO_PASSWORD_FROM_STDIN; tmp_script=$(mktemp); cat > \"$tmp_script\"; nu --no-config-file \"$tmp_script\" \"$@\"; status=$?; rm -f \"$tmp_script\"; exit \"$status\""
-      "bootstrap-nu"
-      $app_dir
-      $host
-    ]
-  } else {
-    [
-      "bash"
-      "-c"
-      "tmp_script=$(mktemp); cat > \"$tmp_script\"; nu --no-config-file \"$tmp_script\" \"$@\"; status=$?; rm -f \"$tmp_script\"; exit \"$status\""
-      "bootstrap-nu"
-      $app_dir
-      $host
-    ]
-  }
-  let payload = if (has-value $sudo_password) {
-    (($sudo_password | into string) + "\n" + $script)
-  } else {
-    $script
-  }
-
-  run-ssh-with-input $host $key_path $payload $remote_args --batch
+  let call = $"main ($app_dir | to nuon) ($host | to nuon)"
+  let remote_script = (nu-call-script $script $call $sudo_password)
+  run-remote-nu-script $host $key_path $remote_script --batch
 }
 
-def first-time-wrapper-script [remote_prereq_script: string, remote_nu_script: string, public_key: string] {
+def first-time-nu-script [remote_nu_script: string, public_key: string, app_dir: string, host: string, sudo_password: any] {
+  let call = $"main ($app_dir | to nuon) ($host | to nuon) --authorized-key-content ($public_key | to nuon)"
+  nu-call-script $remote_nu_script $call $sudo_password
+}
+
+def first-time-wrapper-script [remote_prereq_script: string, remote_nu_command: string] {
   $'
 set -euo pipefail
 
@@ -124,22 +175,12 @@ bash -s -- "$HAS_SUDO_PASSWORD" "$PI_HOST_LABEL" <<'\''IPP_BOOTSTRAP_PREREQS'\''
 ($remote_prereq_script)
 IPP_BOOTSTRAP_PREREQS
 
-tmp_script="$(mktemp)"
-tmp_key="$(mktemp)"
-cleanup() {
-  rm -f "$tmp_script" "$tmp_key"
-}
-trap cleanup EXIT
-
-cat > "$tmp_script" <<'\''IPP_REMOTE_NU_BOOTSTRAP'\''
-($remote_nu_script)
+nu_command="$(cat <<'\''IPP_REMOTE_NU_BOOTSTRAP'\''
+($remote_nu_command)
 IPP_REMOTE_NU_BOOTSTRAP
+)"
 
-cat > "$tmp_key" <<'\''IPP_AUTHORIZED_KEY'\''
-($public_key)
-IPP_AUTHORIZED_KEY
-
-nu --no-config-file "$tmp_script" "$APP_DIR" "$PI_HOST_LABEL" --authorized-key-file "$tmp_key"
+nu --no-config-file -c "$nu_command"
 '
 }
 
@@ -150,9 +191,12 @@ def run-first-time-bootstrap [
   app_dir: string
   remote_prereq_script: string
   remote_nu_script: string
+  control_path?: any
 ] {
   let public_key = (open --raw (public-key-path $key_path) | str trim)
-  let script = (first-time-wrapper-script $remote_prereq_script $remote_nu_script $public_key)
+  let remote_call = $"main ($app_dir | to nuon) ($host | to nuon) --authorized-key-content ($public_key | to nuon)"
+  let remote_nu_command = $remote_nu_script + "\n" + $remote_call + "\n"
+  let script = (first-time-wrapper-script $remote_prereq_script $remote_nu_command)
   let has_sudo_password = if (has-value $sudo_password) { "1" } else { "0" }
   let remote_args = if (has-value $sudo_password) {
     [
@@ -173,8 +217,21 @@ def run-first-time-bootstrap [
     $script
   }
 
-  print $"SSH key auth is not configured for ($host). Enter the Pi SSH password when OpenSSH prompts."
-  run-ssh-with-input $host $key_path $payload $remote_args
+  run-ssh-with-input $host null $payload $remote_args --control-path=$control_path
+}
+
+def run-first-time-nu-bootstrap [
+  host: string
+  sudo_password: any
+  app_dir: string
+  remote_nu_script: string
+  key_path: path
+  control_path?: any
+] {
+  let public_key = (open --raw (public-key-path $key_path) | str trim)
+  let remote_script = (first-time-nu-script $remote_nu_script $public_key $app_dir $host $sudo_password)
+
+  run-remote-nu-script $host null $remote_script $control_path
 }
 
 def main [] {
@@ -255,20 +312,38 @@ echo "nushell ready on ${PI_HOST_LABEL}"
   let remote_nu_script = (open --raw $remote_nu_script_path)
 
   if (key-auth-works $pi_host $ssh_key_path) {
-    run-timed "remote bootstrap prerequisites" {
-      run-remote-prereqs $pi_host $ssh_key_path $sudo_password $remote_prereq_script
+    if not (remote-nu-installed $pi_host $ssh_key_path --batch) {
+      run-timed "remote bootstrap prerequisites" {
+        run-remote-prereqs $pi_host $ssh_key_path $sudo_password $remote_prereq_script
+      }
     }
-
     run-timed "remote nushell bootstrap" {
       run-remote-nu-bootstrap $pi_host $ssh_key_path $sudo_password $app_dir $remote_nu_script
     }
   } else {
-    run-timed "first-time remote bootstrap and SSH key setup" {
-      run-first-time-bootstrap $pi_host $ssh_key_path $sudo_password $app_dir $remote_prereq_script $remote_nu_script
-    }
+    let control_dir = (mktemp --directory)
+    let control_path = ($control_dir | path join "ssh-control")
 
-    if not (key-auth-works $pi_host $ssh_key_path) {
-      error make {msg: $"SSH key setup completed, but key auth still failed for ($pi_host)"}
+    try {
+      print $"SSH key auth is not configured for ($pi_host). Enter the Pi SSH password when OpenSSH prompts."
+      open-control-master $pi_host $control_path
+
+      if (remote-nu-installed $pi_host null $control_path) {
+        run-timed "first-time remote nushell bootstrap and SSH key setup" {
+          run-first-time-nu-bootstrap $pi_host $sudo_password $app_dir $remote_nu_script $ssh_key_path $control_path
+        }
+      } else {
+        run-timed "first-time remote bootstrap and SSH key setup" {
+          run-first-time-bootstrap $pi_host $ssh_key_path $sudo_password $app_dir $remote_prereq_script $remote_nu_script $control_path
+        }
+      }
+
+      if not (key-auth-works $pi_host $ssh_key_path) {
+        error make {msg: $"SSH key setup completed, but key auth still failed for ($pi_host)"}
+      }
+    } finally {
+      close-control-master $pi_host $control_path
+      rm --recursive --force $control_dir
     }
   }
 }

@@ -117,12 +117,24 @@ def install-default-env [sudo_password: any, app_dir: string, printer_name: stri
   rm --force $tmp_env
 }
 
-def install-authorized-key [authorized_key_file: any] {
+def install-authorized-key [
+  authorized_key_file: any
+  authorized_key_content: any
+] {
+  if (has-value $authorized_key_content) {
+    install-authorized-key-content $authorized_key_content
+    return
+  }
+
   if (not (has-value $authorized_key_file)) or (not ($authorized_key_file | path exists)) {
     return
   }
 
-  let authorized_key = (open --raw $authorized_key_file | str trim)
+  install-authorized-key-content (open --raw $authorized_key_file)
+}
+
+def install-authorized-key-content [content: string] {
+  let authorized_key = ($content | str trim)
   if not (has-value $authorized_key) {
     return
   }
@@ -189,11 +201,12 @@ def main [
   app_dir: string
   pi_host_label: string
   --authorized-key-file: path = ""
+  --authorized-key-content: string = ""
 ] {
   let sudo_password = ($env | get -o SUDO_PASSWORD_FROM_STDIN)
 
   run-timed "bootstrap SSH key auth" {
-    install-authorized-key $authorized_key_file
+    install-authorized-key $authorized_key_file $authorized_key_content
   }
 
   run-timed "bootstrap apt packages" {

@@ -11,6 +11,7 @@ const RELATED_APT_PACKAGES = [
   "gnupg"
   "nushell"
 ]
+const REPO_ROOT = (path self | path dirname | path dirname)
 
 def has-value [value] {
   if $value == null {
@@ -138,28 +139,16 @@ def run-ssh-with-input [host: string, key_path: path, input: string, remote_args
   $input | run-external ...$command
 }
 
-def run-remote-update [host: string, key_path: path, sudo_password: any, app_dir: string, script: string] {
-  let remote_args = if (has-value $sudo_password) {
-    [
-      "bash"
-      "-c"
-      "IFS= read -r SUDO_PASSWORD_FROM_STDIN; export SUDO_PASSWORD_FROM_STDIN; tmp_script=$(mktemp); cat > \"$tmp_script\"; nu --no-config-file \"$tmp_script\" --remote-run --app-dir \"$@\"; status=$?; rm -f \"$tmp_script\"; exit \"$status\""
-      "update-pi-packages"
-      $app_dir
-    ]
-  } else {
-    [
-      "bash"
-      "-c"
-      "tmp_script=$(mktemp); cat > \"$tmp_script\"; nu --no-config-file \"$tmp_script\" --remote-run --app-dir \"$@\"; status=$?; rm -f \"$tmp_script\"; exit \"$status\""
-      "update-pi-packages"
-      $app_dir
-    ]
-  }
+def run-remote-update [host: string, key_path: path, sudo_password: any, app_dir: string] {
+  let remote_script = ($app_dir | path join "scripts/update-pi-packages.nu")
+  let remote_args = (
+    ["nu" "--no-config-file" $remote_script "--remote-run" "--app-dir" $app_dir]
+    | append (if (has-value $sudo_password) { ["--sudo-stdin"] } else { [] })
+  )
   let payload = if (has-value $sudo_password) {
-    (($sudo_password | into string) + "\n" + $script)
+    (($sudo_password | into string) + "\n")
   } else {
-    $script
+    ""
   }
 
   run-ssh-with-input $host $key_path $payload $remote_args
@@ -244,8 +233,7 @@ def update-production-dependencies [app_dir: string] {
 }
 
 def local-main [] {
-  let repo_root = (path self | path dirname | path dirname)
-  let dotenv = (load-dotenv ($repo_root | path join ".env"))
+  let dotenv = (load-dotenv ($REPO_ROOT | path join ".env"))
   let pi_host = (get-config $dotenv PI_HOST "pi@print-server.local")
   let app_dir = (get-config $dotenv APP_DIR "/home/pi/apps/ipp-print-orchestrator")
   let ssh_key_path = ((get-config $dotenv PI_SSH_KEY_PATH (default-ssh-key-path)) | path expand)
@@ -253,15 +241,18 @@ def local-main [] {
 
   require-command ssh
 
-  let script = (open --raw (path self))
-
   run-timed "remote package/dependency update" {
-    run-remote-update $pi_host $ssh_key_path $sudo_password $app_dir $script
+    run-remote-update $pi_host $ssh_key_path $sudo_password $app_dir
   }
 }
 
-def remote-main [app_dir: string] {
-  let sudo_password = ($env | get -o SUDO_PASSWORD_FROM_STDIN)
+def remote-main [app_dir: string, sudo_stdin: bool] {
+  let sudo_password = if $sudo_stdin {
+    let input = ($in | into string | str trim --right)
+    if (has-value $input) { $input } else { null }
+  } else {
+    null
+  }
 
   run-timed "update apt packages" {
     update-installed-apt-packages $sudo_password
@@ -279,9 +270,10 @@ def remote-main [app_dir: string] {
 def main [
   --remote-run
   --app-dir: string = "/home/pi/apps/ipp-print-orchestrator"
+  --sudo-stdin
 ] {
   if $remote_run {
-    remote-main $app_dir
+    remote-main $app_dir $sudo_stdin
   } else {
     local-main
   }
