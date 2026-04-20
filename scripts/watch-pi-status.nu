@@ -4,6 +4,10 @@ use lib/env.nu *
 use lib/remote.nu ssh-args
 use lib/repo.nu repo-root
 
+def default-ssh-key-path [] {
+  $nu.home-path | path join ".ssh/ipp-print-orchestrator-pi"
+}
+
 def format-heartbeat-age [value: any] {
   if $value == null {
     "never"
@@ -57,23 +61,16 @@ def format-status-line [line: string] {
   }
 }
 
-def stream-remote-status [host: string, ssh_password: any, remote_script: string] {
-  let command = ((ssh-args $host $ssh_password) ++ ["nu" "-c" $remote_script])
-
-  if (has-value $ssh_password) {
-    with-env {SSHPASS: $ssh_password} {
-      run-external ...$command
-    }
-  } else {
-    run-external ...$command
-  }
+def stream-remote-status [host: string, key_path: path, remote_script: string] {
+  let command = ((ssh-args $host $key_path --batch) ++ ["nu" "-c" $remote_script])
+  run-external ...$command
 }
 
 def main [] {
   let root_dir = (repo-root)
   let dotenv = (load-dotenv ($root_dir | path join ".env"))
   let pi_host = (get-config $dotenv PI_HOST "pi@print-server.local")
-  let ssh_password = (required-secret $dotenv [PI_SSH_PASSWORD PI_PASSWORD])
+  let ssh_key_path = ((get-config $dotenv PI_SSH_KEY_PATH (default-ssh-key-path)) | path expand)
   let default_port = (get-config $dotenv IPP_ORCH_BIND_PORT "4310")
   let interval_sec = (get-config $dotenv WATCH_INTERVAL_SEC "2")
 
@@ -136,7 +133,7 @@ loop {
 }
 ' | str replace "__PORT__" ($default_port | into string) | str replace "__INTERVAL__" ($interval_sec | into string))
 
-  stream-remote-status $pi_host $ssh_password $remote_script
+  stream-remote-status $pi_host $ssh_key_path $remote_script
   | lines
   | each {|line|
       if (($line | str trim | str length) > 0) {

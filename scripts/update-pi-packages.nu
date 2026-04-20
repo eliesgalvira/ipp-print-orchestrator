@@ -92,16 +92,31 @@ def require-command [name: string] {
   }
 }
 
+def default-ssh-key-path [] {
+  $nu.home-path | path join ".ssh/ipp-print-orchestrator-pi"
+}
+
 def command-exists [name: string] {
   not (which $name | is-empty)
 }
 
-def ssh-args [host: string, password?: any] {
-  if (has-value $password) {
-    ["sshpass" "-e" "ssh" $host]
+def ssh-options [key_path?: any, --batch] {
+  let key_options = if (has-value $key_path) {
+    ["-i" ($key_path | path expand) "-o" "IdentitiesOnly=yes"]
   } else {
-    ["ssh" $host]
+    []
   }
+  let batch_options = if $batch {
+    ["-o" "BatchMode=yes"]
+  } else {
+    []
+  }
+
+  $key_options | append $batch_options
+}
+
+def ssh-args [host: string, key_path?: any, --batch] {
+  ["ssh"] | append (ssh-options $key_path --batch=$batch) | append [$host]
 }
 
 def run-sudo [sudo_password: any, args: list<string>] {
@@ -118,19 +133,12 @@ def run-timed [phase: string, action: closure] {
   print $"[(date now | format date "%+")] done ($phase) \(($elapsed)\)"
 }
 
-def run-ssh-with-input [host: string, ssh_password: any, input: string, remote_args: list<string>] {
-  let command = ((ssh-args $host $ssh_password) ++ $remote_args)
-
-  if (has-value $ssh_password) {
-    $input | with-env {SSHPASS: $ssh_password} {
-      run-external ...$command
-    }
-  } else {
-    $input | run-external ...$command
-  }
+def run-ssh-with-input [host: string, key_path: path, input: string, remote_args: list<string>] {
+  let command = ((ssh-args $host $key_path --batch) ++ $remote_args)
+  $input | run-external ...$command
 }
 
-def run-remote-update [host: string, ssh_password: any, sudo_password: any, app_dir: string, script: string] {
+def run-remote-update [host: string, key_path: path, sudo_password: any, app_dir: string, script: string] {
   let remote_args = if (has-value $sudo_password) {
     [
       "bash"
@@ -154,7 +162,7 @@ def run-remote-update [host: string, ssh_password: any, sudo_password: any, app_
     $script
   }
 
-  run-ssh-with-input $host $ssh_password $payload $remote_args
+  run-ssh-with-input $host $key_path $payload $remote_args
 }
 
 def apt-package-installed [package: string] {
@@ -240,18 +248,15 @@ def local-main [] {
   let dotenv = (load-dotenv ($repo_root | path join ".env"))
   let pi_host = (get-config $dotenv PI_HOST "pi@print-server.local")
   let app_dir = (get-config $dotenv APP_DIR "/home/pi/apps/ipp-print-orchestrator")
-  let ssh_password = (required-secret $dotenv [PI_SSH_PASSWORD PI_PASSWORD])
+  let ssh_key_path = ((get-config $dotenv PI_SSH_KEY_PATH (default-ssh-key-path)) | path expand)
   let sudo_password = (required-secret $dotenv [PI_SUDO_PASSWORD PI_PASSWORD])
 
   require-command ssh
-  if (has-value $ssh_password) {
-    require-command sshpass
-  }
 
   let script = (open --raw (path self))
 
   run-timed "remote package/dependency update" {
-    run-remote-update $pi_host $ssh_password $sudo_password $app_dir $script
+    run-remote-update $pi_host $ssh_key_path $sudo_password $app_dir $script
   }
 }
 

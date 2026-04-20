@@ -255,30 +255,41 @@ Local deploy requirements:
 - `nu`
 - `bun`
 - `ssh`
+- `ssh-keygen`
 - `rsync`
-- `sshpass` only when using password-based SSH deployment auth
+- ability to password-login once with `ssh pi@print-server.local` for first-time bootstrap
 
 Deployment target and auth can be configured in the ignored local `.env` file:
 
 ```dotenv
 PI_HOST=pi@print-server.local
 APP_DIR=/home/pi/apps/ipp-print-orchestrator
+PI_SSH_KEY_PATH=
 PI_PASSWORD=
-PI_SSH_PASSWORD=
 PI_SUDO_PASSWORD=
 ```
 
-Password resolution uses `PI_SSH_PASSWORD`, then `PI_PASSWORD` for SSH, and `PI_SUDO_PASSWORD`, then `PI_PASSWORD` for remote sudo. Passwords are passed through `SSHPASS` for the child `sshpass` process and through `sudo -S` on the Pi; they are not printed or passed as CLI arguments. SSH keys plus sudoers rules are more secure, but `.env` password automation is supported for this private Pi workflow.
+Run `nu scripts/bootstrap-pi.nu` first. If SSH key auth is not already configured, bootstrap creates or reuses `PI_SSH_KEY_PATH` (default: `~/.ssh/ipp-print-orchestrator-pi`), opens one normal interactive OpenSSH password login to the Pi, installs Nushell with a minimal bash wrapper, then uses remote Nushell to append the public key to `~/.ssh/authorized_keys`. Subsequent bootstrap, deploy, smoke, watch, and update commands use OpenSSH key auth with `BatchMode=yes` and fail fast if the key is missing.
+
+`PI_SUDO_PASSWORD`, then `PI_PASSWORD`, is still used only for remote `sudo -S` when the Pi user requires a sudo password. If the Pi user has passwordless sudo, leave both unset.
 
 The deploy script:
 
 - runs the local `bun run build`
 - rsyncs the repository to the Pi with generated/runtime directories excluded
-- runs `bun install --frozen-lockfile --ignore-scripts --production` on the Pi
+- checks the production dependency stamp and only runs `bun install --frozen-lockfile --ignore-scripts --production` on the Pi when dependency manifests changed
 - installs systemd units
 - restarts the service and heartbeat timer
 - verifies `/v1/health`
 - prints phase timings for the local build/rsync steps and each remote deployment step
+
+To intentionally update already-installed Pi packages and production dependencies:
+
+```bash
+bun run update:pi
+```
+
+The update script upgrades only related apt packages that are already installed, skips missing packages, upgrades Bun only when Bun is present, refreshes production dependencies, and prints `timeit` timings for each update phase.
 
 The deploy install step skips lifecycle scripts on the Pi. This is intentional:
 

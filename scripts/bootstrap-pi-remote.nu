@@ -89,11 +89,17 @@ def default-env-content [app_dir: string, printer_name: string] {
     $"IPP_ORCH_PRINTER_NAME=($printer_name)"
     "IPP_ORCH_BIND_HOST=127.0.0.1"
     "IPP_ORCH_BIND_PORT=4310"
+    "IPP_ORCH_STATUS_OBSERVATION_INTERVAL_MS=10000"
     "IPP_ORCH_HEARTBEAT_INTERVAL_MS=60000"
     "IPP_ORCH_RECONCILE_INTERVAL_MS=30000"
     "IPP_ORCH_LOG_PRETTY=false"
     "IPP_ORCH_ENABLE_OTLP=false"
     "OTEL_EXPORTER_OTLP_ENDPOINT="
+    "OTEL_EXPORTER_OTLP_HEADERS="
+    "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT="
+    "OTEL_EXPORTER_OTLP_TRACES_HEADERS="
+    "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT="
+    "OTEL_EXPORTER_OTLP_LOGS_HEADERS="
     "OTEL_RESOURCE_ATTRIBUTES=service.name=ipp-print-orchestrator"
     ""
   ] | str join "\n"
@@ -109,6 +115,37 @@ def install-default-env [sudo_password: any, app_dir: string, printer_name: stri
   default-env-content $app_dir $printer_name | save --force $tmp_env
   run-sudo $sudo_password ["install" "-m" "0644" $tmp_env "/etc/ipp-print-orchestrator.env"]
   rm --force $tmp_env
+}
+
+def install-authorized-key [authorized_key_file: any] {
+  if (not (has-value $authorized_key_file)) or (not ($authorized_key_file | path exists)) {
+    return
+  }
+
+  let authorized_key = (open --raw $authorized_key_file | str trim)
+  if not (has-value $authorized_key) {
+    return
+  }
+
+  let ssh_dir = ($env.HOME | path join ".ssh")
+  let authorized_keys = ($ssh_dir | path join "authorized_keys")
+  mkdir $ssh_dir
+  ^chmod 700 $ssh_dir
+
+  let existing_keys = if ($authorized_keys | path exists) {
+    open --raw $authorized_keys | lines
+  } else {
+    []
+  }
+
+  if ($existing_keys | any {|key| ($key | str trim) == $authorized_key}) {
+    print "SSH public key already installed; skipping authorized_keys update"
+  } else {
+    ($authorized_key + "\n") | save --append $authorized_keys
+    print "installed SSH public key in authorized_keys"
+  }
+
+  ^chmod 600 $authorized_keys
 }
 
 def configured-printer-name [] {
@@ -151,8 +188,13 @@ def warn-if-printer-missing [] {
 def main [
   app_dir: string
   pi_host_label: string
+  --authorized-key-file: path = ""
 ] {
   let sudo_password = ($env | get -o SUDO_PASSWORD_FROM_STDIN)
+
+  run-timed "bootstrap SSH key auth" {
+    install-authorized-key $authorized_key_file
+  }
 
   run-timed "bootstrap apt packages" {
     install-apt-packages $sudo_password [

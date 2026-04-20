@@ -10,38 +10,16 @@ def require-command [name: string] {
   }
 }
 
-def run-password-aware [password: any, command: list<string>] {
-  if (has-value $password) {
-    with-env {SSHPASS: $password} {
-      run-external ...$command
-    }
-  } else {
-    run-external ...$command
-  }
+def default-ssh-key-path [] {
+  $nu.home-path | path join ".ssh/ipp-print-orchestrator-pi"
 }
 
-def run-password-aware-with-input [input: string, password: any, command: list<string>] {
-  if (has-value $password) {
-    $input | with-env {SSHPASS: $password} {
-      run-external ...$command
-    }
-  } else {
-    $input | run-external ...$command
-  }
+def run-with-input [input: string, command: list<string>] {
+  $input | run-external ...$command
 }
 
-def ssh-command [host: string, ssh_password: any, remote_command: string, use_tty: bool] {
-  if (has-value $ssh_password) {
-    if $use_tty {
-      ["sshpass" "-e" "ssh" "-t" $host $remote_command]
-    } else {
-      ["sshpass" "-e" "ssh" $host $remote_command]
-    }
-  } else if $use_tty {
-    ["ssh" "-t" $host $remote_command]
-  } else {
-    ["ssh" $host $remote_command]
-  }
+def ssh-command [host: string, key_path: path, remote_command: string, use_tty: bool] {
+  (ssh-args $host $key_path --batch --tty=$use_tty) ++ [$remote_command]
 }
 
 def dependency-manifest-paths [] {
@@ -148,14 +126,10 @@ def local-deploy [] {
   let dotenv = (load-dotenv ($root_dir | path join ".env"))
   let pi_host = (get-config $dotenv PI_HOST "pi@print-server.local")
   let app_dir = (get-config $dotenv APP_DIR "/home/pi/apps/ipp-print-orchestrator")
-  let ssh_password = (required-secret $dotenv [PI_SSH_PASSWORD PI_PASSWORD])
+  let ssh_key_path = ((get-config $dotenv PI_SSH_KEY_PATH (default-ssh-key-path)) | path expand)
   let sudo_password = (required-secret $dotenv [PI_SUDO_PASSWORD PI_PASSWORD])
 
   [nu bun rsync ssh] | each {|command| require-command $command} | ignore
-
-  if (has-value $ssh_password) {
-    require-command sshpass
-  }
 
   run-timed "local typescript build" {
     cd $root_dir
@@ -165,12 +139,12 @@ def local-deploy [] {
   run-timed "rsync repository to pi" {
     let exclude_args = (deploy-excludes | each {|exclude| ["--exclude" $exclude]} | flatten)
     let command = (
-      (rsync-args $pi_host $ssh_password)
+      (rsync-args $ssh_key_path --batch)
       ++ ["-az" "--delete"]
       ++ $exclude_args
       ++ [$"($root_dir)/" $"($pi_host):($app_dir)/"]
     )
-    run-password-aware $ssh_password $command
+    run-external ...$command
   }
 
   run-timed "remote install/build/restart" {
@@ -178,11 +152,11 @@ def local-deploy [] {
     let remote_command = $"cd ($app_dir) && nu scripts/deploy-pi.nu --remote-run --app-dir ($app_dir)($sudo_flag)"
 
     if (has-value $sudo_password) {
-      let command = (ssh-command $pi_host $ssh_password $remote_command false)
-      run-password-aware-with-input (($sudo_password | into string) + "\n") $ssh_password $command
+      let command = (ssh-command $pi_host $ssh_key_path $remote_command false)
+      run-with-input (($sudo_password | into string) + "\n") $command
     } else {
-      let command = (ssh-command $pi_host $ssh_password $remote_command true)
-      run-password-aware $ssh_password $command
+      let command = (ssh-command $pi_host $ssh_key_path $remote_command true)
+      run-external ...$command
     }
   }
 

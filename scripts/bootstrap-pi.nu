@@ -10,19 +10,50 @@ def require-command [name: string] {
   }
 }
 
-def run-ssh-with-input [host: string, ssh_password: any, input: string, remote_args: list<string>] {
-  let command = ((ssh-args $host $ssh_password) ++ $remote_args)
-
-  if (has-value $ssh_password) {
-    $input | with-env {SSHPASS: $ssh_password} {
-      run-external ...$command
-    }
-  } else {
-    $input | run-external ...$command
-  }
+def default-ssh-key-path [] {
+  $nu.home-path | path join ".ssh/ipp-print-orchestrator-pi"
 }
 
-def run-remote-prereqs [host: string, ssh_password: any, sudo_password: any, script: string] {
+def public-key-path [private_key_path: path] {
+  $"($private_key_path).pub"
+}
+
+def ensure-local-ssh-key [private_key_path: path] {
+  let expanded_key_path = ($private_key_path | path expand)
+  let expanded_public_key_path = (public-key-path $expanded_key_path)
+  mkdir ($expanded_key_path | path dirname)
+
+  if not ($expanded_key_path | path exists) {
+    print $"creating SSH key for Pi deploy: ($expanded_key_path)"
+    ^ssh-keygen -t ed25519 -a 64 -N "" -C "ipp-print-orchestrator pi deploy" -f $expanded_key_path
+  }
+
+  if not ($expanded_public_key_path | path exists) {
+    ^ssh-keygen -y -f $expanded_key_path | save --force $expanded_public_key_path
+  }
+
+  $expanded_key_path
+}
+
+def key-auth-works [host: string, key_path: path] {
+  let command = ((ssh-args $host $key_path --batch) ++ ["true"])
+  let result = (run-external ...$command | complete)
+  $result.exit_code == 0
+}
+
+def run-ssh-with-input [
+  host: string
+  key_path: path
+  input: string
+  remote_args: list<string>
+  --batch
+  --tty
+] {
+  let command = ((ssh-args $host $key_path --batch=$batch --tty=$tty) ++ $remote_args)
+  $input | run-external ...$command
+}
+
+def run-remote-prereqs [host: string, key_path: path, sudo_password: any, script: string] {
   let has_sudo_password = if (has-value $sudo_password) { "1" } else { "0" }
   let remote_args = if (has-value $sudo_password) {
     [
@@ -42,10 +73,10 @@ def run-remote-prereqs [host: string, ssh_password: any, sudo_password: any, scr
     $script
   }
 
-  run-ssh-with-input $host $ssh_password $payload $remote_args
+  run-ssh-with-input $host $key_path $payload $remote_args --batch
 }
 
-def run-remote-nu-bootstrap [host: string, ssh_password: any, sudo_password: any, app_dir: string, script: string] {
+def run-remote-nu-bootstrap [host: string, key_path: path, sudo_password: any, app_dir: string, script: string] {
   let remote_args = if (has-value $sudo_password) {
     [
       "bash"
@@ -71,7 +102,79 @@ def run-remote-nu-bootstrap [host: string, ssh_password: any, sudo_password: any
     $script
   }
 
-  run-ssh-with-input $host $ssh_password $payload $remote_args
+  run-ssh-with-input $host $key_path $payload $remote_args --batch
+}
+
+def first-time-wrapper-script [remote_prereq_script: string, remote_nu_script: string, public_key: string] {
+  $'
+set -euo pipefail
+
+APP_DIR="$1"
+PI_HOST_LABEL="$2"
+HAS_SUDO_PASSWORD="$3"
+SUDO_PASSWORD=""
+
+if [ "$HAS_SUDO_PASSWORD" = "1" ]; then
+  SUDO_PASSWORD="${SUDO_PASSWORD_FROM_STDIN:-}"
+fi
+
+export SUDO_PASSWORD_FROM_STDIN="$SUDO_PASSWORD"
+
+bash -s -- "$HAS_SUDO_PASSWORD" "$PI_HOST_LABEL" <<'\''IPP_BOOTSTRAP_PREREQS'\''
+($remote_prereq_script)
+IPP_BOOTSTRAP_PREREQS
+
+tmp_script="$(mktemp)"
+tmp_key="$(mktemp)"
+cleanup() {
+  rm -f "$tmp_script" "$tmp_key"
+}
+trap cleanup EXIT
+
+cat > "$tmp_script" <<'\''IPP_REMOTE_NU_BOOTSTRAP'\''
+($remote_nu_script)
+IPP_REMOTE_NU_BOOTSTRAP
+
+cat > "$tmp_key" <<'\''IPP_AUTHORIZED_KEY'\''
+($public_key)
+IPP_AUTHORIZED_KEY
+
+nu --no-config-file "$tmp_script" "$APP_DIR" "$PI_HOST_LABEL" --authorized-key-file "$tmp_key"
+'
+}
+
+def run-first-time-bootstrap [
+  host: string
+  key_path: path
+  sudo_password: any
+  app_dir: string
+  remote_prereq_script: string
+  remote_nu_script: string
+] {
+  let public_key = (open --raw (public-key-path $key_path) | str trim)
+  let script = (first-time-wrapper-script $remote_prereq_script $remote_nu_script $public_key)
+  let has_sudo_password = if (has-value $sudo_password) { "1" } else { "0" }
+  let remote_args = if (has-value $sudo_password) {
+    [
+      "bash"
+      "-c"
+      "IFS= read -r SUDO_PASSWORD_FROM_STDIN; export SUDO_PASSWORD_FROM_STDIN; bash -s -- \"$@\""
+      "bootstrap-first-time"
+      $app_dir
+      $host
+      $has_sudo_password
+    ]
+  } else {
+    ["bash" "-s" "--" $app_dir $host $has_sudo_password]
+  }
+  let payload = if (has-value $sudo_password) {
+    (($sudo_password | into string) + "\n" + $script)
+  } else {
+    $script
+  }
+
+  print $"SSH key auth is not configured for ($host). Enter the Pi SSH password when OpenSSH prompts."
+  run-ssh-with-input $host $key_path $payload $remote_args
 }
 
 def main [] {
@@ -79,13 +182,11 @@ def main [] {
   let dotenv = (load-dotenv ($root_dir | path join ".env"))
   let pi_host = (get-config $dotenv PI_HOST "pi@print-server.local")
   let app_dir = (get-config $dotenv APP_DIR "/home/pi/apps/ipp-print-orchestrator")
-  let ssh_password = (required-secret $dotenv [PI_SSH_PASSWORD PI_PASSWORD])
+  let ssh_key_path = (ensure-local-ssh-key (get-config $dotenv PI_SSH_KEY_PATH (default-ssh-key-path)))
   let sudo_password = (required-secret $dotenv [PI_SUDO_PASSWORD PI_PASSWORD])
 
   require-command ssh
-  if (has-value $ssh_password) {
-    require-command sshpass
-  }
+  require-command ssh-keygen
 
   let remote_prereq_script = '
 set -euo pipefail
@@ -153,11 +254,21 @@ echo "nushell ready on ${PI_HOST_LABEL}"
   let remote_nu_script_path = ($root_dir | path join "scripts/bootstrap-pi-remote.nu")
   let remote_nu_script = (open --raw $remote_nu_script_path)
 
-  run-timed "remote bootstrap prerequisites" {
-    run-remote-prereqs $pi_host $ssh_password $sudo_password $remote_prereq_script
-  }
+  if (key-auth-works $pi_host $ssh_key_path) {
+    run-timed "remote bootstrap prerequisites" {
+      run-remote-prereqs $pi_host $ssh_key_path $sudo_password $remote_prereq_script
+    }
 
-  run-timed "remote nushell bootstrap" {
-    run-remote-nu-bootstrap $pi_host $ssh_password $sudo_password $app_dir $remote_nu_script
+    run-timed "remote nushell bootstrap" {
+      run-remote-nu-bootstrap $pi_host $ssh_key_path $sudo_password $app_dir $remote_nu_script
+    }
+  } else {
+    run-timed "first-time remote bootstrap and SSH key setup" {
+      run-first-time-bootstrap $pi_host $ssh_key_path $sudo_password $app_dir $remote_prereq_script $remote_nu_script
+    }
+
+    if not (key-auth-works $pi_host $ssh_key_path) {
+      error make {msg: $"SSH key setup completed, but key auth still failed for ($pi_host)"}
+    }
   }
 }
