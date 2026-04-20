@@ -12,12 +12,8 @@ def command-exists [name: string] {
   not (which $name | is-empty)
 }
 
-def run-sudo [sudo_password: any, args: list<string>] {
-  if (has-value $sudo_password) {
-    (($sudo_password | into string) + "\n") | run-external "sudo" "-S" "-p" "" ...$args
-  } else {
-    run-external "sudo" ...$args
-  }
+def run-sudo [args: list<string>] {
+  run-external "sudo" ...$args
 }
 
 def run-timed [phase: string, action: closure] {
@@ -31,7 +27,7 @@ def apt-package-installed [package: string] {
   ($result.exit_code == 0) and ($result.stdout | str contains "install ok installed")
 }
 
-def install-apt-packages [sudo_password: any, packages: list<string>] {
+def install-apt-packages [packages: list<string>] {
   if not (command-exists apt-get) {
     error make {msg: "Unsupported package manager on target machine. Install unzip, rsync, node, npm, cups-client, curl, ca-certificates, and gnupg manually."}
   }
@@ -42,8 +38,8 @@ def install-apt-packages [sudo_password: any, packages: list<string>] {
   } else {
     let package_list = ($missing_packages | str join ", ")
     print $"installing missing apt packages: ($package_list)"
-    run-sudo $sudo_password ["apt-get" "update"]
-    run-sudo $sudo_password (["apt-get" "install" "-y"] ++ $missing_packages)
+    run-sudo ["apt-get" "update"]
+    run-sudo (["apt-get" "install" "-y"] ++ $missing_packages)
   }
 }
 
@@ -85,7 +81,7 @@ def detect-printer-name [] {
 
 def default-env-content [app_dir: string, printer_name: string] {
   [
-    $"IPP_ORCH_DATA_DIR=($app_dir)/data"
+    "IPP_ORCH_DATA_DIR=data"
     $"IPP_ORCH_PRINTER_NAME=($printer_name)"
     "IPP_ORCH_BIND_HOST=127.0.0.1"
     "IPP_ORCH_BIND_PORT=4310"
@@ -93,9 +89,7 @@ def default-env-content [app_dir: string, printer_name: string] {
     "IPP_ORCH_HEARTBEAT_INTERVAL_MS=60000"
     "IPP_ORCH_RECONCILE_INTERVAL_MS=30000"
     "IPP_ORCH_LOG_PRETTY=false"
-    "IPP_ORCH_ENABLE_OTLP=false"
-    "OTEL_EXPORTER_OTLP_ENDPOINT="
-    "OTEL_EXPORTER_OTLP_HEADERS="
+    "IPP_ORCH_ENABLE_OTLP=true"
     "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT="
     "OTEL_EXPORTER_OTLP_TRACES_HEADERS="
     "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT="
@@ -105,7 +99,7 @@ def default-env-content [app_dir: string, printer_name: string] {
   ] | str join "\n"
 }
 
-def install-default-env [sudo_password: any, app_dir: string, printer_name: string] {
+def install-default-env [app_dir: string, printer_name: string] {
   if ("/etc/ipp-print-orchestrator.env" | path exists) {
     print "/etc/ipp-print-orchestrator.env already exists; skipping install"
     return
@@ -113,7 +107,7 @@ def install-default-env [sudo_password: any, app_dir: string, printer_name: stri
 
   let tmp_env = (mktemp)
   default-env-content $app_dir $printer_name | save --force $tmp_env
-  run-sudo $sudo_password ["install" "-m" "0644" $tmp_env "/etc/ipp-print-orchestrator.env"]
+  run-sudo ["install" "-m" "0644" $tmp_env "/etc/ipp-print-orchestrator.env"]
   rm --force $tmp_env
 }
 
@@ -203,14 +197,12 @@ def main [
   --authorized-key-file: path = ""
   --authorized-key-content: string = ""
 ] {
-  let sudo_password = ($env | get -o SUDO_PASSWORD_FROM_STDIN)
-
   run-timed "bootstrap SSH key auth" {
     install-authorized-key $authorized_key_file $authorized_key_content
   }
 
   run-timed "bootstrap apt packages" {
-    install-apt-packages $sudo_password [
+    install-apt-packages [
       "curl"
       "unzip"
       "rsync"
@@ -232,7 +224,7 @@ def main [
 
   run-timed "bootstrap environment" {
     let printer_name = (detect-printer-name)
-    install-default-env $sudo_password $app_dir $printer_name
+    install-default-env $app_dir $printer_name
   }
 
   run-timed "bootstrap printer validation" {

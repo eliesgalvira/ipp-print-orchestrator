@@ -258,22 +258,24 @@ Local deploy requirements:
 - `ssh-keygen`
 - `rsync`
 - ability to password-login once with `ssh pi@print-server.local` for first-time bootstrap
+- passwordless `sudo` for the Pi user
 
 Deployment target and auth can be configured in the ignored local `.env` file:
 
 ```dotenv
 PI_HOST=pi@print-server.local
 APP_DIR=/home/pi/apps/ipp-print-orchestrator
-PI_SSH_KEY_PATH=
-PI_PASSWORD=
-PI_SUDO_PASSWORD=
 ```
 
-Run `nu scripts/bootstrap-pi.nu` first. If SSH key auth is not already configured, bootstrap creates or reuses `PI_SSH_KEY_PATH` (default: `~/.ssh/ipp-print-orchestrator-pi`), opens one normal interactive OpenSSH password login to the Pi, and uses a temporary OpenSSH control connection for first-time setup. If remote `nu` already exists, SSH key setup runs directly in Nushell and no remote bash is run. If remote `nu` is missing, bootstrap runs only the minimal bash needed to install Nushell, then switches to remote Nushell to append the public key to `~/.ssh/authorized_keys`. Subsequent bootstrap, deploy, smoke, watch, and update commands use OpenSSH key auth with `BatchMode=yes` and fail fast if the key is missing.
+Optionally set `PI_SSH_KEY_PATH` in local `.env` if you want to override the default key location of `~/.ssh/ipp-print-orchestrator-pi`.
 
-`PI_SUDO_PASSWORD`, then `PI_PASSWORD`, is still used only for remote `sudo -S` when the Pi user requires a sudo password. If the Pi user has passwordless sudo, leave both unset.
+Run `nu scripts/bootstrap-pi.nu` first. If SSH key auth is not already configured, bootstrap creates or reuses `PI_SSH_KEY_PATH` (default: `~/.ssh/ipp-print-orchestrator-pi`), opens one normal interactive OpenSSH password login to the Pi, and uses a temporary OpenSSH control connection for first-time setup. If remote `nu` already exists, SSH key setup runs directly in Nushell and no remote bash is run. If remote `nu` is missing, bootstrap runs only the minimal bash needed to install Nushell, then switches to remote Nushell to append the public key to `~/.ssh/authorized_keys`. Empty `PI_SSH_KEY_PATH` values are treated as unset so the default key path is used. Subsequent bootstrap, deploy, smoke, watch, and update commands use OpenSSH key auth with `BatchMode=yes` and fail fast if the key is missing.
 
-Your local `.env` is the source of truth for the Pi service environment. Each deploy filters the runtime keys (`IPP_ORCH_*` and `OTEL_*`) from local `.env` plus `.env.example` defaults and installs them to `/etc/ipp-print-orchestrator.env` on the Pi before restarting services. Deploy-only keys such as `PI_HOST`, `APP_DIR`, `PI_SSH_KEY_PATH`, `PI_PASSWORD`, and `PI_SUDO_PASSWORD` are not written to the Pi service env, and `.env` is excluded from the rsync copy.
+The scripts do not use `sshpass`, `PI_PASSWORD`, or `PI_SUDO_PASSWORD`. They assume the Pi user can run the required `sudo` commands without storing a password in this repository.
+
+Your local `.env` is the source of truth for the Pi service environment. Each deploy filters the runtime keys (`IPP_ORCH_*` and `OTEL_*`) from local `.env` plus `.env.example` defaults and installs them to `/etc/ipp-print-orchestrator.env` on the Pi before restarting services. Deploy-only keys such as `PI_HOST`, `APP_DIR`, and `PI_SSH_KEY_PATH` are not written to the Pi service env, and `.env` is excluded from the rsync copy.
+
+Directory-valued runtime settings such as `IPP_ORCH_DATA_DIR=data` are relative to the systemd service `WorkingDirectory`. During deploy, `scripts/install-systemd.nu` renders the installed service unit so `WorkingDirectory` and `ExecStart` point at the configured `APP_DIR`. Use an absolute path for a runtime directory only if you intentionally want it outside `APP_DIR`.
 
 The deploy script:
 

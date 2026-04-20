@@ -66,25 +66,17 @@ def load-dotenv [path: path] {
 def get-config [dotenv: record, key: string, fallback?: any] {
   let env_value = ($env | get -o $key)
 
-  if $env_value != null {
+  if (has-value $env_value) {
     $env_value
   } else {
     let dotenv_value = ($dotenv | get -o $key)
 
-    if $dotenv_value != null {
+    if (has-value $dotenv_value) {
       $dotenv_value
     } else {
       $fallback
     }
   }
-}
-
-def required-secret [dotenv: record, keys: list<string>] {
-  $keys
-  | each {|key| get-config $dotenv $key null}
-  | where {|value| has-value $value}
-  | first
-  | default null
 }
 
 def require-command [name: string] {
@@ -120,12 +112,8 @@ def ssh-args [host: string, key_path?: any, --batch] {
   ["ssh"] | append (ssh-options $key_path --batch=$batch) | append [$host]
 }
 
-def run-sudo [sudo_password: any, args: list<string>] {
-  if (has-value $sudo_password) {
-    (($sudo_password | into string) + "\n") | run-external "sudo" "-S" "-p" "" ...$args
-  } else {
-    run-external "sudo" ...$args
-  }
+def run-sudo [args: list<string>] {
+  run-external "sudo" ...$args
 }
 
 def run-timed [phase: string, action: closure] {
@@ -139,19 +127,11 @@ def run-ssh-with-input [host: string, key_path: path, input: string, remote_args
   $input | run-external ...$command
 }
 
-def run-remote-update [host: string, key_path: path, sudo_password: any, app_dir: string] {
+def run-remote-update [host: string, key_path: path, app_dir: string] {
   let remote_script = ($app_dir | path join "scripts/update-pi-packages.nu")
-  let remote_args = (
-    ["nu" "--no-config-file" $remote_script "--remote-run" "--app-dir" $app_dir]
-    | append (if (has-value $sudo_password) { ["--sudo-stdin"] } else { [] })
-  )
-  let payload = if (has-value $sudo_password) {
-    (($sudo_password | into string) + "\n")
-  } else {
-    ""
-  }
+  let remote_args = ["nu" "--no-config-file" $remote_script "--remote-run" "--app-dir" $app_dir]
 
-  run-ssh-with-input $host $key_path $payload $remote_args
+  run-ssh-with-input $host $key_path "" $remote_args
 }
 
 def apt-package-installed [package: string] {
@@ -159,7 +139,7 @@ def apt-package-installed [package: string] {
   ($result.exit_code == 0) and ($result.stdout | str contains "install ok installed")
 }
 
-def update-installed-apt-packages [sudo_password: any] {
+def update-installed-apt-packages [] {
   if not (command-exists apt-get) {
     error make {msg: "Unsupported package manager on target machine. Update related packages manually."}
   }
@@ -177,8 +157,8 @@ def update-installed-apt-packages [sudo_password: any] {
   } else {
     let installed_package_list = ($installed_packages | str join ", ")
     print $"upgrading installed apt packages: ($installed_package_list)"
-    run-sudo $sudo_password ["apt-get" "update"]
-    run-sudo $sudo_password (["apt-get" "install" "-y" "--only-upgrade"] ++ $installed_packages)
+    run-sudo ["apt-get" "update"]
+    run-sudo (["apt-get" "install" "-y" "--only-upgrade"] ++ $installed_packages)
   }
 }
 
@@ -237,25 +217,17 @@ def local-main [] {
   let pi_host = (get-config $dotenv PI_HOST "pi@print-server.local")
   let app_dir = (get-config $dotenv APP_DIR "/home/pi/apps/ipp-print-orchestrator")
   let ssh_key_path = ((get-config $dotenv PI_SSH_KEY_PATH (default-ssh-key-path)) | path expand)
-  let sudo_password = (required-secret $dotenv [PI_SUDO_PASSWORD PI_PASSWORD])
 
   require-command ssh
 
   run-timed "remote package/dependency update" {
-    run-remote-update $pi_host $ssh_key_path $sudo_password $app_dir
+    run-remote-update $pi_host $ssh_key_path $app_dir
   }
 }
 
-def remote-main [app_dir: string, sudo_stdin: bool] {
-  let sudo_password = if $sudo_stdin {
-    let input = ($in | into string | str trim --right)
-    if (has-value $input) { $input } else { null }
-  } else {
-    null
-  }
-
+def remote-main [app_dir: string] {
   run-timed "update apt packages" {
-    update-installed-apt-packages $sudo_password
+    update-installed-apt-packages
   }
 
   run-timed "update bun runtime" {
@@ -270,10 +242,9 @@ def remote-main [app_dir: string, sudo_stdin: bool] {
 def main [
   --remote-run
   --app-dir: string = "/home/pi/apps/ipp-print-orchestrator"
-  --sudo-stdin
 ] {
   if $remote_run {
-    remote-main $app_dir $sudo_stdin
+    remote-main $app_dir
   } else {
     local-main
   }

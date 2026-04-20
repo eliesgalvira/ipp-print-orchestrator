@@ -51,23 +51,15 @@ export def load-dotenv [path: path] {
 export def get-config [dotenv: record, key: string, fallback?: any] {
   let env_value = ($env | get -o $key)
 
-  if $env_value != null {
+  if (has-value $env_value) {
     $env_value
   } else {
     let dotenv_value = ($dotenv | get -o $key)
 
-    if $dotenv_value != null {
+    if (has-value $dotenv_value) {
       $dotenv_value
     } else {
       $fallback
     }
   }
-}
-
-export def required-secret [dotenv: record, keys: list<string>] {
-  $keys
-  | each {|key| get-config $dotenv $key null}
-  | where {|value| has-value $value}
-  | first
-  | default null
 }

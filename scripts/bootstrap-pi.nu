@@ -100,15 +100,8 @@ def run-ssh-with-input [
 def nu-call-script [
   script: string
   call: string
-  sudo_password?: any
 ] {
-  let sudo_setup = if (has-value $sudo_password) {
-    $"$env.SUDO_PASSWORD_FROM_STDIN = (($sudo_password | into string) | to nuon)\n"
-  } else {
-    ""
-  }
-
-  $sudo_setup + "\n" + $script + "\n" + $call + "\n"
+  $script + "\n" + $call + "\n"
 }
 
 def run-remote-nu-script [
@@ -122,38 +115,19 @@ def run-remote-nu-script [
   $script | run-external ...$command
 }
 
-def run-remote-prereqs [host: string, key_path: path, sudo_password: any, script: string] {
-  let has_sudo_password = if (has-value $sudo_password) { "1" } else { "0" }
-  let remote_args = if (has-value $sudo_password) {
-    [
-      "bash"
-      "-c"
-      "IFS= read -r SUDO_PASSWORD_FROM_STDIN; export SUDO_PASSWORD_FROM_STDIN; bash -s -- \"$@\""
-      "bootstrap-prereqs"
-      $has_sudo_password
-      $host
-    ]
-  } else {
-    ["bash" "-s" "--" $has_sudo_password $host]
-  }
-  let payload = if (has-value $sudo_password) {
-    (($sudo_password | into string) + "\n" + $script)
-  } else {
-    $script
-  }
-
-  run-ssh-with-input $host $key_path $payload $remote_args --batch
+def run-remote-prereqs [host: string, key_path: path, script: string] {
+  run-ssh-with-input $host $key_path $script ["bash" "-s" "--" $host] --batch
 }
 
-def run-remote-nu-bootstrap [host: string, key_path: path, sudo_password: any, app_dir: string, script: string] {
+def run-remote-nu-bootstrap [host: string, key_path: path, app_dir: string, script: string] {
   let call = $"main ($app_dir | to nuon) ($host | to nuon)"
-  let remote_script = (nu-call-script $script $call $sudo_password)
+  let remote_script = (nu-call-script $script $call)
   run-remote-nu-script $host $key_path $remote_script --batch
 }
 
-def first-time-nu-script [remote_nu_script: string, public_key: string, app_dir: string, host: string, sudo_password: any] {
+def first-time-nu-script [remote_nu_script: string, public_key: string, app_dir: string, host: string] {
   let call = $"main ($app_dir | to nuon) ($host | to nuon) --authorized-key-content ($public_key | to nuon)"
-  nu-call-script $remote_nu_script $call $sudo_password
+  nu-call-script $remote_nu_script $call
 }
 
 def first-time-wrapper-script [remote_prereq_script: string, remote_nu_command: string] {
@@ -162,32 +136,20 @@ set -euo pipefail
 
 APP_DIR="$1"
 PI_HOST_LABEL="$2"
-HAS_SUDO_PASSWORD="$3"
-SUDO_PASSWORD=""
 
-if [ "$HAS_SUDO_PASSWORD" = "1" ]; then
-  SUDO_PASSWORD="${SUDO_PASSWORD_FROM_STDIN:-}"
-fi
-
-export SUDO_PASSWORD_FROM_STDIN="$SUDO_PASSWORD"
-
-bash -s -- "$HAS_SUDO_PASSWORD" "$PI_HOST_LABEL" <<'\''IPP_BOOTSTRAP_PREREQS'\''
+bash -s -- "$PI_HOST_LABEL" <<'IPP_BOOTSTRAP_PREREQS'
 ($remote_prereq_script)
 IPP_BOOTSTRAP_PREREQS
 
-nu_command="$(cat <<'\''IPP_REMOTE_NU_BOOTSTRAP'\''
+nu --no-config-file -c "source /dev/stdin" <<'IPP_REMOTE_NU_BOOTSTRAP'
 ($remote_nu_command)
 IPP_REMOTE_NU_BOOTSTRAP
-)"
-
-nu --no-config-file -c "$nu_command"
 '
 }
 
 def run-first-time-bootstrap [
   host: string
   key_path: path
-  sudo_password: any
   app_dir: string
   remote_prereq_script: string
   remote_nu_script: string
@@ -197,39 +159,19 @@ def run-first-time-bootstrap [
   let remote_call = $"main ($app_dir | to nuon) ($host | to nuon) --authorized-key-content ($public_key | to nuon)"
   let remote_nu_command = $remote_nu_script + "\n" + $remote_call + "\n"
   let script = (first-time-wrapper-script $remote_prereq_script $remote_nu_command)
-  let has_sudo_password = if (has-value $sudo_password) { "1" } else { "0" }
-  let remote_args = if (has-value $sudo_password) {
-    [
-      "bash"
-      "-c"
-      "IFS= read -r SUDO_PASSWORD_FROM_STDIN; export SUDO_PASSWORD_FROM_STDIN; bash -s -- \"$@\""
-      "bootstrap-first-time"
-      $app_dir
-      $host
-      $has_sudo_password
-    ]
-  } else {
-    ["bash" "-s" "--" $app_dir $host $has_sudo_password]
-  }
-  let payload = if (has-value $sudo_password) {
-    (($sudo_password | into string) + "\n" + $script)
-  } else {
-    $script
-  }
 
-  run-ssh-with-input $host null $payload $remote_args --control-path=$control_path
+  run-ssh-with-input $host null $script ["bash" "-s" "--" $app_dir $host] --control-path=$control_path
 }
 
 def run-first-time-nu-bootstrap [
   host: string
-  sudo_password: any
   app_dir: string
   remote_nu_script: string
   key_path: path
   control_path?: any
 ] {
   let public_key = (open --raw (public-key-path $key_path) | str trim)
-  let remote_script = (first-time-nu-script $remote_nu_script $public_key $app_dir $host $sudo_password)
+  let remote_script = (first-time-nu-script $remote_nu_script $public_key $app_dir $host)
 
   run-remote-nu-script $host null $remote_script $control_path
 }
@@ -240,7 +182,6 @@ def main [] {
   let pi_host = (get-config $dotenv PI_HOST "pi@print-server.local")
   let app_dir = (get-config $dotenv APP_DIR "/home/pi/apps/ipp-print-orchestrator")
   let ssh_key_path = (ensure-local-ssh-key (get-config $dotenv PI_SSH_KEY_PATH (default-ssh-key-path)))
-  let sudo_password = (required-secret $dotenv [PI_SUDO_PASSWORD PI_PASSWORD])
 
   require-command ssh
   require-command ssh-keygen
@@ -248,20 +189,10 @@ def main [] {
   let remote_prereq_script = '
 set -euo pipefail
 
-HAS_SUDO_PASSWORD="$1"
-PI_HOST_LABEL="$2"
-SUDO_PASSWORD=""
-
-if [ "$HAS_SUDO_PASSWORD" = "1" ]; then
-  SUDO_PASSWORD="${SUDO_PASSWORD_FROM_STDIN:-}"
-fi
+PI_HOST_LABEL="$1"
 
 run_sudo() {
-  if [ -n "$SUDO_PASSWORD" ]; then
-    printf "%s\n" "$SUDO_PASSWORD" | sudo -S -p "" "$@"
-  else
-    sudo "$@"
-  fi
+  sudo "$@"
 }
 
 apt_package_installed() {
@@ -314,11 +245,11 @@ echo "nushell ready on ${PI_HOST_LABEL}"
   if (key-auth-works $pi_host $ssh_key_path) {
     if not (remote-nu-installed $pi_host $ssh_key_path --batch) {
       run-timed "remote bootstrap prerequisites" {
-        run-remote-prereqs $pi_host $ssh_key_path $sudo_password $remote_prereq_script
+        run-remote-prereqs $pi_host $ssh_key_path $remote_prereq_script
       }
     }
     run-timed "remote nushell bootstrap" {
-      run-remote-nu-bootstrap $pi_host $ssh_key_path $sudo_password $app_dir $remote_nu_script
+      run-remote-nu-bootstrap $pi_host $ssh_key_path $app_dir $remote_nu_script
     }
   } else {
     let control_dir = (mktemp --directory)
@@ -330,11 +261,11 @@ echo "nushell ready on ${PI_HOST_LABEL}"
 
       if (remote-nu-installed $pi_host null $control_path) {
         run-timed "first-time remote nushell bootstrap and SSH key setup" {
-          run-first-time-nu-bootstrap $pi_host $sudo_password $app_dir $remote_nu_script $ssh_key_path $control_path
+          run-first-time-nu-bootstrap $pi_host $app_dir $remote_nu_script $ssh_key_path $control_path
         }
       } else {
         run-timed "first-time remote bootstrap and SSH key setup" {
-          run-first-time-bootstrap $pi_host $ssh_key_path $sudo_password $app_dir $remote_prereq_script $remote_nu_script $control_path
+          run-first-time-bootstrap $pi_host $ssh_key_path $app_dir $remote_prereq_script $remote_nu_script $control_path
         }
       }
 

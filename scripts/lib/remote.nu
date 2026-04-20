@@ -50,20 +50,8 @@ export def rsync-args [
   }
 }
 
-export def remote-sudo-prefix [sudo_password?: any] {
-  if (has-value $sudo_password) {
-    ["sudo" "-S" "-p" ""]
-  } else {
-    ["sudo"]
-  }
-}
-
-export def run-sudo [sudo_password: any, args: list<string>] {
-  if (has-value $sudo_password) {
-    (($sudo_password | into string) + "\n") | run-external "sudo" "-S" "-p" "" ...$args
-  } else {
-    run-external "sudo" ...$args
-  }
+export def run-sudo [args: list<string>] {
+  run-external "sudo" ...$args
 }
 
 export def run-timed [phase: string, action: closure] {

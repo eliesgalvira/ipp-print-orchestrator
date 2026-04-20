@@ -55,31 +55,14 @@ def local-service-env-content [root_dir: path, dotenv: record] {
   | str join "\n"
 }
 
-def sync-service-env [host: string, key_path: path, sudo_password: any, env_content: string] {
+def sync-service-env [host: string, key_path: path, env_content: string] {
   let remote_script_template = '
-def has-value [value] {
-  if $value == null {
-    false
-  } else {
-    (($value | into string | str trim | str length) > 0)
-  }
-}
-
-def run-sudo [sudo_password: any, args: list<string>] {
-  if (has-value $sudo_password) {
-    (($sudo_password | into string) + "\n") | run-external "sudo" "-S" "-p" "" ...$args
-  } else {
-    run-external "sudo" ...$args
-  }
-}
-
-let sudo_password = __SUDO_PASSWORD_NUON__
 let env_content = __ENV_CONTENT_NUON__
 let tmp_env = (mktemp)
 
 try {
   ($env_content + "\n") | save --force $tmp_env
-  run-sudo $sudo_password ["install" "-m" "0644" $tmp_env "/etc/ipp-print-orchestrator.env"]
+  run-external "sudo" "install" "-m" "0644" $tmp_env "/etc/ipp-print-orchestrator.env"
 } catch {|err|
   rm --force $tmp_env
   error make $err
@@ -89,7 +72,6 @@ rm --force $tmp_env
 '
   let remote_script = (
     $remote_script_template
-    | str replace "__SUDO_PASSWORD_NUON__" (if (has-value $sudo_password) { (($sudo_password | into string) | to nuon) } else { "null" })
     | str replace "__ENV_CONTENT_NUON__" ($env_content | to nuon)
   )
   let command = ((ssh-args $host $key_path --batch) ++ ["nu --no-config-file -c 'source /dev/stdin'"])
@@ -144,7 +126,7 @@ def install-production-dependencies [] {
   }
 }
 
-def remote-deploy [app_dir: string, sudo_password: any] {
+def remote-deploy [app_dir: string] {
   let bun_bin = ($nu.home-dir | path join ".bun/bin")
   if (($env.PATH | describe) =~ "^list") {
     $env.PATH = ([$bun_bin] ++ $env.PATH)
@@ -159,19 +141,15 @@ def remote-deploy [app_dir: string, sudo_password: any] {
   }
 
   run-timed "install systemd units" {
-    if (has-value $sudo_password) {
-      (($sudo_password | into string) + "\n") | ^nu --stdin scripts/install-systemd.nu --sudo-stdin
-    } else {
-      ^nu scripts/install-systemd.nu
-    }
+    ^nu scripts/install-systemd.nu
   }
 
   run-timed "restart app service" {
-    run-sudo $sudo_password ["systemctl" "restart" "ipp-print-orchestrator"]
+    run-sudo ["systemctl" "restart" "ipp-print-orchestrator"]
   }
 
   run-timed "restart heartbeat timer" {
-    run-sudo $sudo_password ["systemctl" "restart" "ipp-print-orchestrator-heartbeat.timer"]
+    run-sudo ["systemctl" "restart" "ipp-print-orchestrator-heartbeat.timer"]
   }
 
   let remote_dotenv = (load-dotenv /etc/ipp-print-orchestrator.env)
@@ -201,7 +179,6 @@ def local-deploy [] {
   let pi_host = (get-config $dotenv PI_HOST "pi@print-server.local")
   let app_dir = (get-config $dotenv APP_DIR "/home/pi/apps/ipp-print-orchestrator")
   let ssh_key_path = ((get-config $dotenv PI_SSH_KEY_PATH (default-ssh-key-path)) | path expand)
-  let sudo_password = (required-secret $dotenv [PI_SUDO_PASSWORD PI_PASSWORD])
   let env_content = (local-service-env-content $root_dir $dotenv)
 
   [nu bun rsync ssh] | each {|command| require-command $command} | ignore
@@ -223,23 +200,17 @@ def local-deploy [] {
   }
 
   run-timed "sync service environment to pi" {
-    sync-service-env $pi_host $ssh_key_path $sudo_password $env_content
+    sync-service-env $pi_host $ssh_key_path $env_content
   }
 
   run-timed "remote install/build/restart" {
     let remote_script = ($app_dir | path join "scripts/deploy-pi.nu")
     let remote_command = (
       ["nu" "--no-config-file" $remote_script "--remote-run" "--app-dir" $app_dir]
-      | append (if (has-value $sudo_password) { ["--sudo-stdin"] } else { [] })
     )
 
-    if (has-value $sudo_password) {
-      let command = ((ssh-args $pi_host $ssh_key_path --batch) ++ $remote_command)
-      run-with-input (($sudo_password | into string) + "\n") $command
-    } else {
-      let command = ((ssh-args $pi_host $ssh_key_path --batch --tty) ++ $remote_command)
-      run-external ...$command
-    }
+    let command = ((ssh-args $pi_host $ssh_key_path --batch --tty) ++ $remote_command)
+    run-external ...$command
   }
 
   let port = (get-config $dotenv IPP_ORCH_BIND_PORT "4310")
@@ -264,18 +235,10 @@ def local-deploy [] {
 def main [
   --remote-run
   --app-dir: string = ""
-  --sudo-stdin
 ] {
   if $remote_run {
-    let stdin_password = if $sudo_stdin {
-      let input = ($in | into string | str trim --right)
-      if (has-value $input) { $input } else { null }
-    } else {
-      null
-    }
-
     let resolved_app_dir = if (has-value $app_dir) { $app_dir } else { "/home/pi/apps/ipp-print-orchestrator" }
-    remote-deploy $resolved_app_dir $stdin_password
+    remote-deploy $resolved_app_dir
   } else {
     local-deploy
   }
