@@ -148,7 +148,7 @@ describe("PrinterProbeCliLive", () => {
           expect(status.cupsReachable).toBe(true)
           expect(status.reasons).toEqual(["usb-device-missing"])
           expect(status.message).toBe(
-            "Configured USB printer device is not present in sysfs",
+            "Configured USB printer device is not present in sysfs. Printer might be unplugged or turned off.",
           )
         }).pipe(
           Effect.provide(
@@ -279,7 +279,7 @@ describe("PrinterProbeCliLive", () => {
           expect(refreshed.queueAvailable).toBe(false)
           expect(refreshed.reasons).toEqual(["usb-device-missing"])
           expect(refreshed.message).toBe(
-            "Configured USB printer device is not present in sysfs",
+            "Configured USB printer device is not present in sysfs. Printer might be unplugged or turned off.",
           )
         }).pipe(
           Effect.provide(
@@ -324,7 +324,7 @@ describe("PrinterProbeCliLive", () => {
           expect(detached.queueAvailable).toBe(false)
           expect(detached.reasons).toEqual(["usb-device-missing"])
           expect(detached.message).toBe(
-            "Configured USB printer device is not present in sysfs",
+            "Configured USB printer device is not present in sysfs. Printer might be unplugged or turned off.",
           )
           expect(reattached.attached).toBe(true)
           expect(reattached.queueAvailable).toBe(true)

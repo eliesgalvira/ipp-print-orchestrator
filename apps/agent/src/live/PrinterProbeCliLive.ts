@@ -20,7 +20,7 @@ interface UsbSysfsDevice {
 
 const usbDeviceMissingReason = "usb-device-missing"
 const usbDeviceMissingMessage =
-  "Configured USB printer device is not present in sysfs"
+  "Configured USB printer device is not present in sysfs. Printer might be unplugged or turned off."
 const usbDevicePresentMessage =
   "Configured USB printer device is present in sysfs"
 
