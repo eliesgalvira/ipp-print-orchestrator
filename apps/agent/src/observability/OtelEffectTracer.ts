@@ -16,6 +16,7 @@ import {
   Tracer as EffectTracer,
   Exit,
   type Fiber,
+  Match,
   Option,
   type ServiceMap,
 } from "effect"
@@ -139,20 +140,14 @@ const mapAttributes = (
   )
 }
 
-const toOtelSpanKind = (kind: EffectTracer.SpanKind): SpanKind => {
-  switch (kind) {
-    case "client":
-      return SpanKind.CLIENT
-    case "server":
-      return SpanKind.SERVER
-    case "producer":
-      return SpanKind.PRODUCER
-    case "consumer":
-      return SpanKind.CONSUMER
-    default:
-      return SpanKind.INTERNAL
-  }
-}
+const toOtelSpanKind = (kind: EffectTracer.SpanKind): SpanKind =>
+  Match.value(kind).pipe(
+    Match.when("client", () => SpanKind.CLIENT),
+    Match.when("server", () => SpanKind.SERVER),
+    Match.when("producer", () => SpanKind.PRODUCER),
+    Match.when("consumer", () => SpanKind.CONSUMER),
+    Match.orElse(() => SpanKind.INTERNAL),
+  )
 
 const toSpanContext = (span: EffectTracer.AnySpan): OtelSpanContext => ({
   spanId: span.spanId,

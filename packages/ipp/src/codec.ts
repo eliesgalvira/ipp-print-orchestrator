@@ -1,3 +1,5 @@
+import { Match } from "effect"
+
 import { IppParseError, IppSerializationError } from "./errors.js"
 import type {
   IppAttributeGroup,
@@ -227,42 +229,32 @@ const resolveValueTag = (
     return syntax.tag
   }
 
-  switch (syntax.type) {
-    case "name":
-      return typeof value === "string" && value.includes(LANGUAGE_SEPARATOR)
+  return Match.value(syntax.type).pipe(
+    Match.when("name", () =>
+      typeof value === "string" && value.includes(LANGUAGE_SEPARATOR)
         ? ippTags.nameWithLanguage
-        : ippTags.nameWithoutLanguage
-    case "text":
-      return typeof value === "string" && value.includes(LANGUAGE_SEPARATOR)
+        : ippTags.nameWithoutLanguage,
+    ),
+    Match.when("text", () =>
+      typeof value === "string" && value.includes(LANGUAGE_SEPARATOR)
         ? ippTags.textWithLanguage
-        : ippTags.textWithoutLanguage
-    case "keyword":
-      return ippTags.keyword
-    case "uri":
-      return ippTags.uri
-    case "uriScheme":
-      return ippTags.uriScheme
-    case "charset":
-      return ippTags.charset
-    case "naturalLanguage":
-      return ippTags.naturalLanguage
-    case "mimeMediaType":
-      return ippTags.mimeMediaType
-    case "octetString":
-      return ippTags.octetString
-    case "rangeOfInteger":
-      return ippTags.rangeOfInteger
-    case "resolution":
-      return ippTags.resolution
-    case "dateTime":
-      return ippTags.dateTime
-    case "integer":
-      return ippTags.integer
-    case "boolean":
-      return ippTags.boolean
-    case "enum":
-      return ippTags.enum
-  }
+        : ippTags.textWithoutLanguage,
+    ),
+    Match.when("keyword", () => ippTags.keyword),
+    Match.when("uri", () => ippTags.uri),
+    Match.when("uriScheme", () => ippTags.uriScheme),
+    Match.when("charset", () => ippTags.charset),
+    Match.when("naturalLanguage", () => ippTags.naturalLanguage),
+    Match.when("mimeMediaType", () => ippTags.mimeMediaType),
+    Match.when("octetString", () => ippTags.octetString),
+    Match.when("rangeOfInteger", () => ippTags.rangeOfInteger),
+    Match.when("resolution", () => ippTags.resolution),
+    Match.when("dateTime", () => ippTags.dateTime),
+    Match.when("integer", () => ippTags.integer),
+    Match.when("boolean", () => ippTags.boolean),
+    Match.when("enum", () => ippTags.enum),
+    Match.exhaustive,
+  )
 }
 
 const writeInteger = (writer: BufferWriter, value: number): void => {
@@ -404,19 +396,19 @@ const writeValue = (
 ): void => {
   const tag = resolveValueTag(syntax, value)
 
-  switch (tag) {
-    case ippTags.integer:
+  Match.value(tag).pipe(
+    Match.when(ippTags.integer, () => {
       if (typeof value !== "number") {
         throw new IppSerializationError({
           message: `Expected numeric IPP value for ${syntax.type}`,
         })
       }
       writeInteger(writer, value)
-      return
-    case ippTags.enum:
+    }),
+    Match.when(ippTags.enum, () => {
       writeInteger(writer, resolveEnumCode(name, value))
-      return
-    case ippTags.boolean:
+    }),
+    Match.when(ippTags.boolean, () => {
       if (typeof value !== "boolean") {
         throw new IppSerializationError({
           message: `Expected boolean IPP value, received ${String(value)}`,
@@ -424,39 +416,52 @@ const writeValue = (
       }
       writer.writeUInt16BE(1)
       writer.writeUInt8(value ? 1 : 0)
-      return
-    case ippTags.keyword:
-    case ippTags.uri:
-    case ippTags.uriScheme:
-    case ippTags.charset:
-    case ippTags.naturalLanguage:
-    case ippTags.mimeMediaType:
-      writeStringValue(writer, value, "ascii", syntax.type)
-      return
-    case ippTags.nameWithoutLanguage:
-    case ippTags.textWithoutLanguage:
-    case ippTags.octetString:
-    case ippTags.memberAttrName:
-      writeStringValue(writer, value, "utf8", syntax.type)
-      return
-    case ippTags.nameWithLanguage:
-    case ippTags.textWithLanguage:
-      writeLanguageQualifiedString(writer, value, syntax.type)
-      return
-    case ippTags.rangeOfInteger:
+    }),
+    Match.when(
+      Match.is(
+        ippTags.keyword,
+        ippTags.uri,
+        ippTags.uriScheme,
+        ippTags.charset,
+        ippTags.naturalLanguage,
+        ippTags.mimeMediaType,
+      ),
+      () => {
+        writeStringValue(writer, value, "ascii", syntax.type)
+      },
+    ),
+    Match.when(
+      Match.is(
+        ippTags.nameWithoutLanguage,
+        ippTags.textWithoutLanguage,
+        ippTags.octetString,
+        ippTags.memberAttrName,
+      ),
+      () => {
+        writeStringValue(writer, value, "utf8", syntax.type)
+      },
+    ),
+    Match.when(
+      Match.is(ippTags.nameWithLanguage, ippTags.textWithLanguage),
+      () => {
+        writeLanguageQualifiedString(writer, value, syntax.type)
+      },
+    ),
+    Match.when(ippTags.rangeOfInteger, () => {
       writeRangeOfInteger(writer, value)
-      return
-    case ippTags.resolution:
+    }),
+    Match.when(ippTags.resolution, () => {
       writeResolution(writer, value)
-      return
-    case ippTags.dateTime:
+    }),
+    Match.when(ippTags.dateTime, () => {
       writeDateTime(writer, value)
-      return
-    default:
+    }),
+    Match.orElse(() => {
       throw new IppSerializationError({
         message: `Unsupported IPP tag ${tag} for ${syntax.type}`,
       })
-  }
+    }),
+  )
 }
 
 const writeAttribute = (
@@ -632,54 +637,66 @@ const readValue = (
 ): IppAttributeValue => {
   const length = cursor.readUInt16BE()
 
-  switch (tag) {
-    case ippTags.integer:
-      return cursor.readInt32BE()
-    case ippTags.enum:
-      return decodeEnum(name, cursor.readInt32BE())
-    case ippTags.boolean:
-      return cursor.readUInt8() !== 0
-    case ippTags.rangeOfInteger:
-      return [cursor.readInt32BE(), cursor.readInt32BE()] as const
-    case ippTags.resolution:
-      return [
-        cursor.readInt32BE(),
-        cursor.readInt32BE(),
-        cursor.readUInt8() === 0x03 ? "dpi" : "dpcm",
-      ] as const
-    case ippTags.dateTime:
-      return readDateTime(cursor)
-    case ippTags.textWithLanguage:
-    case ippTags.nameWithLanguage: {
-      const language = cursor.readString(cursor.readUInt16BE())
-      const text = cursor.readString(cursor.readUInt16BE())
-      return `${language}${LANGUAGE_SEPARATOR}${text}`
-    }
-    case ippTags.nameWithoutLanguage:
-    case ippTags.textWithoutLanguage:
-    case ippTags.octetString:
-    case ippTags.memberAttrName:
-      return cursor.readString(length)
-    case ippTags.keyword:
-    case ippTags.uri:
-    case ippTags.uriScheme:
-    case ippTags.charset:
-    case ippTags.naturalLanguage:
-    case ippTags.mimeMediaType:
-      return cursor.readString(length, "ascii")
-    case ippTags.begCollection:
+  return Match.value(tag).pipe(
+    Match.when(ippTags.integer, () => cursor.readInt32BE()),
+    Match.when(ippTags.enum, () => decodeEnum(name, cursor.readInt32BE())),
+    Match.when(ippTags.boolean, () => cursor.readUInt8() !== 0),
+    Match.when(
+      ippTags.rangeOfInteger,
+      () => [cursor.readInt32BE(), cursor.readInt32BE()] as const,
+    ),
+    Match.when(
+      ippTags.resolution,
+      () =>
+        [
+          cursor.readInt32BE(),
+          cursor.readInt32BE(),
+          cursor.readUInt8() === 0x03 ? "dpi" : "dpcm",
+        ] as const,
+    ),
+    Match.when(ippTags.dateTime, () => readDateTime(cursor)),
+    Match.when(
+      Match.is(ippTags.textWithLanguage, ippTags.nameWithLanguage),
+      () => {
+        const language = cursor.readString(cursor.readUInt16BE())
+        const text = cursor.readString(cursor.readUInt16BE())
+        return `${language}${LANGUAGE_SEPARATOR}${text}`
+      },
+    ),
+    Match.when(
+      Match.is(
+        ippTags.nameWithoutLanguage,
+        ippTags.textWithoutLanguage,
+        ippTags.octetString,
+        ippTags.memberAttrName,
+      ),
+      () => cursor.readString(length),
+    ),
+    Match.when(
+      Match.is(
+        ippTags.keyword,
+        ippTags.uri,
+        ippTags.uriScheme,
+        ippTags.charset,
+        ippTags.naturalLanguage,
+        ippTags.mimeMediaType,
+      ),
+      () => cursor.readString(length, "ascii"),
+    ),
+    Match.when(ippTags.begCollection, () => {
       if (length > 0) {
         cursor.readBuffer(length)
       }
       return readCollection(cursor)
-    case ippTags["no-value"]:
+    }),
+    Match.when(ippTags["no-value"], () => {
       if (length > 0) {
         cursor.readBuffer(length)
       }
       return null
-    default:
-      return cursor.readString(length)
-  }
+    }),
+    Match.orElse(() => cursor.readString(length)),
+  )
 }
 
 const readValues = (

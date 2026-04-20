@@ -1,3 +1,5 @@
+import { Match } from "effect"
+
 const attachedBlockingReasons = new Set([
   "connecting-to-device",
   "offline",
@@ -66,33 +68,27 @@ const normalizeReasons = (value: unknown): readonly string[] => {
     : []
 }
 
-const normalizePrinterState = (value: unknown): CupsPrinterState => {
-  switch (value) {
-    case "idle":
-      return "idle"
-    case "processing":
-      return "processing"
-    case "stopped":
-      return "stopped"
-    default:
-      return "unknown"
-  }
-}
+const normalizePrinterState = (value: unknown): CupsPrinterState =>
+  Match.value(value).pipe(
+    Match.withReturnType<CupsPrinterState>(),
+    Match.when("idle", () => "idle"),
+    Match.when("processing", () => "processing"),
+    Match.when("stopped", () => "stopped"),
+    Match.orElse(() => "unknown"),
+  )
 
-const normalizeJobState = (value: unknown): CupsJobState => {
-  switch (value) {
-    case "pending":
-    case "pending-held":
-    case "processing":
-    case "processing-stopped":
-    case "canceled":
-    case "aborted":
-    case "completed":
-      return value
-    default:
-      return "unknown"
-  }
-}
+const normalizeJobState = (value: unknown): CupsJobState =>
+  Match.value(value).pipe(
+    Match.withReturnType<CupsJobState>(),
+    Match.when("pending", () => "pending"),
+    Match.when("pending-held", () => "pending-held"),
+    Match.when("processing", () => "processing"),
+    Match.when("processing-stopped", () => "processing-stopped"),
+    Match.when("canceled", () => "canceled"),
+    Match.when("aborted", () => "aborted"),
+    Match.when("completed", () => "completed"),
+    Match.orElse(() => "unknown"),
+  )
 
 const normalizeBoolean = (value: unknown): boolean => value === true
 

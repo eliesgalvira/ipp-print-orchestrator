@@ -1,4 +1,4 @@
-import { Clock, Effect, Layer } from "effect"
+import { Clock, Effect, Layer, Match } from "effect"
 import * as ServiceMap from "effect/ServiceMap"
 
 import { AppConfig } from "../config/AppConfig.js"
@@ -203,10 +203,10 @@ export class Orchestrator extends ServiceMap.Service<
           const submitResult: SubmitResult | Job = yield* cupsClient
             .submitFile(submittingJob, bytes)
             .pipe(
-              Effect.catch((error) => {
-                switch (error._tag) {
-                  case "CupsUnavailable":
-                    return Effect.gen(function* () {
+              Effect.catch((error) =>
+                Match.valueTags(error, {
+                  CupsUnavailable: (error) =>
+                    Effect.gen(function* () {
                       const waitingAt = yield* nowIso
                       const waitingJob = yield* applyTransition(
                         submittingJob,
@@ -221,24 +221,27 @@ export class Orchestrator extends ServiceMap.Service<
                       )
                       yield* Effect.sleep(config.reconcileIntervalMs)
                       return yield* processJob(retryJob.id)
-                    })
-                  case "SubmissionUncertain":
-                    return applyTransition(
+                    }),
+                  SubmissionUncertain: (error) =>
+                    applyTransition(
                       submittingJob,
                       { _tag: "SubmissionUncertain", reason: error.message },
                       occurredAt,
-                    )
-                  case "CupsRejectedJob":
-                  case "CupsCommandFailed":
-                    return applyTransition(
+                    ),
+                  CupsRejectedJob: (error) =>
+                    applyTransition(
                       submittingJob,
                       { _tag: "FailedTerminal", reason: error.message },
                       occurredAt,
-                    )
-                  default:
-                    return Effect.die(error)
-                }
-              }),
+                    ),
+                  CupsCommandFailed: (error) =>
+                    applyTransition(
+                      submittingJob,
+                      { _tag: "FailedTerminal", reason: error.message },
+                      occurredAt,
+                    ),
+                }),
+              ),
             )
 
           if ("state" in submitResult) {
