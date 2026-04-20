@@ -66,23 +66,30 @@ const variants = [
 const execute = (variant) =>
   new Promise((resolve) => {
     const printer = ipp.Printer(variant.url, variant.options)
-    const builtMessage = printer._message("Get-Printer-Attributes", variant.message)
-    printer.execute("Get-Printer-Attributes", variant.message, (error, response) => {
-      resolve({
-        name: variant.name,
-        request: builtMessage,
-        error:
-          error === null || error === undefined
-            ? null
-            : {
-                name: error.name,
-                message: error.message,
-                statusCode: error.statusCode,
-                stack: error.stack,
-              },
-        response,
-      })
-    })
+    const builtMessage = printer._message(
+      "Get-Printer-Attributes",
+      variant.message,
+    )
+    printer.execute(
+      "Get-Printer-Attributes",
+      variant.message,
+      (error, response) => {
+        resolve({
+          name: variant.name,
+          request: builtMessage,
+          error:
+            error === null || error === undefined
+              ? null
+              : {
+                  name: error.name,
+                  message: error.message,
+                  statusCode: error.statusCode,
+                  stack: error.stack,
+                },
+          response,
+        })
+      },
+    )
   })
 
 for (const variant of variants) {
