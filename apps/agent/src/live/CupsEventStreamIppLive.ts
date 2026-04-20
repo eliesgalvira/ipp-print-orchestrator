@@ -1,12 +1,12 @@
 import { hostname } from "node:os"
 import {
-  IppClient,
   cancelSubscriptionRequest,
   createPrinterSubscriptionRequest,
   extractNotifyGetIntervalSeconds,
   extractSubscriptionId,
   getNotificationsRequest,
   type IppAttributeGroup,
+  IppClient,
   type IppMessage,
   type IppRequestMessage,
   makePrinter,

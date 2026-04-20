@@ -1,6 +1,6 @@
 import {
-  IppClient,
   type IppAttributeGroup,
+  IppClient,
   type IppMessage,
   type IppRequestMessage,
   makePrinter,
@@ -43,9 +43,7 @@ const isAttributeGroupList = (
   value: IppAttributeGroups,
 ): value is readonly IppAttributeGroup[] => Array.isArray(value)
 
-const singleRecord = (
-  value: IppAttributeGroups,
-): IppAttributeGroup | null => {
+const singleRecord = (value: IppAttributeGroups): IppAttributeGroup | null => {
   if (value === undefined) {
     return null
   }
@@ -68,9 +66,7 @@ const parseJobId = (cupsJobId: string): number | null => {
   return Number.isInteger(numeric) && numeric > 0 ? numeric : null
 }
 
-const requestMessage = (
-  attributes: IppAttributeGroup,
-): IppRequestMessage => ({
+const requestMessage = (attributes: IppAttributeGroup): IppRequestMessage => ({
   "operation-attributes-tag": attributes,
 })
 

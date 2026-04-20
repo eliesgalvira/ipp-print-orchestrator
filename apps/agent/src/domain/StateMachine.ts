@@ -1,3 +1,5 @@
+import { Match } from "effect"
+
 import { Job } from "./Job.js"
 import type { JobId } from "./JobId.js"
 import type { JobState } from "./JobState.js"
@@ -105,89 +107,71 @@ const allowedTransitions: Record<JobState, readonly TransitionActionTag[]> = {
   Cancelled: [],
 }
 
-const nextStateForAction = (action: TransitionAction): JobState => {
-  switch (action._tag) {
-    case "Stored":
-      return "Stored"
-    case "Queued":
-      return "Queued"
-    case "SubmissionAttemptStarted":
-      return "Submitting"
-    case "Submitted":
-      return "Submitted"
-    case "Printing":
-      return "Printing"
-    case "Completed":
-      return "Completed"
-    case "PrinterUnavailable":
-      return "WaitingForPrinter"
-    case "CupsUnavailable":
-      return "WaitingForCups"
-    case "RetryScheduled":
-      return "RetryScheduled"
-    case "SubmissionUncertain":
-      return "SubmissionUncertain"
-    case "FailedTerminal":
-      return "FailedTerminal"
-    case "Cancelled":
-      return "Cancelled"
-  }
-}
+const nextStateForAction = Match.typeTags<TransitionAction, JobState>()({
+  Stored: () => "Stored",
+  Queued: () => "Queued",
+  SubmissionAttemptStarted: () => "Submitting",
+  Submitted: () => "Submitted",
+  Printing: () => "Printing",
+  Completed: () => "Completed",
+  PrinterUnavailable: () => "WaitingForPrinter",
+  CupsUnavailable: () => "WaitingForCups",
+  RetryScheduled: () => "RetryScheduled",
+  SubmissionUncertain: () => "SubmissionUncertain",
+  FailedTerminal: () => "FailedTerminal",
+  Cancelled: () => "Cancelled",
+})
 
-const eventNameForAction = (
-  action: TransitionAction,
-): WideEvent["eventName"] => {
-  switch (action._tag) {
-    case "Stored":
-      return "print.job.stored"
-    case "Queued":
-      return "print.job.queued"
-    case "SubmissionAttemptStarted":
-      return "print.job.submission.attempt"
-    case "Submitted":
-      return "print.job.submitted"
-    case "Completed":
-      return "print.job.completed"
-    case "FailedTerminal":
-      return "print.job.failed"
-    default:
-      return "print.job.state.changed"
-  }
-}
+const eventNameForAction = Match.typeTags<
+  TransitionAction,
+  WideEvent["eventName"]
+>()({
+  Stored: () => "print.job.stored",
+  Queued: () => "print.job.queued",
+  SubmissionAttemptStarted: () => "print.job.submission.attempt",
+  Submitted: () => "print.job.submitted",
+  Printing: () => "print.job.state.changed",
+  Completed: () => "print.job.completed",
+  PrinterUnavailable: () => "print.job.state.changed",
+  CupsUnavailable: () => "print.job.state.changed",
+  RetryScheduled: () => "print.job.state.changed",
+  SubmissionUncertain: () => "print.job.state.changed",
+  FailedTerminal: () => "print.job.failed",
+  Cancelled: () => "print.job.state.changed",
+})
 
-const errorDetailsForAction = (
-  action: TransitionAction,
-): { readonly errorTag?: string; readonly errorMessage?: string } => {
-  switch (action._tag) {
-    case "PrinterUnavailable":
-      return {
-        errorTag: "PrinterNotReady",
-        errorMessage: action.reason,
-      }
-    case "CupsUnavailable":
-      return {
-        errorTag: "CupsUnavailable",
-        errorMessage: action.reason,
-      }
-    case "RetryScheduled":
-      return {
-        errorTag: "RetryScheduled",
-        errorMessage: action.reason,
-      }
-    case "SubmissionUncertain":
-      return {
-        errorTag: "SubmissionUncertain",
-        errorMessage: action.reason,
-      }
-    case "FailedTerminal":
-      return {
-        errorTag: "FailedTerminal",
-        errorMessage: action.reason,
-      }
-    default:
-      return {}
-  }
-}
+const errorDetailsForAction = Match.typeTags<
+  TransitionAction,
+  { readonly errorTag?: string; readonly errorMessage?: string }
+>()({
+  Stored: () => ({}),
+  Queued: () => ({}),
+  SubmissionAttemptStarted: () => ({}),
+  Submitted: () => ({}),
+  Printing: () => ({}),
+  Completed: () => ({}),
+  PrinterUnavailable: (action) => ({
+    errorTag: "PrinterNotReady",
+    errorMessage: action.reason,
+  }),
+  CupsUnavailable: (action) => ({
+    errorTag: "CupsUnavailable",
+    errorMessage: action.reason,
+  }),
+  RetryScheduled: (action) => ({
+    errorTag: "RetryScheduled",
+    errorMessage: action.reason,
+  }),
+  SubmissionUncertain: (action) => ({
+    errorTag: "SubmissionUncertain",
+    errorMessage: action.reason,
+  }),
+  FailedTerminal: (action) => ({
+    errorTag: "FailedTerminal",
+    errorMessage: action.reason,
+  }),
+  Cancelled: () => ({}),
+})
 
 const elapsedMs = (from: string, to: string): number | undefined => {
   const fromMs = Date.parse(from)

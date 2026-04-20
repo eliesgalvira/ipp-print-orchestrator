@@ -1,4 +1,4 @@
-import { Clock, Effect, Layer } from "effect"
+import { Clock, Effect, Layer, Match } from "effect"
 import type { CupsJobObservation } from "../cups-observation/CupsObservation.js"
 import { CupsObserver } from "../cups-observation/CupsObserver.js"
 import { StartupRecoveryFailed } from "../domain/Errors.js"
@@ -95,70 +95,88 @@ export const ReconcilerLive = Layer.effect(
         const occurredAt = new Date(
           yield* Clock.currentTimeMillis,
         ).toISOString()
-        switch (observation.state) {
-          case "processing":
-          case "processing-stopped": {
-            if (job.state === "Printing") {
-              return
-            }
-            const result = transitionJob(job, { _tag: "Printing" }, occurredAt)
-            if (result._tag === "InvalidTransition") {
-              return yield* Effect.die(new Error(result.reason))
-            }
-            return yield* persistTransition(result.job, result.event).pipe(
-              Effect.mapError(
-                (error) =>
-                  new StartupRecoveryFailed({ message: String(error) }),
-              ),
-            )
-          }
-          case "completed": {
-            const result = transitionJob(job, { _tag: "Completed" }, occurredAt)
-            if (result._tag === "InvalidTransition") {
-              return yield* Effect.die(new Error(result.reason))
-            }
-            return yield* persistTransition(result.job, result.event).pipe(
-              Effect.mapError(
-                (error) =>
-                  new StartupRecoveryFailed({ message: String(error) }),
-              ),
-            )
-          }
-          case "canceled": {
-            const result = transitionJob(job, { _tag: "Cancelled" }, occurredAt)
-            if (result._tag === "InvalidTransition") {
-              return yield* Effect.die(new Error(result.reason))
-            }
-            return yield* persistTransition(result.job, result.event).pipe(
-              Effect.mapError(
-                (error) =>
-                  new StartupRecoveryFailed({ message: String(error) }),
-              ),
-            )
-          }
-          case "aborted": {
-            const reason =
-              observation.printerStateMessage ??
-              observation.reasons.join(", ") ??
-              "CUPS reported aborted"
-            const result = transitionJob(
-              job,
-              { _tag: "FailedTerminal", reason },
-              occurredAt,
-            )
-            if (result._tag === "InvalidTransition") {
-              return yield* Effect.die(new Error(result.reason))
-            }
-            return yield* persistTransition(result.job, result.event).pipe(
-              Effect.mapError(
-                (error) =>
-                  new StartupRecoveryFailed({ message: String(error) }),
-              ),
-            )
-          }
-          default:
-            return
-        }
+        return yield* Match.value(observation.state).pipe(
+          Match.whenOr("processing", "processing-stopped", () =>
+            Effect.gen(function* () {
+              if (job.state === "Printing") {
+                return
+              }
+              const result = transitionJob(
+                job,
+                { _tag: "Printing" },
+                occurredAt,
+              )
+              if (result._tag === "InvalidTransition") {
+                return yield* Effect.die(new Error(result.reason))
+              }
+              return yield* persistTransition(result.job, result.event).pipe(
+                Effect.mapError(
+                  (error) =>
+                    new StartupRecoveryFailed({ message: String(error) }),
+                ),
+              )
+            }),
+          ),
+          Match.when("completed", () =>
+            Effect.gen(function* () {
+              const result = transitionJob(
+                job,
+                { _tag: "Completed" },
+                occurredAt,
+              )
+              if (result._tag === "InvalidTransition") {
+                return yield* Effect.die(new Error(result.reason))
+              }
+              return yield* persistTransition(result.job, result.event).pipe(
+                Effect.mapError(
+                  (error) =>
+                    new StartupRecoveryFailed({ message: String(error) }),
+                ),
+              )
+            }),
+          ),
+          Match.when("canceled", () =>
+            Effect.gen(function* () {
+              const result = transitionJob(
+                job,
+                { _tag: "Cancelled" },
+                occurredAt,
+              )
+              if (result._tag === "InvalidTransition") {
+                return yield* Effect.die(new Error(result.reason))
+              }
+              return yield* persistTransition(result.job, result.event).pipe(
+                Effect.mapError(
+                  (error) =>
+                    new StartupRecoveryFailed({ message: String(error) }),
+                ),
+              )
+            }),
+          ),
+          Match.when("aborted", () =>
+            Effect.gen(function* () {
+              const reason =
+                observation.printerStateMessage ??
+                observation.reasons.join(", ") ??
+                "CUPS reported aborted"
+              const result = transitionJob(
+                job,
+                { _tag: "FailedTerminal", reason },
+                occurredAt,
+              )
+              if (result._tag === "InvalidTransition") {
+                return yield* Effect.die(new Error(result.reason))
+              }
+              return yield* persistTransition(result.job, result.event).pipe(
+                Effect.mapError(
+                  (error) =>
+                    new StartupRecoveryFailed({ message: String(error) }),
+                ),
+              )
+            }),
+          ),
+          Match.orElse(() => Effect.void),
+        )
       })
 
     const reconcileCupsTrackedJob = (job: Job) =>

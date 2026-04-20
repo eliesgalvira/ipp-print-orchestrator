@@ -1,4 +1,4 @@
-import { Effect, Layer } from "effect"
+import { Effect, Layer, Match } from "effect"
 
 import {
   CupsCommandFailed,
@@ -50,32 +50,21 @@ export const layer = (
               | CupsRejectedJob
               | CupsCommandFailed
               | SubmissionUncertainError
-            > => {
-              switch (step._tag) {
-                case "Submitted":
-                  return Effect.succeed({ cupsJobId: step.cupsJobId })
-                case "CupsUnavailable":
-                  return Effect.fail(
-                    new CupsUnavailable({ message: step.message }),
-                  )
-                case "CupsRejectedJob":
-                  return Effect.fail(
-                    new CupsRejectedJob({ message: step.message }),
-                  )
-                case "CupsCommandFailed":
-                  return Effect.fail(
-                    new CupsCommandFailed({ message: step.message }),
-                  )
-                case "SubmissionUncertain":
-                  return Effect.fail(
+            > =>
+              Match.valueTags(step, {
+                Submitted: (step) =>
+                  Effect.succeed({ cupsJobId: step.cupsJobId }),
+                CupsUnavailable: (step) =>
+                  Effect.fail(new CupsUnavailable({ message: step.message })),
+                CupsRejectedJob: (step) =>
+                  Effect.fail(new CupsRejectedJob({ message: step.message })),
+                CupsCommandFailed: (step) =>
+                  Effect.fail(new CupsCommandFailed({ message: step.message })),
+                SubmissionUncertain: (step) =>
+                  Effect.fail(
                     new SubmissionUncertainError({ message: step.message }),
-                  )
-                default:
-                  return Effect.die(
-                    `Unhandled scripted cups step: ${String(step)}`,
-                  )
-              }
-            },
+                  ),
+              }),
           ),
         )
 
