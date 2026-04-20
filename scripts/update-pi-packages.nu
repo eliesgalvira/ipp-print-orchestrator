@@ -93,7 +93,7 @@ def require-command [name: string] {
 }
 
 def default-ssh-key-path [] {
-  $nu.home-path | path join ".ssh/ipp-print-orchestrator-pi"
+  $nu.home-dir | path join ".ssh/ipp-print-orchestrator-pi"
 }
 
 def command-exists [name: string] {

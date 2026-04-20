@@ -11,7 +11,7 @@ def require-command [name: string] {
 }
 
 def default-ssh-key-path [] {
-  $nu.home-path | path join ".ssh/ipp-print-orchestrator-pi"
+  $nu.home-dir | path join ".ssh/ipp-print-orchestrator-pi"
 }
 
 def run-with-input [input: string, command: list<string>] {
@@ -20,6 +20,63 @@ def run-with-input [input: string, command: list<string>] {
 
 def ssh-command [host: string, key_path: path, remote_command: string, use_tty: bool] {
   (ssh-args $host $key_path --batch --tty=$use_tty) ++ [$remote_command]
+}
+
+def service-env-keys [] {
+  [
+    "IPP_ORCH_DATA_DIR"
+    "IPP_ORCH_PRINTER_NAME"
+    "IPP_ORCH_BIND_HOST"
+    "IPP_ORCH_BIND_PORT"
+    "IPP_ORCH_USB_SYSFS_ROOT"
+    "IPP_ORCH_STATUS_OBSERVATION_INTERVAL_MS"
+    "IPP_ORCH_HEARTBEAT_INTERVAL_MS"
+    "IPP_ORCH_RECONCILE_INTERVAL_MS"
+    "IPP_ORCH_LOG_PRETTY"
+    "IPP_ORCH_ENABLE_OTLP"
+    "OTEL_EXPORTER_OTLP_ENDPOINT"
+    "OTEL_EXPORTER_OTLP_HEADERS"
+    "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"
+    "OTEL_EXPORTER_OTLP_TRACES_HEADERS"
+    "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"
+    "OTEL_EXPORTER_OTLP_LOGS_HEADERS"
+    "OTEL_RESOURCE_ATTRIBUTES"
+  ]
+}
+
+def local-service-env-content [root_dir: path, dotenv: record] {
+  let example_dotenv = (load-dotenv ($root_dir | path join ".env.example"))
+  let service_dotenv = ($example_dotenv | merge $dotenv)
+
+  service-env-keys
+  | where {|key| ($service_dotenv | get -o $key) != null}
+  | each {|key| $"($key)=($service_dotenv | get $key)"}
+  | append [""]
+  | str join "\n"
+}
+
+def sync-service-env [host: string, key_path: path, sudo_password: any, env_content: string] {
+  let remote_args = if (has-value $sudo_password) {
+    [
+      "bash"
+      "-c"
+      "IFS= read -r SUDO_PASSWORD_FROM_STDIN; export SUDO_PASSWORD_FROM_STDIN; tmp_env=$(mktemp); cat > \"$tmp_env\"; printf \"%s\\n\" \"$SUDO_PASSWORD_FROM_STDIN\" | sudo -S -p \"\" install -m 0644 \"$tmp_env\" /etc/ipp-print-orchestrator.env; status=$?; rm -f \"$tmp_env\"; exit \"$status\""
+    ]
+  } else {
+    [
+      "bash"
+      "-c"
+      "tmp_env=$(mktemp); cat > \"$tmp_env\"; sudo install -m 0644 \"$tmp_env\" /etc/ipp-print-orchestrator.env; status=$?; rm -f \"$tmp_env\"; exit \"$status\""
+    ]
+  }
+  let command = ((ssh-args $host $key_path --batch) ++ $remote_args)
+  let payload = if (has-value $sudo_password) {
+    (($sudo_password | into string) + "\n" + $env_content)
+  } else {
+    $env_content
+  }
+
+  run-with-input $payload $command
 }
 
 def dependency-manifest-paths [] {
@@ -71,7 +128,7 @@ def install-production-dependencies [] {
 }
 
 def remote-deploy [app_dir: string, sudo_password: any] {
-  let bun_bin = ($env.HOME | path join ".bun/bin")
+  let bun_bin = ($nu.home-dir | path join ".bun/bin")
   if (($env.PATH | describe) =~ "^list") {
     $env.PATH = ([$bun_bin] ++ $env.PATH)
   } else {
@@ -128,6 +185,7 @@ def local-deploy [] {
   let app_dir = (get-config $dotenv APP_DIR "/home/pi/apps/ipp-print-orchestrator")
   let ssh_key_path = ((get-config $dotenv PI_SSH_KEY_PATH (default-ssh-key-path)) | path expand)
   let sudo_password = (required-secret $dotenv [PI_SUDO_PASSWORD PI_PASSWORD])
+  let env_content = (local-service-env-content $root_dir $dotenv)
 
   [nu bun rsync ssh] | each {|command| require-command $command} | ignore
 
@@ -145,6 +203,10 @@ def local-deploy [] {
       ++ [$"($root_dir)/" $"($pi_host):($app_dir)/"]
     )
     run-external ...$command
+  }
+
+  run-timed "sync service environment to pi" {
+    sync-service-env $pi_host $ssh_key_path $sudo_password $env_content
   }
 
   run-timed "remote install/build/restart" {

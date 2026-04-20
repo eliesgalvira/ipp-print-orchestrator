@@ -127,7 +127,7 @@ def install-authorized-key [authorized_key_file: any] {
     return
   }
 
-  let ssh_dir = ($env.HOME | path join ".ssh")
+  let ssh_dir = ($nu.home-dir | path join ".ssh")
   let authorized_keys = ($ssh_dir | path join "authorized_keys")
   mkdir $ssh_dir
   ^chmod 700 $ssh_dir

@@ -5,7 +5,7 @@ use lib/remote.nu ssh-args
 use lib/repo.nu repo-root
 
 def default-ssh-key-path [] {
-  $nu.home-path | path join ".ssh/ipp-print-orchestrator-pi"
+  $nu.home-dir | path join ".ssh/ipp-print-orchestrator-pi"
 }
 
 def format-heartbeat-age [value: any] {

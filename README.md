@@ -273,10 +273,13 @@ Run `nu scripts/bootstrap-pi.nu` first. If SSH key auth is not already configure
 
 `PI_SUDO_PASSWORD`, then `PI_PASSWORD`, is still used only for remote `sudo -S` when the Pi user requires a sudo password. If the Pi user has passwordless sudo, leave both unset.
 
+Your local `.env` is the source of truth for the Pi service environment. Each deploy filters the runtime keys (`IPP_ORCH_*` and `OTEL_*`) from local `.env` plus `.env.example` defaults and installs them to `/etc/ipp-print-orchestrator.env` on the Pi before restarting services. Deploy-only keys such as `PI_HOST`, `APP_DIR`, `PI_SSH_KEY_PATH`, `PI_PASSWORD`, and `PI_SUDO_PASSWORD` are not written to the Pi service env, and `.env` is excluded from the rsync copy.
+
 The deploy script:
 
 - runs the local `bun run build`
 - rsyncs the repository to the Pi with generated/runtime directories excluded
+- syncs the filtered local service environment to `/etc/ipp-print-orchestrator.env`
 - checks the production dependency stamp and only runs `bun install --frozen-lockfile --ignore-scripts --production` on the Pi when dependency manifests changed
 - installs systemd units
 - restarts the service and heartbeat timer

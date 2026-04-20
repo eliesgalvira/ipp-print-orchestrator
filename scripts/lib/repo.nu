@@ -8,6 +8,7 @@ export def deploy-excludes [] {
   [
     "node_modules"
     ".git"
+    ".env"
     "coverage"
     ".reference"
     "data"
