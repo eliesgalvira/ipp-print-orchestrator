@@ -42,11 +42,12 @@ def format-status-line [line: string] {
     ]
 
     let reasons = (($status | get -o printerReasons) | default [])
+    let joined_reasons = ($reasons | str join ",")
     let local_ips = (($status | get -o localIps) | default [])
     let hostname = ($status | get -o hostname)
 
     let optional_parts = [
-      (if (($reasons | length) > 0) { $"reasons=($reasons | str join ",")" } else { null })
+      (if (($reasons | length) > 0) { $"reasons=($joined_reasons)" } else { null })
       (if (($local_ips | length) > 0) { $"ip=($local_ips | first)" } else { null })
       (if (has-value $hostname) { $"host=($hostname)" } else { null })
     ] | where {|part| has-value $part}

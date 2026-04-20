@@ -35,7 +35,6 @@ export def run-sudo [sudo_password: any, args: list<string>] {
 export def run-timed [phase: string, action: closure] {
   let started_at = (date now)
   print $"[($started_at | format date "%+")] start ($phase)"
-  do $action
-  let elapsed = ((((date now) - $started_at) / 1sec) | math round)
-  print $"[(date now | format date "%+")] done ($phase) \(($elapsed)s\)"
+  let elapsed = (timeit { do $action })
+  print $"[(date now | format date "%+")] done ($phase) \(($elapsed)\)"
 }

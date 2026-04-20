@@ -44,6 +44,54 @@ def ssh-command [host: string, ssh_password: any, remote_command: string, use_tt
   }
 }
 
+def dependency-manifest-paths [] {
+  [
+    "package.json"
+    "bun.lock"
+    "apps/agent/package.json"
+    "packages/ipp/package.json"
+    "packages/shared/package.json"
+    "packages/testkit/package.json"
+  ]
+}
+
+def production-install-stamp-path [] {
+  ".ipp-orch-production-install.sha256"
+}
+
+def production-install-fingerprint [] {
+  dependency-manifest-paths
+  | where {|path| $path | path exists}
+  | each {|path|
+      {
+        path: $path
+        sha256: (open --raw $path | hash sha256)
+      }
+    }
+  | to json -r
+  | hash sha256
+}
+
+def production-install-current [] {
+  let stamp_path = (production-install-stamp-path)
+  if (not ("node_modules" | path exists)) or (not ($stamp_path | path exists)) {
+    false
+  } else {
+    ((open --raw $stamp_path | str trim) == (production-install-fingerprint))
+  }
+}
+
+def install-production-dependencies [] {
+  let fingerprint = (production-install-fingerprint)
+
+  if (production-install-current) {
+    print "production dependencies already current; skipping bun install"
+  } else {
+    ^bun install --frozen-lockfile --ignore-scripts --production
+    $fingerprint | save --force (production-install-stamp-path)
+  }
+}
+
 def remote-deploy [app_dir: string, sudo_password: any] {
   let bun_bin = ($env.HOME | path join ".bun/bin")
   if (($env.PATH | describe) =~ "^list") {
@@ -54,8 +102,8 @@ def remote-deploy [app_dir: string, sudo_password: any] {
 
   cd $app_dir
 
-  run-timed "bun install (production)" {
-    ^bun install --frozen-lockfile --ignore-scripts --production
+  run-timed "production dependency check/install" {
+    install-production-dependencies
   }
 
   run-timed "install systemd units" {

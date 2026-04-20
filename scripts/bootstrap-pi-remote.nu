@@ -20,17 +20,36 @@ def run-sudo [sudo_password: any, args: list<string>] {
   }
 }
 
+def run-timed [phase: string, action: closure] {
+  print $"[(date now | format date "%+")] start ($phase)"
+  let elapsed = (timeit { do $action })
+  print $"[(date now | format date "%+")] done ($phase) \(($elapsed)\)"
+}
+
+def apt-package-installed [package: string] {
+  let result = (^dpkg-query -W "-f=${Status}" $package | complete)
+  ($result.exit_code == 0) and ($result.stdout | str contains "install ok installed")
+}
+
 def install-apt-packages [sudo_password: any, packages: list<string>] {
   if not (command-exists apt-get) {
     error make {msg: "Unsupported package manager on target machine. Install unzip, rsync, node, npm, cups-client, curl, ca-certificates, and gnupg manually."}
   }
 
-  run-sudo $sudo_password ["apt-get" "update"]
-  run-sudo $sudo_password (["apt-get" "install" "-y"] ++ $packages)
+  let missing_packages = ($packages | where {|package| not (apt-package-installed $package)})
+  if (($missing_packages | length) == 0) {
+    print "apt packages already installed; skipping install"
+  } else {
+    let package_list = ($missing_packages | str join ", ")
+    print $"installing missing apt packages: ($package_list)"
+    run-sudo $sudo_password ["apt-get" "update"]
+    run-sudo $sudo_password (["apt-get" "install" "-y"] ++ $missing_packages)
+  }
 }
 
 def install-bun [] {
   if (command-exists bun) {
+    print "bun already installed; skipping install"
     return
   }
 
@@ -82,6 +101,7 @@ def default-env-content [app_dir: string, printer_name: string] {
 
 def install-default-env [sudo_password: any, app_dir: string, printer_name: string] {
   if ("/etc/ipp-print-orchestrator.env" | path exists) {
+    print "/etc/ipp-print-orchestrator.env already exists; skipping install"
     return
   }
 
@@ -134,22 +154,35 @@ def main [
 ] {
   let sudo_password = ($env | get -o SUDO_PASSWORD_FROM_STDIN)
 
-  install-apt-packages $sudo_password [
-    "curl"
-    "unzip"
-    "rsync"
-    "nodejs"
-    "npm"
-    "cups-client"
-    "ca-certificates"
-    "gnupg"
-  ]
-  install-bun
-  mkdir $app_dir
+  run-timed "bootstrap apt packages" {
+    install-apt-packages $sudo_password [
+      "curl"
+      "unzip"
+      "rsync"
+      "nodejs"
+      "npm"
+      "cups-client"
+      "ca-certificates"
+      "gnupg"
+    ]
+  }
 
-  let printer_name = (detect-printer-name)
-  install-default-env $sudo_password $app_dir $printer_name
-  warn-if-printer-missing
+  run-timed "bootstrap bun" {
+    install-bun
+  }
+
+  run-timed "bootstrap app directory" {
+    mkdir $app_dir
+  }
+
+  run-timed "bootstrap environment" {
+    let printer_name = (detect-printer-name)
+    install-default-env $sudo_password $app_dir $printer_name
+  }
+
+  run-timed "bootstrap printer validation" {
+    warn-if-printer-missing
+  }
 
   print $"bootstrap complete on ($pi_host_label)"
 }

@@ -1,0 +1,283 @@
+#!/usr/bin/env nu
+
+const RELATED_APT_PACKAGES = [
+  "curl"
+  "unzip"
+  "rsync"
+  "nodejs"
+  "npm"
+  "cups-client"
+  "ca-certificates"
+  "gnupg"
+  "nushell"
+]
+
+def has-value [value] {
+  if $value == null {
+    false
+  } else {
+    (($value | into string | str trim | str length) > 0)
+  }
+}
+
+def trim-surrounding-quotes [value: string] {
+  let trimmed = ($value | str trim)
+  let length = ($trimmed | str length)
+
+  if $length < 2 {
+    $trimmed
+  } else if (($trimmed | str starts-with '"') and ($trimmed | str ends-with '"')) {
+    $trimmed | str substring 1..-2
+  } else if (($trimmed | str starts-with "'") and ($trimmed | str ends-with "'")) {
+    $trimmed | str substring 1..-2
+  } else {
+    $trimmed
+  }
+}
+
+def load-dotenv [path: path] {
+  if not ($path | path exists) {
+    {}
+  } else {
+    open --raw $path
+    | lines
+    | reduce -f {} {|line, acc|
+        let trimmed = ($line | str trim)
+
+        if (($trimmed | str length) == 0) or ($trimmed | str starts-with "#") or (not ($trimmed | str contains "=")) {
+          $acc
+        } else {
+          let parts = ($trimmed | split row "=")
+          let key = ($parts | first | str trim)
+          let raw_value = ($parts | skip 1 | str join "=")
+          let value = (trim-surrounding-quotes $raw_value)
+
+          if (($key | str length) == 0) {
+            $acc
+          } else {
+            $acc | upsert $key $value
+          }
+        }
+      }
+  }
+}
+
+def get-config [dotenv: record, key: string, fallback?: any] {
+  let env_value = ($env | get -o $key)
+
+  if $env_value != null {
+    $env_value
+  } else {
+    let dotenv_value = ($dotenv | get -o $key)
+
+    if $dotenv_value != null {
+      $dotenv_value
+    } else {
+      $fallback
+    }
+  }
+}
+
+def required-secret [dotenv: record, keys: list<string>] {
+  $keys
+  | each {|key| get-config $dotenv $key null}
+  | where {|value| has-value $value}
+  | first
+  | default null
+}
+
+def require-command [name: string] {
+  if (which $name | is-empty) {
+    error make {msg: $"missing required command: ($name)"}
+  }
+}
+
+def command-exists [name: string] {
+  not (which $name | is-empty)
+}
+
+def ssh-args [host: string, password?: any] {
+  if (has-value $password) {
+    ["sshpass" "-e" "ssh" $host]
+  } else {
+    ["ssh" $host]
+  }
+}
+
+def run-sudo [sudo_password: any, args: list<string>] {
+  if (has-value $sudo_password) {
+    (($sudo_password | into string) + "\n") | run-external "sudo" "-S" "-p" "" ...$args
+  } else {
+    run-external "sudo" ...$args
+  }
+}
+
+def run-timed [phase: string, action: closure] {
+  print $"[(date now | format date "%+")] start ($phase)"
+  let elapsed = (timeit { do $action })
+  print $"[(date now | format date "%+")] done ($phase) \(($elapsed)\)"
+}
+
+def run-ssh-with-input [host: string, ssh_password: any, input: string, remote_args: list<string>] {
+  let command = ((ssh-args $host $ssh_password) ++ $remote_args)
+
+  if (has-value $ssh_password) {
+    $input | with-env {SSHPASS: $ssh_password} {
+      run-external ...$command
+    }
+  } else {
+    $input | run-external ...$command
+  }
+}
+
+def run-remote-update [host: string, ssh_password: any, sudo_password: any, app_dir: string, script: string] {
+  let remote_args = if (has-value $sudo_password) {
+    [
+      "bash"
+      "-c"
+      "IFS= read -r SUDO_PASSWORD_FROM_STDIN; export SUDO_PASSWORD_FROM_STDIN; tmp_script=$(mktemp); cat > \"$tmp_script\"; nu --no-config-file \"$tmp_script\" --remote-run --app-dir \"$@\"; status=$?; rm -f \"$tmp_script\"; exit \"$status\""
+      "update-pi-packages"
+      $app_dir
+    ]
+  } else {
+    [
+      "bash"
+      "-c"
+      "tmp_script=$(mktemp); cat > \"$tmp_script\"; nu --no-config-file \"$tmp_script\" --remote-run --app-dir \"$@\"; status=$?; rm -f \"$tmp_script\"; exit \"$status\""
+      "update-pi-packages"
+      $app_dir
+    ]
+  }
+  let payload = if (has-value $sudo_password) {
+    (($sudo_password | into string) + "\n" + $script)
+  } else {
+    $script
+  }
+
+  run-ssh-with-input $host $ssh_password $payload $remote_args
+}
+
+def apt-package-installed [package: string] {
+  let result = (^dpkg-query -W "-f=${Status}" $package | complete)
+  ($result.exit_code == 0) and ($result.stdout | str contains "install ok installed")
+}
+
+def update-installed-apt-packages [sudo_password: any] {
+  if not (command-exists apt-get) {
+    error make {msg: "Unsupported package manager on target machine. Update related packages manually."}
+  }
+
+  let installed_packages = ($RELATED_APT_PACKAGES | where {|package| apt-package-installed $package})
+  let missing_packages = ($RELATED_APT_PACKAGES | where {|package| not (apt-package-installed $package)})
+
+  if (($missing_packages | length) > 0) {
+    let missing_package_list = ($missing_packages | str join ", ")
+    print $"skipping missing apt packages \(run bootstrap to install\): ($missing_package_list)"
+  }
+
+  if (($installed_packages | length) == 0) {
+    print "no related apt packages are installed; skipping apt upgrade"
+  } else {
+    let installed_package_list = ($installed_packages | str join ", ")
+    print $"upgrading installed apt packages: ($installed_package_list)"
+    run-sudo $sudo_password ["apt-get" "update"]
+    run-sudo $sudo_password (["apt-get" "install" "-y" "--only-upgrade"] ++ $installed_packages)
+  }
+}
+
+def update-bun [] {
+  if (command-exists bun) {
+    ^bun upgrade
+  } else {
+    print "bun is not installed; skipping bun upgrade"
+  }
+}
+
+def dependency-manifest-paths [] {
+  [
+    "package.json"
+    "bun.lock"
+    "apps/agent/package.json"
+    "packages/ipp/package.json"
+    "packages/shared/package.json"
+    "packages/testkit/package.json"
+  ]
+}
+
+def production-install-stamp-path [] {
+  ".ipp-orch-production-install.sha256"
+}
+
+def production-install-fingerprint [] {
+  dependency-manifest-paths
+  | where {|path| $path | path exists}
+  | each {|path|
+      {
+        path: $path
+        sha256: (open --raw $path | hash sha256)
+      }
+    }
+  | to json -r
+  | hash sha256
+}
+
+def update-production-dependencies [app_dir: string] {
+  if not ($app_dir | path exists) {
+    error make {msg: $"app directory does not exist: ($app_dir)"}
+  }
+  if not (command-exists bun) {
+    print "bun is not installed; skipping production dependency update"
+    return
+  }
+
+  cd $app_dir
+  ^bun install --frozen-lockfile --ignore-scripts --production
+  production-install-fingerprint | save --force (production-install-stamp-path)
+}
+
+def local-main [] {
+  let repo_root = (path self | path dirname | path dirname)
+  let dotenv = (load-dotenv ($repo_root | path join ".env"))
+  let pi_host = (get-config $dotenv PI_HOST "pi@print-server.local")
+  let app_dir = (get-config $dotenv APP_DIR "/home/pi/apps/ipp-print-orchestrator")
+  let ssh_password = (required-secret $dotenv [PI_SSH_PASSWORD PI_PASSWORD])
+  let sudo_password = (required-secret $dotenv [PI_SUDO_PASSWORD PI_PASSWORD])
+
+  require-command ssh
+  if (has-value $ssh_password) {
+    require-command sshpass
+  }
+
+  let script = (open --raw (path self))
+
+  run-timed "remote package/dependency update" {
+    run-remote-update $pi_host $ssh_password $sudo_password $app_dir $script
+  }
+}
+
+def remote-main [app_dir: string] {
+  let sudo_password = ($env | get -o SUDO_PASSWORD_FROM_STDIN)
+
+  run-timed "update apt packages" {
+    update-installed-apt-packages $sudo_password
+  }
+
+  run-timed "update bun runtime" {
+    update-bun
+  }
+
+  run-timed "update production dependencies" {
+    update-production-dependencies $app_dir
+  }
+}
+
+def main [
+  --remote-run
+  --app-dir: string = "/home/pi/apps/ipp-print-orchestrator"
+] {
+  if $remote_run {
+    remote-main $app_dir
+  } else {
+    local-main
+  }
+}

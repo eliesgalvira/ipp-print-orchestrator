@@ -17,7 +17,8 @@
     "format": "biome format --write .",
     "smoke:local": "nu scripts/smoke-test-local.nu",
     "smoke:pi": "nu scripts/smoke-test-pi.nu",
-    "deploy:pi": "nu scripts/deploy-pi.nu"
+    "deploy:pi": "nu scripts/deploy-pi.nu",
+    "update:pi": "nu scripts/update-pi-packages.nu"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.6",

@@ -1,7 +1,7 @@
 #!/usr/bin/env nu
 
 use lib/env.nu *
-use lib/remote.nu ssh-args
+use lib/remote.nu [ssh-args run-timed]
 use lib/repo.nu repo-root
 
 def require-command [name: string] {
@@ -106,13 +106,31 @@ run_sudo() {
   fi
 }
 
-if command -v apt-get >/dev/null 2>&1; then
-  run_sudo apt-get update
-  run_sudo apt-get install -y curl ca-certificates gnupg
-else
+apt_package_installed() {
+  dpkg-query -W -f="${Status}" "$1" 2>/dev/null | grep -q "install ok installed"
+}
+
+install_missing_apt_packages() {
+  missing_packages=""
+  for package in "$@"; do
+    if ! apt_package_installed "$package"; then
+      missing_packages="${missing_packages} ${package}"
+    fi
+  done
+
+  if [ -n "$missing_packages" ]; then
+    run_sudo apt-get update
+    # shellcheck disable=SC2086
+    run_sudo apt-get install -y $missing_packages
+  fi
+}
+
+if ! command -v apt-get >/dev/null 2>&1; then
   echo "Unsupported package manager on target machine. Install curl, ca-certificates, gnupg, and nushell manually." >&2
   exit 1
 fi
+
+install_missing_apt_packages curl ca-certificates gnupg
 
 if ! command -v nu >/dev/null 2>&1; then
   tmp_key="$(mktemp)"
@@ -135,6 +153,11 @@ echo "nushell ready on ${PI_HOST_LABEL}"
   let remote_nu_script_path = ($root_dir | path join "scripts/bootstrap-pi-remote.nu")
   let remote_nu_script = (open --raw $remote_nu_script_path)
 
-  run-remote-prereqs $pi_host $ssh_password $sudo_password $remote_prereq_script
-  run-remote-nu-bootstrap $pi_host $ssh_password $sudo_password $app_dir $remote_nu_script
+  run-timed "remote bootstrap prerequisites" {
+    run-remote-prereqs $pi_host $ssh_password $sudo_password $remote_prereq_script
+  }
+
+  run-timed "remote nushell bootstrap" {
+    run-remote-nu-bootstrap $pi_host $ssh_password $sudo_password $app_dir $remote_nu_script
+  }
 }
