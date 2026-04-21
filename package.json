@@ -11,14 +11,18 @@
     "prepare": "effect-language-service patch",
     "build": "tsc --build --pretty false",
     "typecheck": "tsc -p packages/shared/tsconfig.json --pretty false --noEmit && tsc -p packages/ipp/tsconfig.json --pretty false --noEmit && tsc -p packages/testkit/tsconfig.json --pretty false --noEmit && tsc -p apps/agent/tsconfig.json --pretty false --noEmit",
-    "test": "vitest run",
+    "test": "vitest run && bun run test:nu",
+    "test:nu": "nu scripts/tests.nu",
     "test:watch": "vitest",
     "lint": "biome check .",
     "format": "biome format --write .",
     "smoke:local": "nu scripts/smoke-test-local.nu",
-    "smoke:pi": "nu scripts/smoke-test-pi.nu",
-    "deploy:pi": "nu scripts/deploy-pi.nu",
-    "update:pi": "nu scripts/update-pi-packages.nu"
+    "smoke:live-to-pi": "nu scripts/smoke-test-live-to-pi.nu",
+    "deploy:live-to-pi": "nu scripts/deploy-live-to-pi.nu",
+    "debug-ipp-printer-attributes:live-to-pi": "nu scripts/debug-ipp-printer-attributes-live-to-pi.nu",
+    "diagnose-usb-hotplug:live-to-pi": "nu scripts/diagnose-usb-hotplug-live-to-pi.nu",
+    "install-systemd:live-to-pi": "nu scripts/install-systemd-live-to-pi.nu",
+    "update:live-to-pi": "nu scripts/update-packages-live-to-pi.nu"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.6",

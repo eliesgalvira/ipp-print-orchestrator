@@ -1,6 +1,6 @@
 #!/usr/bin/env nu
 
-def has-value [value] {
+def has-value [value: any]: nothing -> bool {
   if $value == null {
     false
   } else {
@@ -8,26 +8,26 @@ def has-value [value] {
   }
 }
 
-def command-exists [name: string] {
+def command-exists [name: string]: nothing -> bool {
   not (which $name | is-empty)
 }
 
-def run-sudo [args: list<string>] {
+def run-sudo [args: list<string>]: nothing -> any {
   run-external "sudo" ...$args
 }
 
-def run-timed [phase: string, action: closure] {
+def run-timed [phase: string, action: closure]: nothing -> nothing {
   print $"[(date now | format date "%+")] start ($phase)"
   let elapsed = (timeit { do $action })
   print $"[(date now | format date "%+")] done ($phase) \(($elapsed)\)"
 }
 
-def apt-package-installed [package: string] {
+def apt-package-installed [package: string]: nothing -> bool {
   let result = (^dpkg-query -W "-f=${Status}" $package | complete)
   ($result.exit_code == 0) and ($result.stdout | str contains "install ok installed")
 }
 
-def install-apt-packages [packages: list<string>] {
+def install-apt-packages [packages: list<string>]: nothing -> nothing {
   if not (command-exists apt-get) {
     error make {msg: "Unsupported package manager on target machine. Install unzip, rsync, node, npm, cups-client, curl, ca-certificates, and gnupg manually."}
   }
@@ -43,7 +43,7 @@ def install-apt-packages [packages: list<string>] {
   }
 }
 
-def install-bun [] {
+def install-bun []: nothing -> nothing {
   if (command-exists bun) {
     print "bun already installed; skipping install"
     return
@@ -55,7 +55,7 @@ def install-bun [] {
   rm --force $installer
 }
 
-def detect-printer-name [] {
+def detect-printer-name []: nothing -> string {
   if not (command-exists lpstat) {
     "printer"
   } else {
@@ -79,7 +79,7 @@ def detect-printer-name [] {
   }
 }
 
-def default-env-content [app_dir: string, printer_name: string] {
+def default-env-content [app_dir: string, printer_name: string]: nothing -> string {
   [
     "IPP_ORCH_DATA_DIR=data"
     $"IPP_ORCH_PRINTER_NAME=($printer_name)"
@@ -99,7 +99,7 @@ def default-env-content [app_dir: string, printer_name: string] {
   ] | str join "\n"
 }
 
-def install-default-env [app_dir: string, printer_name: string] {
+def install-default-env [app_dir: string, printer_name: string]: nothing -> nothing {
   if ("/etc/ipp-print-orchestrator.env" | path exists) {
     print "/etc/ipp-print-orchestrator.env already exists; skipping install"
     return
@@ -112,9 +112,9 @@ def install-default-env [app_dir: string, printer_name: string] {
 }
 
 def install-authorized-key [
-  authorized_key_file: any
-  authorized_key_content: any
-] {
+  authorized_key_file: path
+  authorized_key_content: string
+] : nothing -> nothing {
   if (has-value $authorized_key_content) {
     install-authorized-key-content $authorized_key_content
     return
@@ -127,7 +127,7 @@ def install-authorized-key [
   install-authorized-key-content (open --raw $authorized_key_file)
 }
 
-def install-authorized-key-content [content: string] {
+def install-authorized-key-content [content: string]: nothing -> nothing {
   let authorized_key = ($content | str trim)
   if not (has-value $authorized_key) {
     return
@@ -154,7 +154,7 @@ def install-authorized-key-content [content: string] {
   ^chmod 600 $authorized_keys
 }
 
-def configured-printer-name [] {
+def configured-printer-name []: nothing -> any {
   if not ("/etc/ipp-print-orchestrator.env" | path exists) {
     null
   } else {
@@ -172,7 +172,7 @@ def configured-printer-name [] {
   }
 }
 
-def warn-if-printer-missing [] {
+def warn-if-printer-missing []: nothing -> nothing {
   let printer_name = (configured-printer-name)
   if (not (has-value $printer_name)) or (not (command-exists lpstat)) {
     return
@@ -196,7 +196,7 @@ def main [
   pi_host_label: string
   --authorized-key-file: path = ""
   --authorized-key-content: string = ""
-] {
+] : nothing -> nothing {
   run-timed "bootstrap SSH key auth" {
     install-authorized-key $authorized_key_file $authorized_key_content
   }

@@ -1,10 +1,10 @@
 use env.nu [get-config has-value]
 
-export def default-ssh-key-path [] {
+export def default-ssh-key-path []: nothing -> string {
   $nu.home-dir | path join ".ssh/ipp-print-orchestrator-pi"
 }
 
-export def remote-target [dotenv: record] {
+export def remote-target [dotenv: record]: nothing -> record<host: string, key_path: string> {
   {
     host: (get-config $dotenv PI_HOST "pi@print-server.local")
     key_path: ((get-config $dotenv PI_SSH_KEY_PATH (default-ssh-key-path)) | path expand)
@@ -12,9 +12,9 @@ export def remote-target [dotenv: record] {
 }
 
 export def ssh-options [
-  key_path?: any
+  --key-path: path
   --batch
-] {
+] : nothing -> list<string> {
   let key_options = if (has-value $key_path) {
     ["-i" ($key_path | path expand) "-o" "IdentitiesOnly=yes"]
   } else {
@@ -31,43 +31,43 @@ export def ssh-options [
 
 export def ssh-args [
   host: string
-  key_path?: any
-  control_path?: any
+  --key-path: path
+  --control-path: path
   --batch
   --tty
-] {
+] : nothing -> list<string> {
   let tty_options = if $tty { ["-t"] } else { [] }
   let control_options = if (has-value $control_path) { ["-S" $control_path] } else { [] }
-  ["ssh"] | append (ssh-options $key_path --batch=$batch) | append $tty_options | append $control_options | append [$host]
+  ["ssh"] | append (ssh-options --key-path=$key_path --batch=$batch) | append $tty_options | append $control_options | append [$host]
 }
 
-def shell-quote [value: any] {
+def shell-quote [value: string]: nothing -> string {
   "'" + (($value | into string) | str replace --all "'" "'\\''") + "'"
 }
 
 export def ssh-rsh-command [
-  key_path?: any
+  --key-path: path
   --batch
-] {
-  ["ssh"] | append (ssh-options $key_path --batch=$batch) | each {|part| shell-quote $part} | str join " "
+] : nothing -> string {
+  ["ssh"] | append (ssh-options --key-path=$key_path --batch=$batch) | each {|part| shell-quote $part} | str join " "
 }
 
 export def rsync-args [
-  key_path?: any
+  --key-path: path
   --batch
-] {
+] : nothing -> list<string> {
   if $batch or (has-value $key_path) {
-    ["rsync" "-e" (ssh-rsh-command $key_path --batch=$batch)]
+    ["rsync" "-e" (ssh-rsh-command --key-path=$key_path --batch=$batch)]
   } else {
     ["rsync"]
   }
 }
 
-export def run-sudo [args: list<string>] {
+export def run-sudo [args: list<string>]: nothing -> any {
   run-external "sudo" ...$args
 }
 
-export def --env ensure-user-bun-on-path [] {
+export def --env ensure-user-bun-on-path []: nothing -> nothing {
   let bun_bin = ($nu.home-dir | path join ".bun/bin")
   if (($env.PATH | describe) =~ "^list") {
     $env.PATH = ([$bun_bin] ++ $env.PATH)
@@ -78,54 +78,54 @@ export def --env ensure-user-bun-on-path [] {
 
 export def run-ssh [
   host: string
-  key_path: any
   remote_args: list<string>
-  control_path?: any
+  --key-path: path
+  --control-path: path
   --batch
   --tty
-] {
+] : nothing -> any {
   let remote_command = ($remote_args | each {|part| shell-quote $part} | str join " ")
-  let command = ((ssh-args $host $key_path $control_path --batch=$batch --tty=$tty) ++ [$remote_command])
+  let command = ((ssh-args $host --key-path=$key_path --control-path=$control_path --batch=$batch --tty=$tty) ++ [$remote_command])
   run-external ...$command
 }
 
 export def run-ssh-with-input [
   host: string
-  key_path: any
   input: string
   remote_args: list<string>
-  control_path?: any
+  --key-path: path
+  --control-path: path
   --batch
   --tty
-] {
+] : nothing -> any {
   let remote_command = ($remote_args | each {|part| shell-quote $part} | str join " ")
-  let command = ((ssh-args $host $key_path $control_path --batch=$batch --tty=$tty) ++ [$remote_command])
+  let command = ((ssh-args $host --key-path=$key_path --control-path=$control_path --batch=$batch --tty=$tty) ++ [$remote_command])
   $input | run-external ...$command
 }
 
 export def run-remote-nu-command [
   host: string
-  key_path: any
   command: string
-  control_path?: any
+  --key-path: path
+  --control-path: path
   --batch
   --tty
-] {
-  run-ssh $host $key_path ["nu" "-c" $command] $control_path --batch=$batch --tty=$tty
+] : nothing -> any {
+  run-ssh $host ["nu" "-c" $command] --key-path=$key_path --control-path=$control_path --batch=$batch --tty=$tty
 }
 
 export def run-remote-nu-source [
   host: string
-  key_path: any
   script: string
-  control_path?: any
+  --key-path: path
+  --control-path: path
   --batch
   --tty
-] {
-  run-ssh-with-input $host $key_path $script ["nu" "--no-config-file" "-c" "source /dev/stdin"] $control_path --batch=$batch --tty=$tty
+] : nothing -> any {
+  run-ssh-with-input $host $script ["nu" "--no-config-file" "-c" "source /dev/stdin"] --key-path=$key_path --control-path=$control_path --batch=$batch --tty=$tty
 }
 
-export def run-timed [phase: string, action: closure] {
+export def run-timed [phase: string, action: closure]: nothing -> nothing {
   let started_at = (date now)
   print $"[($started_at | format date "%+")] start ($phase)"
   let elapsed = (timeit { do $action })
