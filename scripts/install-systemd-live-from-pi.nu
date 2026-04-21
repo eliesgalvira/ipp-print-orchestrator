@@ -1,24 +1,40 @@
 #!/usr/bin/env nu
 
-use lib/remote.nu run-sudo
+use lib/remote.nu [run-sudo run-timed]
 use lib/repo.nu repo-root
 
-def install-rendered-unit [source: path, destination: string, app_dir: path]: nothing -> nothing {
+def run-sudo-timed [phase: string, args: list<string>]: nothing -> any {
+  run-timed $phase {
+    run-sudo $args
+  }
+}
+
+def install-rendered-unit [source: path, destination: string, app_dir: path]: nothing -> bool {
   let rendered = (
     open --raw $source
     | str replace --all "/home/pi/apps/ipp-print-orchestrator" ($app_dir | into string)
   )
-  let tmp_unit = (mktemp)
 
-  try {
-    $rendered | save --force $tmp_unit
-    run-sudo ["install" "-m" "0644" $tmp_unit $destination]
-  } catch {|err|
-    rm --force $tmp_unit
-    error make $err
+  if ($destination | path exists) and ((open --raw $destination) == $rendered) {
+    print $"systemd unit already current: ($destination)"
+    return false
   }
 
-  rm --force $tmp_unit
+  run-timed $"install changed systemd unit ($destination)" {
+    let tmp_unit = (mktemp)
+
+    try {
+      $rendered | save --force $tmp_unit
+      run-sudo ["install" "-m" "0644" $tmp_unit $destination]
+    } catch {|err|
+      rm --force $tmp_unit
+      error make $err
+    }
+
+    rm --force $tmp_unit
+  }
+
+  true
 }
 
 def default-service-env-content []: nothing -> string {
@@ -43,35 +59,51 @@ def default-service-env-content []: nothing -> string {
 }
 
 def install-default-service-env []: nothing -> nothing {
-  let tmp_env = (mktemp)
+  run-timed "install default service environment" {
+    let tmp_env = (mktemp)
 
-  try {
-    default-service-env-content | save --force $tmp_env
-    run-sudo ["install" "-m" "0644" $tmp_env "/etc/ipp-print-orchestrator.env"]
-  } catch {|err|
+    try {
+      default-service-env-content | save --force $tmp_env
+      run-sudo ["install" "-m" "0644" $tmp_env "/etc/ipp-print-orchestrator.env"]
+    } catch {|err|
+      rm --force $tmp_env
+      error make $err
+    }
+
     rm --force $tmp_env
-    error make $err
   }
+}
 
-  rm --force $tmp_env
+def ensure-systemd-enabled [unit: string]: nothing -> nothing {
+  let result = (^systemctl is-enabled --quiet $unit | complete)
+  if $result.exit_code == 0 {
+    print $"systemd unit already enabled: ($unit)"
+  } else {
+    run-sudo-timed $"systemctl enable ($unit)" ["systemctl" "enable" $unit]
+  }
 }
 
 def main []: nothing -> nothing {
   let root_dir = (repo-root)
   let systemd_dir = ($root_dir | path join "systemd")
 
-  run-sudo ["install" "-d" "/etc/systemd/system"]
-  install-rendered-unit ($systemd_dir | path join "ipp-print-orchestrator.service") "/etc/systemd/system/ipp-print-orchestrator.service" $root_dir
-  install-rendered-unit ($systemd_dir | path join "ipp-print-orchestrator-heartbeat.service") "/etc/systemd/system/ipp-print-orchestrator-heartbeat.service" $root_dir
-  install-rendered-unit ($systemd_dir | path join "ipp-print-orchestrator-heartbeat.timer") "/etc/systemd/system/ipp-print-orchestrator-heartbeat.timer" $root_dir
+  run-sudo-timed "ensure systemd unit directory" ["install" "-d" "/etc/systemd/system"]
+  let app_service_changed = (install-rendered-unit ($systemd_dir | path join "ipp-print-orchestrator.service") "/etc/systemd/system/ipp-print-orchestrator.service" $root_dir)
+  let heartbeat_service_changed = (install-rendered-unit ($systemd_dir | path join "ipp-print-orchestrator-heartbeat.service") "/etc/systemd/system/ipp-print-orchestrator-heartbeat.service" $root_dir)
+  let heartbeat_timer_changed = (install-rendered-unit ($systemd_dir | path join "ipp-print-orchestrator-heartbeat.timer") "/etc/systemd/system/ipp-print-orchestrator-heartbeat.timer" $root_dir)
 
   if not ("/etc/ipp-print-orchestrator.env" | path exists) {
     install-default-service-env
   }
 
-  run-sudo ["systemctl" "daemon-reload"]
-  run-sudo ["systemctl" "enable" "ipp-print-orchestrator.service"]
-  run-sudo ["systemctl" "enable" "ipp-print-orchestrator-heartbeat.timer"]
+  if $app_service_changed or $heartbeat_service_changed or $heartbeat_timer_changed {
+    run-sudo-timed "systemctl daemon-reload" ["systemctl" "daemon-reload"]
+  } else {
+    print "systemd units unchanged; skipping daemon-reload"
+  }
+
+  ensure-systemd-enabled "ipp-print-orchestrator.service"
+  ensure-systemd-enabled "ipp-print-orchestrator-heartbeat.timer"
 
   print "systemd units installed"
 }

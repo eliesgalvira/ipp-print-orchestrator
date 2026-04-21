@@ -7,7 +7,7 @@ import type { Tracer as EffectTracer } from "effect"
 import { Effect, Match } from "effect"
 
 import type { WideEvent } from "../domain/WideEvent.js"
-import { readOtelConfig } from "./OtelConfig.js"
+import { type OtelConfig, readOtelConfig } from "./OtelConfig.js"
 import {
   effectSpanToOtelContext,
   makeOtelEffectTracer,
@@ -64,12 +64,13 @@ const registerShutdownHooks = () => {
   process.once("beforeExit", shutdown)
 }
 
-export const startObservability = async (): Promise<void> => {
+export const startObservability = async (
+  config: OtelConfig = readOtelConfig(),
+): Promise<void> => {
   if (sdk !== null) {
     return
   }
 
-  const config = readOtelConfig()
   if (!config.enabled) {
     return
   }
