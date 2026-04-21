@@ -140,11 +140,29 @@ def "test repo helpers expose stable strings" []: nothing -> nothing {
   assert (".git" in (deploy-excludes)) "deploy excludes should include .git"
 }
 
+def "test deploy live pi service env rendering executes" []: nothing -> nothing {
+  let command = '
+source scripts/deploy-live-pi.nu
+local-service-env-content (pwd) {
+  PI_HOST: "ignored@example.local",
+  APP_DIR: "/ignored",
+  IPP_ORCH_BIND_PORT: "9999"
+}
+'
+  let result = (nu --no-config-file --commands $command | complete)
+
+  assert equal $result.exit_code 0 $"deploy env rendering should execute: ($result.stderr)"
+  assert ($result.stdout | str contains "IPP_ORCH_BIND_PORT=9999") "expected deploy env to include overridden bind port"
+  assert not ($result.stdout | str contains "PI_HOST=") "deploy env should not include deploy-only PI_HOST"
+}
+
 def "test nushell files parse" []: nothing -> nothing {
   let files = (glob "scripts/**/*.nu" | sort)
   assert (($files | length) > 0) "expected Nushell files under scripts/"
 
   for file in $files {
+    assert equal (nu-check --debug $file) true $"($file) should pass nu-check"
+
     let result = (nu --ide-check 0 $file | complete)
     assert equal $result.exit_code 0 $"($file) should parse: ($result.stderr)"
   }

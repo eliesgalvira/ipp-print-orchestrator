@@ -37,10 +37,9 @@ def local-service-env-content [root_dir: path, dotenv: record]: nothing -> strin
   let service_dotenv = ($example_dotenv | merge $dotenv)
 
   service-env-keys
-  | where {|key| ($service_dotenv | get -o ($key | into cell-path)) != null}
+  | where {|key| ($service_dotenv | get -o $key) != null}
   | each {|key|
-      let key_path = ($key | into cell-path)
-      $"($key)=($service_dotenv | get $key_path)"
+      $"($key)=($service_dotenv | get $key)"
     }
   | append [""]
   | str join "\n"
