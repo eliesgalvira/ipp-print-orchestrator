@@ -142,7 +142,7 @@ def "test repo helpers expose stable strings" []: nothing -> nothing {
 
 def "test deploy live pi service env rendering executes" []: nothing -> nothing {
   let command = '
-source scripts/deploy-live-pi.nu
+source scripts/deploy-live-to-pi.nu
 local-service-env-content (pwd) {
   PI_HOST: "ignored@example.local",
   APP_DIR: "/ignored",

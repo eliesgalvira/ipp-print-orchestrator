@@ -99,7 +99,7 @@ def local-deploy []: nothing -> nothing {
   }
 
   run-timed "remote install/build/restart" {
-    let remote_script = ($app_dir | path join "scripts/deploy-live-on-pi.nu")
+    let remote_script = ($app_dir | path join "scripts/deploy-live-from-pi.nu")
     run-ssh $pi_host ["nu" "--no-config-file" $remote_script "--app-dir" $app_dir] --key-path $ssh_key_path --batch --tty
   }
 
@@ -118,7 +118,7 @@ def local-deploy []: nothing -> nothing {
   print "  lpstat -t"
   print ""
   print "Useful remote commands from your laptop:"
-  print "  nu scripts/watch-status-live-pi.nu"
+  print "  nu scripts/watch-status-live-to-pi.nu"
   print $"  ssh ($pi_host) 'journalctl -u ipp-print-orchestrator -f --no-pager'"
 }
 

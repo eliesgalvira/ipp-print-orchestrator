@@ -12,7 +12,7 @@ def require-command [name: string]: nothing -> nothing {
 }
 
 def run-remote-update [host: string, key_path: path, app_dir: string]: nothing -> any {
-  let remote_script = ($app_dir | path join "scripts/update-packages-live-on-pi.nu")
+  let remote_script = ($app_dir | path join "scripts/update-packages-live-from-pi.nu")
   run-ssh $host ["nu" "--no-config-file" $remote_script "--app-dir" $app_dir] --key-path $key_path --batch
 }
 

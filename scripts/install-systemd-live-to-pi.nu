@@ -16,16 +16,16 @@ def main []: nothing -> any {
 let app_dir = ($app_dir | to nuon)
 
 if not \($app_dir | path exists\) {
-  error make {msg: $\"app directory not found on Pi: \($app_dir\). Run nu scripts/bootstrap-live-pi.nu and nu scripts/deploy-live-pi.nu first.\"}
+  error make {msg: $\"app directory not found on Pi: \($app_dir\). Run nu scripts/bootstrap-live-to-pi.nu and nu scripts/deploy-live-to-pi.nu first.\"}
 }
 
 cd $app_dir
 
-if not \(\"scripts/install-systemd-live-on-pi.nu\" | path exists\) {
-  error make {msg: $\"systemd installer not found under \($app_dir\). Run nu scripts/deploy-live-pi.nu first.\"}
+if not \(\"scripts/install-systemd-live-from-pi.nu\" | path exists\) {
+  error make {msg: $\"systemd installer not found under \($app_dir\). Run nu scripts/deploy-live-to-pi.nu first.\"}
 }
 
-^nu --no-config-file scripts/install-systemd-live-on-pi.nu
+^nu --no-config-file scripts/install-systemd-live-from-pi.nu
 "
 
   run-timed $"install systemd units on ($pi_host)" {

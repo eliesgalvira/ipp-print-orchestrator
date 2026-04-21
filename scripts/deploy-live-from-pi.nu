@@ -63,7 +63,7 @@ def main [
   }
 
   run-timed "install systemd units" {
-    ^nu scripts/install-systemd-live-on-pi.nu
+    ^nu scripts/install-systemd-live-from-pi.nu
   }
 
   run-timed "restart app service" {

@@ -200,7 +200,7 @@ fi
 
 echo "nushell ready on ${PI_HOST_LABEL}"
 '
-  let remote_nu_script_path = ($root_dir | path join "scripts/bootstrap-live-on-pi.nu")
+  let remote_nu_script_path = ($root_dir | path join "scripts/bootstrap-live-from-pi.nu")
   let remote_nu_script = (open --raw $remote_nu_script_path)
 
   if (key-auth-works $pi_host $ssh_key_path) {
