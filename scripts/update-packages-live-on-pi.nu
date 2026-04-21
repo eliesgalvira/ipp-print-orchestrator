@@ -1,7 +1,6 @@
 #!/usr/bin/env nu
 
-use lib/env.nu *
-use lib/remote.nu [ensure-user-bun-on-path remote-target run-sudo run-ssh run-timed]
+use lib/remote.nu [ensure-user-bun-on-path run-sudo run-timed]
 
 const RELATED_APT_PACKAGES = [
   "curl"
@@ -14,21 +13,9 @@ const RELATED_APT_PACKAGES = [
   "gnupg"
   "nushell"
 ]
-const REPO_ROOT = (path self | path dirname | path dirname)
-
-def require-command [name: string]: nothing -> nothing {
-  if (which $name | is-empty) {
-    error make {msg: $"missing required command: ($name)"}
-  }
-}
 
 def command-exists [name: string]: nothing -> bool {
   not (which $name | is-empty)
-}
-
-def run-remote-update [host: string, key_path: path, app_dir: string]: nothing -> any {
-  let remote_script = ($app_dir | path join "scripts/update-pi-packages.nu")
-  run-ssh $host ["nu" "--no-config-file" $remote_script "--remote-run" "--app-dir" $app_dir] --key-path $key_path --batch
 }
 
 def apt-package-installed [package: string]: nothing -> bool {
@@ -109,21 +96,9 @@ def update-production-dependencies [app_dir: string]: nothing -> nothing {
   production-install-fingerprint | save --force (production-install-stamp-path)
 }
 
-def local-main []: nothing -> nothing {
-  let dotenv = (load-dotenv ($REPO_ROOT | path join ".env"))
-  let target = (remote-target $dotenv)
-  let pi_host = $target.host
-  let ssh_key_path = $target.key_path
-  let app_dir = (get-config $dotenv APP_DIR "/home/pi/apps/ipp-print-orchestrator")
-
-  require-command ssh
-
-  run-timed "remote package/dependency update" {
-    run-remote-update $pi_host $ssh_key_path $app_dir
-  }
-}
-
-def remote-main [app_dir: string]: nothing -> nothing {
+def main [
+  --app-dir: string = "/home/pi/apps/ipp-print-orchestrator"
+] : nothing -> nothing {
   ensure-user-bun-on-path
 
   run-timed "update apt packages" {
@@ -136,16 +111,5 @@ def remote-main [app_dir: string]: nothing -> nothing {
 
   run-timed "update production dependencies" {
     update-production-dependencies $app_dir
-  }
-}
-
-def main [
-  --remote-run
-  --app-dir: string = "/home/pi/apps/ipp-print-orchestrator"
-] : nothing -> nothing {
-  if $remote_run {
-    remote-main $app_dir
-  } else {
-    local-main
   }
 }

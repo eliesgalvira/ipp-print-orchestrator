@@ -17,9 +17,12 @@
     "lint": "biome check .",
     "format": "biome format --write .",
     "smoke:local": "nu scripts/smoke-test-local.nu",
-    "smoke:pi": "nu scripts/smoke-test-pi.nu",
-    "deploy:pi": "nu scripts/deploy-pi.nu",
-    "update:pi": "nu scripts/update-pi-packages.nu"
+    "smoke:live-pi": "nu scripts/smoke-test-live-pi.nu",
+    "deploy:live-pi": "nu scripts/deploy-live-pi.nu",
+    "debug-ipp-printer-attributes:live-pi": "nu scripts/debug-ipp-printer-attributes-live-pi.nu",
+    "diagnose-usb-hotplug:live-pi": "nu scripts/diagnose-usb-hotplug-live-pi.nu",
+    "install-systemd:live-pi": "nu scripts/install-systemd-live-pi.nu",
+    "update:live-pi": "nu scripts/update-packages-live-pi.nu"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.6",
