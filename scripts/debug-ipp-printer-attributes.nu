@@ -3,7 +3,7 @@
 use lib/env.nu *
 use lib/repo.nu repo-root
 
-def main [] {
+def main []: nothing -> any {
   let root_dir = (repo-root)
   let repo_dotenv = (load-dotenv ($root_dir | path join ".env"))
   let etc_dotenv = (load-dotenv /etc/ipp-print-orchestrator.env)

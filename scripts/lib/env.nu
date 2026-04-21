@@ -1,4 +1,4 @@
-export def has-value [value] {
+export def has-value [value: any]: nothing -> bool {
   if $value == null {
     false
   } else {
@@ -6,7 +6,7 @@ export def has-value [value] {
   }
 }
 
-def trim-surrounding-quotes [value: string] {
+def trim-surrounding-quotes [value: string]: nothing -> string {
   let trimmed = ($value | str trim)
   let length = ($trimmed | str length)
 
@@ -21,7 +21,7 @@ def trim-surrounding-quotes [value: string] {
   }
 }
 
-export def load-dotenv [path: path] {
+export def load-dotenv [path: path]: nothing -> record {
   if not ($path | path exists) {
     {}
   } else {
@@ -48,16 +48,16 @@ export def load-dotenv [path: path] {
   }
 }
 
-export def get-config [dotenv: record, key: string, fallback?: any] {
+export def get-config [dotenv: record, key: cell-path, fallback: string]: nothing -> string {
   let env_value = ($env | get -o $key)
 
   if (has-value $env_value) {
-    $env_value
+    $env_value | into string
   } else {
     let dotenv_value = ($dotenv | get -o $key)
 
     if (has-value $dotenv_value) {
-      $dotenv_value
+      $dotenv_value | into string
     } else {
       $fallback
     }

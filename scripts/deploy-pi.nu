@@ -4,13 +4,13 @@ use lib/env.nu *
 use lib/remote.nu *
 use lib/repo.nu *
 
-def require-command [name: string] {
+def require-command [name: string]: nothing -> nothing {
   if (which $name | is-empty) {
     error make {msg: $"missing required command: ($name)"}
   }
 }
 
-def service-env-keys [] {
+def service-env-keys []: nothing -> list<string> {
   [
     "IPP_ORCH_DATA_DIR"
     "IPP_ORCH_PRINTER_NAME"
@@ -32,18 +32,21 @@ def service-env-keys [] {
   ]
 }
 
-def local-service-env-content [root_dir: path, dotenv: record] {
+def local-service-env-content [root_dir: path, dotenv: record]: nothing -> string {
   let example_dotenv = (load-dotenv ($root_dir | path join ".env.example"))
   let service_dotenv = ($example_dotenv | merge $dotenv)
 
   service-env-keys
-  | where {|key| ($service_dotenv | get -o $key) != null}
-  | each {|key| $"($key)=($service_dotenv | get $key)"}
+  | where {|key| ($service_dotenv | get -o ($key | into cell-path)) != null}
+  | each {|key|
+      let key_path = ($key | into cell-path)
+      $"($key)=($service_dotenv | get $key_path)"
+    }
   | append [""]
   | str join "\n"
 }
 
-def sync-service-env [host: string, key_path: path, env_content: string] {
+def sync-service-env [host: string, key_path: path, env_content: string]: nothing -> any {
   let remote_script_template = '
 let env_content = __ENV_CONTENT_NUON__
 let tmp_env = (mktemp)
@@ -62,10 +65,10 @@ rm --force $tmp_env
     $remote_script_template
     | str replace "__ENV_CONTENT_NUON__" ($env_content | to nuon)
   )
-  run-remote-nu-source $host $key_path $remote_script --batch
+  run-remote-nu-source $host $remote_script --key-path $key_path --batch
 }
 
-def dependency-manifest-paths [] {
+def dependency-manifest-paths []: nothing -> list<string> {
   [
     "package.json"
     "bun.lock"
@@ -76,11 +79,11 @@ def dependency-manifest-paths [] {
   ]
 }
 
-def production-install-stamp-path [] {
+def production-install-stamp-path []: nothing -> string {
   ".ipp-orch-production-install.sha256"
 }
 
-def production-install-fingerprint [] {
+def production-install-fingerprint []: nothing -> string {
   dependency-manifest-paths
   | where {|path| $path | path exists}
   | each {|path|
@@ -93,7 +96,7 @@ def production-install-fingerprint [] {
   | hash sha256
 }
 
-def production-install-current [] {
+def production-install-current []: nothing -> bool {
   let stamp_path = (production-install-stamp-path)
   if (not ("node_modules" | path exists)) or (not ($stamp_path | path exists)) {
     false
@@ -102,7 +105,7 @@ def production-install-current [] {
   }
 }
 
-def install-production-dependencies [] {
+def install-production-dependencies []: nothing -> nothing {
   let fingerprint = (production-install-fingerprint)
 
   if (production-install-current) {
@@ -113,7 +116,7 @@ def install-production-dependencies [] {
   }
 }
 
-def remote-deploy [app_dir: string] {
+def remote-deploy [app_dir: string]: nothing -> nothing {
   ensure-user-bun-on-path
 
   cd $app_dir
@@ -155,7 +158,7 @@ def remote-deploy [app_dir: string] {
   }
 }
 
-def local-deploy [] {
+def local-deploy []: nothing -> nothing {
   let root_dir = (repo-root)
   let dotenv = (load-dotenv ($root_dir | path join ".env"))
   let target = (remote-target $dotenv)
@@ -174,7 +177,7 @@ def local-deploy [] {
   run-timed "rsync repository to pi" {
     let exclude_args = (deploy-excludes | each {|exclude| ["--exclude" $exclude]} | flatten)
     let command = (
-      (rsync-args $ssh_key_path --batch)
+      (rsync-args --key-path $ssh_key_path --batch)
       ++ ["-az" "--delete"]
       ++ $exclude_args
       ++ [$"($root_dir)/" $"($pi_host):($app_dir)/"]
@@ -188,7 +191,7 @@ def local-deploy [] {
 
   run-timed "remote install/build/restart" {
     let remote_script = ($app_dir | path join "scripts/deploy-pi.nu")
-    run-ssh $pi_host $ssh_key_path ["nu" "--no-config-file" $remote_script "--remote-run" "--app-dir" $app_dir] --batch --tty
+    run-ssh $pi_host ["nu" "--no-config-file" $remote_script "--remote-run" "--app-dir" $app_dir] --key-path $ssh_key_path --batch --tty
   }
 
   let port = (get-config $dotenv IPP_ORCH_BIND_PORT "4310")
@@ -213,7 +216,7 @@ def local-deploy [] {
 def main [
   --remote-run
   --app-dir: string = ""
-] {
+] : nothing -> nothing {
   if $remote_run {
     let resolved_app_dir = if (has-value $app_dir) { $app_dir } else { "/home/pi/apps/ipp-print-orchestrator" }
     remote-deploy $resolved_app_dir

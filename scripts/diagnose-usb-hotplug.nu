@@ -3,12 +3,12 @@
 use lib/env.nu *
 use lib/repo.nu repo-root
 
-def show-heading [title: string] {
+def show-heading [title: string]: nothing -> nothing {
   print ""
   print $"== ($title) =="
 }
 
-def show-status [status_url: string] {
+def show-status [status_url: string]: nothing -> nothing {
   let now = (date now | format date "%+")
   let result = (^curl -fsS $status_url | complete)
 
@@ -19,7 +19,7 @@ def show-status [status_url: string] {
   }
 }
 
-def read-file-line [path: path] {
+def read-file-line [path: path]: nothing -> string {
   if ($path | path exists) {
     open --raw $path | str replace --all "\n" ""
   } else {
@@ -27,7 +27,7 @@ def read-file-line [path: path] {
   }
 }
 
-def show-usb-sysfs [usb_sysfs_root: string] {
+def show-usb-sysfs [usb_sysfs_root: string]: nothing -> nothing {
   print $"[(date now | format date "%+")] usb-sysfs"
 
   if not ($usb_sysfs_root | path exists) {
@@ -52,7 +52,7 @@ def show-usb-sysfs [usb_sysfs_root: string] {
   | ignore
 }
 
-def main [duration_seconds: int = 45] {
+def main [duration_seconds: int = 45]: nothing -> nothing {
   let root_dir = (repo-root)
   let repo_dotenv = (load-dotenv ($root_dir | path join ".env"))
   let etc_dotenv = (load-dotenv /etc/ipp-print-orchestrator.env)

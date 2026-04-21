@@ -16,27 +16,27 @@ const RELATED_APT_PACKAGES = [
 ]
 const REPO_ROOT = (path self | path dirname | path dirname)
 
-def require-command [name: string] {
+def require-command [name: string]: nothing -> nothing {
   if (which $name | is-empty) {
     error make {msg: $"missing required command: ($name)"}
   }
 }
 
-def command-exists [name: string] {
+def command-exists [name: string]: nothing -> bool {
   not (which $name | is-empty)
 }
 
-def run-remote-update [host: string, key_path: path, app_dir: string] {
+def run-remote-update [host: string, key_path: path, app_dir: string]: nothing -> any {
   let remote_script = ($app_dir | path join "scripts/update-pi-packages.nu")
-  run-ssh $host $key_path ["nu" "--no-config-file" $remote_script "--remote-run" "--app-dir" $app_dir] --batch
+  run-ssh $host ["nu" "--no-config-file" $remote_script "--remote-run" "--app-dir" $app_dir] --key-path $key_path --batch
 }
 
-def apt-package-installed [package: string] {
+def apt-package-installed [package: string]: nothing -> bool {
   let result = (^dpkg-query -W "-f=${Status}" $package | complete)
   ($result.exit_code == 0) and ($result.stdout | str contains "install ok installed")
 }
 
-def update-installed-apt-packages [] {
+def update-installed-apt-packages []: nothing -> nothing {
   if not (command-exists apt-get) {
     error make {msg: "Unsupported package manager on target machine. Update related packages manually."}
   }
@@ -59,7 +59,7 @@ def update-installed-apt-packages [] {
   }
 }
 
-def update-bun [] {
+def update-bun []: nothing -> nothing {
   if (command-exists bun) {
     ^bun upgrade
   } else {
@@ -67,7 +67,7 @@ def update-bun [] {
   }
 }
 
-def dependency-manifest-paths [] {
+def dependency-manifest-paths []: nothing -> list<string> {
   [
     "package.json"
     "bun.lock"
@@ -78,11 +78,11 @@ def dependency-manifest-paths [] {
   ]
 }
 
-def production-install-stamp-path [] {
+def production-install-stamp-path []: nothing -> string {
   ".ipp-orch-production-install.sha256"
 }
 
-def production-install-fingerprint [] {
+def production-install-fingerprint []: nothing -> string {
   dependency-manifest-paths
   | where {|path| $path | path exists}
   | each {|path|
@@ -95,7 +95,7 @@ def production-install-fingerprint [] {
   | hash sha256
 }
 
-def update-production-dependencies [app_dir: string] {
+def update-production-dependencies [app_dir: string]: nothing -> nothing {
   if not ($app_dir | path exists) {
     error make {msg: $"app directory does not exist: ($app_dir)"}
   }
@@ -109,7 +109,7 @@ def update-production-dependencies [app_dir: string] {
   production-install-fingerprint | save --force (production-install-stamp-path)
 }
 
-def local-main [] {
+def local-main []: nothing -> nothing {
   let dotenv = (load-dotenv ($REPO_ROOT | path join ".env"))
   let target = (remote-target $dotenv)
   let pi_host = $target.host
@@ -123,7 +123,7 @@ def local-main [] {
   }
 }
 
-def remote-main [app_dir: string] {
+def remote-main [app_dir: string]: nothing -> nothing {
   ensure-user-bun-on-path
 
   run-timed "update apt packages" {
@@ -142,7 +142,7 @@ def remote-main [app_dir: string] {
 def main [
   --remote-run
   --app-dir: string = "/home/pi/apps/ipp-print-orchestrator"
-] {
+] : nothing -> nothing {
   if $remote_run {
     remote-main $app_dir
   } else {

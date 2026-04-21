@@ -3,7 +3,7 @@
 use lib/env.nu has-value
 use lib/repo.nu repo-root
 
-def cleanup [job_id: any, tmp_file: path, log_file: path] {
+def cleanup [job_id: int, tmp_file: path, log_file: path]: nothing -> nothing {
   if $job_id != null {
     try { job kill $job_id }
   }
@@ -12,11 +12,11 @@ def cleanup [job_id: any, tmp_file: path, log_file: path] {
   try { rm -f $log_file }
 }
 
-def curl-complete [url: string] {
+def curl-complete [url: string]: nothing -> record<exit_code: int, stdout: string, stderr: string> {
   ^curl -fsS $url | complete
 }
 
-def main [] {
+def main []: nothing -> nothing {
   let root_dir = (repo-root)
   let port = (if (has-value ($env | get -o IPP_ORCH_BIND_PORT)) { $env.IPP_ORCH_BIND_PORT } else { "4310" })
   let data_dir = (

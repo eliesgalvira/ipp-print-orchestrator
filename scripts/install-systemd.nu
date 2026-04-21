@@ -3,7 +3,7 @@
 use lib/remote.nu run-sudo
 use lib/repo.nu repo-root
 
-def install-rendered-unit [source: path, destination: string, app_dir: path] {
+def install-rendered-unit [source: path, destination: string, app_dir: path]: nothing -> nothing {
   let rendered = (
     open --raw $source
     | str replace --all "/home/pi/apps/ipp-print-orchestrator" ($app_dir | into string)
@@ -21,7 +21,7 @@ def install-rendered-unit [source: path, destination: string, app_dir: path] {
   rm --force $tmp_unit
 }
 
-def default-service-env-content [] {
+def default-service-env-content []: nothing -> string {
   [
     "IPP_ORCH_DATA_DIR=data"
     "IPP_ORCH_PRINTER_NAME=printer"
@@ -42,7 +42,7 @@ def default-service-env-content [] {
   ] | str join "\n"
 }
 
-def install-default-service-env [] {
+def install-default-service-env []: nothing -> nothing {
   let tmp_env = (mktemp)
 
   try {
@@ -56,7 +56,7 @@ def install-default-service-env [] {
   rm --force $tmp_env
 }
 
-def main [] {
+def main []: nothing -> nothing {
   let root_dir = (repo-root)
   let systemd_dir = ($root_dir | path join "systemd")
 

@@ -4,7 +4,7 @@ use lib/env.nu *
 use lib/remote.nu [remote-target run-remote-nu-source]
 use lib/repo.nu repo-root
 
-def format-heartbeat-age [value: any] {
+def format-heartbeat-age [value: any]: nothing -> string {
   if $value == null {
     "never"
   } else {
@@ -18,11 +18,11 @@ def format-heartbeat-age [value: any] {
   }
 }
 
-def format-flag [value: any, yes: string, no: string] {
+def format-flag [value: any, yes: string, no: string]: nothing -> string {
   if $value == true { $yes } else { $no }
 }
 
-def format-status-line [line: string] {
+def format-status-line [line: string]: nothing -> string {
   let timestamp = (date now | format date "%+")
 
   let status = (try { $line | from json } catch { null })
@@ -57,7 +57,7 @@ def format-status-line [line: string] {
   }
 }
 
-def main [] {
+def main []: nothing -> nothing {
   let root_dir = (repo-root)
   let dotenv = (load-dotenv ($root_dir | path join ".env"))
   let target = (remote-target $dotenv)
@@ -67,11 +67,11 @@ def main [] {
   let interval_sec = (get-config $dotenv WATCH_INTERVAL_SEC "2")
 
   let remote_script = ('
-def has-value [value] {
+def has-value [value: any]: nothing -> bool {
   if $value == null { false } else { (($value | into string | str trim | str length) > 0) }
 }
 
-def trim-quotes [value: string] {
+def trim-quotes [value: string]: nothing -> string {
   let trimmed = ($value | str trim)
   if (($trimmed | str length) >= 2) and (($trimmed | str starts-with "\"") and ($trimmed | str ends-with "\"")) {
     $trimmed | str substring 1..-2
@@ -80,7 +80,7 @@ def trim-quotes [value: string] {
   }
 }
 
-def load-dotenv [path: path] {
+def load-dotenv [path: path]: nothing -> record {
   if not ($path | path exists) {
     {}
   } else {
@@ -99,7 +99,7 @@ def load-dotenv [path: path] {
   }
 }
 
-def get-value [dotenv: record, key: string, fallback: string] {
+def get-value [dotenv: record, key: cell-path, fallback: string]: nothing -> string {
   let env_value = ($env | get -o $key)
   if (has-value $env_value) {
     $env_value
@@ -125,7 +125,7 @@ loop {
 }
 ' | str replace "__PORT__" ($default_port | into string) | str replace "__INTERVAL__" ($interval_sec | into string))
 
-  run-remote-nu-source $pi_host $ssh_key_path $remote_script --batch
+  run-remote-nu-source $pi_host $remote_script --key-path $ssh_key_path --batch
   | lines
   | each {|line|
       if (($line | str trim | str length) > 0) {

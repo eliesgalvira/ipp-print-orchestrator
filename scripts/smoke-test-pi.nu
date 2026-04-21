@@ -4,7 +4,7 @@ use lib/env.nu *
 use lib/remote.nu [remote-target run-remote-nu-source]
 use lib/repo.nu repo-root
 
-def main [] {
+def main []: nothing -> any {
   let root_dir = (repo-root)
   let dotenv = (load-dotenv ($root_dir | path join ".env"))
   let target = (remote-target $dotenv)
@@ -13,11 +13,11 @@ def main [] {
   let default_port = (get-config $dotenv IPP_ORCH_BIND_PORT "4310")
 
   let remote_script = ('
-def has-value [value] {
+def has-value [value: any]: nothing -> bool {
   if $value == null { false } else { (($value | into string | str trim | str length) > 0) }
 }
 
-def trim-quotes [value: string] {
+def trim-quotes [value: string]: nothing -> string {
   let trimmed = ($value | str trim)
   if (($trimmed | str length) >= 2) and (($trimmed | str starts-with "\"") and ($trimmed | str ends-with "\"")) {
     $trimmed | str substring 1..-2
@@ -26,7 +26,7 @@ def trim-quotes [value: string] {
   }
 }
 
-def load-dotenv [path: path] {
+def load-dotenv [path: path]: nothing -> record {
   if not ($path | path exists) {
     {}
   } else {
@@ -45,7 +45,7 @@ def load-dotenv [path: path] {
   }
 }
 
-def get-value [dotenv: record, key: string, fallback: string] {
+def get-value [dotenv: record, key: cell-path, fallback: string]: nothing -> string {
   let env_value = ($env | get -o $key)
   if (has-value $env_value) {
     $env_value
@@ -76,5 +76,5 @@ if $printer_result.exit_code != 0 {
 print "pi smoke test passed"
 ' | str replace "__PORT__" ($default_port | into string))
 
-  run-remote-nu-source $pi_host $ssh_key_path $remote_script --batch
+  run-remote-nu-source $pi_host $remote_script --key-path $ssh_key_path --batch
 }
