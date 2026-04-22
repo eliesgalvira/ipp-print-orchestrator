@@ -20,6 +20,7 @@
     "smoke:local": "nu scripts/smoke-test-local.nu",
     "smoke:live-to-pi": "nu scripts/smoke-test-live-to-pi.nu",
     "deploy:live-to-pi": "nu scripts/deploy-live-to-pi.nu",
+    "check-observability:live-to-pi": "nu scripts/check-observability-live-to-pi.nu",
     "debug-ipp-printer-attributes:live-to-pi": "nu scripts/debug-ipp-printer-attributes-live-to-pi.nu",
     "diagnose-usb-hotplug:live-to-pi": "nu scripts/diagnose-usb-hotplug-live-to-pi.nu",
     "install-systemd:live-to-pi": "nu scripts/install-systemd-live-to-pi.nu",

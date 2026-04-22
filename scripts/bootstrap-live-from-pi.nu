@@ -89,7 +89,7 @@ def default-env-content [app_dir: string, printer_name: string]: nothing -> stri
     "IPP_ORCH_HEARTBEAT_INTERVAL_MS=60000"
     "IPP_ORCH_RECONCILE_INTERVAL_MS=30000"
     "IPP_ORCH_LOG_PRETTY=false"
-    "IPP_ORCH_ENABLE_OTLP=true"
+    "IPP_ORCH_ENABLE_OTLP=false"
     "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT="
     "OTEL_EXPORTER_OTLP_TRACES_HEADERS="
     "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT="

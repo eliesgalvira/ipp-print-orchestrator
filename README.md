@@ -227,6 +227,18 @@ The live Pi smoke script checks:
 - `lpstat -t`
 - the configured printer queue exists in CUPS
 
+Live Axiom observability check:
+
+```bash
+nu scripts/check-observability-live-to-pi.nu
+```
+
+The check SSHes into the Pi, reads `/etc/ipp-print-orchestrator.env`, verifies
+that enabled OTLP has usable Axiom endpoint/header configuration, triggers one
+local status request, and queries the configured Axiom logs and traces datasets
+for recent rows. If your OTLP token is ingest-only, set `AXIOM_QUERY_TOKEN` in
+local `.env` to an Axiom token with query access before deploying.
+
 ## Deploying To The Pi
 
 Expected target:
@@ -297,6 +309,7 @@ The deploy script:
 - runs the local `bun run build`
 - builds a bundled service entry for faster Pi cold starts
 - rsyncs the repository to the Pi with generated/runtime directories excluded
+- validates enabled OTLP/Axiom settings before writing the service environment
 - syncs the filtered local service environment to `/etc/ipp-print-orchestrator.env`
 - checks the production dependency stamp and only runs `bun install --frozen-lockfile --ignore-scripts --production` on the Pi when dependency manifests changed
 - installs systemd units
