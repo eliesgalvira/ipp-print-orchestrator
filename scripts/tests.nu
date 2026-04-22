@@ -103,9 +103,16 @@ def "test ssh argument builders use typed optional flags" []: nothing -> nothing
   let key_path = "/tmp/ipp-orch-test-key"
   let control_path = "/tmp/ipp-orch-control"
   let quoted_ssh = "'ssh' '-i' '/tmp/ipp-orch-test-key' '-o' 'IdentitiesOnly=yes' '-o' 'BatchMode=yes'"
+  let quoted_ssh_with_control = "'ssh' '-i' '/tmp/ipp-orch-test-key' '-o' 'IdentitiesOnly=yes' '-o' 'BatchMode=yes' '-o' 'ConnectTimeout=3' '-o' 'ConnectionAttempts=5' '-S' '/tmp/ipp-orch-control'"
 
   assert equal (ssh-options) []
   assert equal (ssh-options --batch) ["-o" "BatchMode=yes"]
+  assert equal (ssh-options --connect-timeout 3 --connection-attempts 5) [
+    "-o"
+    "ConnectTimeout=3"
+    "-o"
+    "ConnectionAttempts=5"
+  ]
   assert equal (ssh-options --key-path $key_path --batch) [
     "-i"
     "/tmp/ipp-orch-test-key"
@@ -115,7 +122,7 @@ def "test ssh argument builders use typed optional flags" []: nothing -> nothing
     "BatchMode=yes"
   ]
 
-  assert equal (ssh-args "pi@example.local" --key-path $key_path --control-path $control_path --batch --tty) [
+  assert equal (ssh-args "pi@example.local" --key-path $key_path --control-path $control_path --connect-timeout 3 --connection-attempts 5 --batch --tty) [
     "ssh"
     "-i"
     "/tmp/ipp-orch-test-key"
@@ -123,6 +130,10 @@ def "test ssh argument builders use typed optional flags" []: nothing -> nothing
     "IdentitiesOnly=yes"
     "-o"
     "BatchMode=yes"
+    "-o"
+    "ConnectTimeout=3"
+    "-o"
+    "ConnectionAttempts=5"
     "-t"
     "-S"
     "/tmp/ipp-orch-control"
@@ -130,7 +141,16 @@ def "test ssh argument builders use typed optional flags" []: nothing -> nothing
   ]
 
   assert equal (ssh-rsh-command --key-path $key_path --batch) $quoted_ssh
+  assert not ((ssh-rsh-command --key-path $key_path --batch) | str contains "'-S'") "ssh remote shell should omit a control path unless one is provided"
   assert equal (rsync-args --key-path $key_path --batch) ["rsync" "-e" $quoted_ssh]
+  assert equal (
+    rsync-args
+      --key-path $key_path
+      --control-path $control_path
+      --connect-timeout 3
+      --connection-attempts 5
+      --batch
+  ) ["rsync" "-e" $quoted_ssh_with_control]
   assert equal (rsync-args) ["rsync"]
 }
 

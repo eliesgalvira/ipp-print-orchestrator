@@ -45,7 +45,14 @@ def local-service-env-content [root_dir: path, dotenv: record]: nothing -> strin
   | str join "\n"
 }
 
-def sync-service-env [host: string, key_path: path, env_content: string]: nothing -> any {
+def sync-service-env [
+  host: string
+  key_path: path
+  env_content: string
+  --control-path: path
+  --connect-timeout: int
+  --connection-attempts: int
+]: nothing -> any {
   let remote_script_template = '
 let env_content = __ENV_CONTENT_NUON__
 let tmp_env = (mktemp)
@@ -64,7 +71,7 @@ rm --force $tmp_env
     $remote_script_template
     | str replace "__ENV_CONTENT_NUON__" ($env_content | to nuon)
   )
-  run-remote-nu-source $host $remote_script --key-path $key_path --batch
+  run-remote-nu-source $host $remote_script --key-path $key_path --control-path $control_path --connect-timeout $connect_timeout --connection-attempts $connection_attempts --batch
 }
 
 def local-deploy []: nothing -> nothing {
@@ -75,6 +82,8 @@ def local-deploy []: nothing -> nothing {
   let ssh_key_path = $target.key_path
   let app_dir = (get-config $dotenv APP_DIR "/home/pi/apps/ipp-print-orchestrator")
   let env_content = (local-service-env-content $root_dir $dotenv)
+  let ssh_connect_timeout = 3
+  let ssh_connection_attempts = 5
 
   [nu bun rsync ssh] | each {|command| require-command $command} | ignore
 
@@ -83,30 +92,53 @@ def local-deploy []: nothing -> nothing {
     ^bun run build
   }
 
-  run-timed "rsync repository to pi" {
-    let exclude_args = (deploy-excludes | each {|exclude| ["--exclude" $exclude]} | flatten)
-    let command = (
-      (rsync-args --key-path $ssh_key_path --batch)
-      ++ ["-az" "--delete"]
-      ++ $exclude_args
-      ++ [$"($root_dir)/" $"($pi_host):($app_dir)/"]
-    )
-    run-with-retries "rsync repository to pi" {
-      run-external ...$command
-    } --attempts 5 --delay 2sec
-  }
+  let control_dir = (mktemp --directory)
+  let control_path = ($control_dir | path join "ssh-control")
 
-  run-timed "sync service environment to pi" {
-    run-with-retries "sync service environment to pi" {
-      sync-service-env $pi_host $ssh_key_path $env_content
-    } --attempts 5 --delay 2sec
-  }
+  try {
+    run-timed "start ssh control connection" {
+      start-ssh-master $pi_host $ssh_key_path $control_path --connect-timeout $ssh_connect_timeout --connection-attempts $ssh_connection_attempts --batch
+    }
 
-  run-timed "remote install/build/restart" {
-    let remote_script = ($app_dir | path join "scripts/deploy-live-from-pi.nu")
-    run-with-retries "remote install/build/restart" {
-      run-ssh $pi_host ["nu" "--no-config-file" $remote_script "--app-dir" $app_dir] --key-path $ssh_key_path --batch --tty
-    } --attempts 5 --delay 2sec
+    print $"[(date now | format date "%+")] reuse ssh control connection for deploy phases"
+
+    run-timed "rsync repository to pi" {
+      let exclude_args = (deploy-excludes | each {|exclude| ["--exclude" $exclude]} | flatten)
+      let command = (
+        (
+          rsync-args
+            --key-path $ssh_key_path
+            --control-path $control_path
+            --connect-timeout $ssh_connect_timeout
+            --connection-attempts $ssh_connection_attempts
+            --batch
+        )
+        ++ ["-az" "--delete"]
+        ++ $exclude_args
+        ++ [$"($root_dir)/" $"($pi_host):($app_dir)/"]
+      )
+      run-with-retries "rsync repository to pi" {
+        run-external ...$command
+      } --attempts 5 --delay 2sec
+    }
+
+    run-timed "sync service environment to pi" {
+      run-with-retries "sync service environment to pi" {
+        sync-service-env $pi_host $ssh_key_path $env_content --control-path $control_path --connect-timeout $ssh_connect_timeout --connection-attempts $ssh_connection_attempts
+      } --attempts 5 --delay 2sec
+    }
+
+    run-timed "remote install/build/restart" {
+      let remote_script = ($app_dir | path join "scripts/deploy-live-from-pi.nu")
+      run-with-retries "remote install/build/restart" {
+        run-ssh $pi_host ["nu" "--no-config-file" $remote_script "--app-dir" $app_dir] --key-path $ssh_key_path --control-path $control_path --connect-timeout $ssh_connect_timeout --connection-attempts $ssh_connection_attempts --batch --tty
+      } --attempts 5 --delay 2sec
+    }
+  } finally {
+    run-timed "stop ssh control connection" {
+      stop-ssh-master $pi_host $control_path
+    }
+    rm --recursive --force $control_dir
   }
 
   let port = (get-config $dotenv IPP_ORCH_BIND_PORT "4310")
