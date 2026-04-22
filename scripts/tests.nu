@@ -3,6 +3,7 @@
 use std/assert
 
 use lib/env.nu [get-config has-value load-dotenv]
+use lib/observability.nu [local-service-env-content otel-signal-config validate-observability-env]
 use lib/remote.nu [remote-target rsync-args ssh-args ssh-options ssh-rsh-command run-with-retries]
 use lib/repo.nu [deploy-excludes repo-root]
 
@@ -186,8 +187,8 @@ def "test repo helpers expose stable strings" []: nothing -> nothing {
 
 def "test deploy live pi service env rendering executes" []: nothing -> nothing {
   let command = '
-source scripts/deploy-live-to-pi.nu
-local-service-env-content (pwd) {
+use scripts/lib/observability.nu [local-service-env-content]
+local-service-env-content {
   PI_HOST: "ignored@example.local",
   APP_DIR: "/ignored",
   IPP_ORCH_BIND_PORT: "9999"
@@ -198,6 +199,36 @@ local-service-env-content (pwd) {
   assert equal $result.exit_code 0 $"deploy env rendering should execute: ($result.stderr)"
   assert ($result.stdout | str contains "IPP_ORCH_BIND_PORT=9999") "expected deploy env to include overridden bind port"
   assert not ($result.stdout | str contains "PI_HOST=") "deploy env should not include deploy-only PI_HOST"
+  assert not ($result.stdout | str contains "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=") ".env.example values should not be rendered by deploy"
+}
+
+def "test observability validation rejects enabled blank otlp config" []: nothing -> nothing {
+  let result = (try {
+      validate-observability-env {IPP_ORCH_ENABLE_OTLP: "true"}
+      {exit_code: 0, stderr: ""}
+    } catch {|err|
+      {exit_code: 1, stderr: $err.msg}
+    })
+
+  assert equal $result.exit_code 1 "enabled OTLP without endpoints should fail validation"
+  assert ($result.stderr | str contains "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT") "failure should identify missing traces endpoint"
+  assert ($result.stderr | str contains "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT") "failure should identify missing logs endpoint"
+}
+
+def "test observability validation accepts axiom signal config" []: nothing -> nothing {
+  let dotenv = {
+    IPP_ORCH_ENABLE_OTLP: "true"
+    OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "https://us-east-1.aws.edge.axiom.co/v1/traces"
+    OTEL_EXPORTER_OTLP_TRACES_HEADERS: "authorization=Bearer test-token,x-axiom-dataset=ipp-print-traces"
+    OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: "https://us-east-1.aws.edge.axiom.co/v1/logs"
+    OTEL_EXPORTER_OTLP_LOGS_HEADERS: "authorization=Bearer test-token,x-axiom-dataset=ipp-print-logs"
+  }
+
+  validate-observability-env $dotenv
+
+  let logs = (otel-signal-config $dotenv logs)
+  assert equal $logs.dataset "ipp-print-logs"
+  assert equal $logs.authorization "Bearer test-token"
 }
 
 def "test nushell files parse" []: nothing -> nothing {

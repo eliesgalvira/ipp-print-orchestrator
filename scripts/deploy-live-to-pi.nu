@@ -1,6 +1,7 @@
 #!/usr/bin/env nu
 
 use lib/env.nu *
+use lib/observability.nu [local-service-env-content]
 use lib/remote.nu *
 use lib/repo.nu *
 
@@ -8,41 +9,6 @@ def require-command [name: string]: nothing -> nothing {
   if (which $name | is-empty) {
     error make {msg: $"missing required command: ($name)"}
   }
-}
-
-def service-env-keys []: nothing -> list<string> {
-  [
-    "IPP_ORCH_DATA_DIR"
-    "IPP_ORCH_PRINTER_NAME"
-    "IPP_ORCH_BIND_HOST"
-    "IPP_ORCH_BIND_PORT"
-    "IPP_ORCH_USB_SYSFS_ROOT"
-    "IPP_ORCH_STATUS_OBSERVATION_INTERVAL_MS"
-    "IPP_ORCH_HEARTBEAT_INTERVAL_MS"
-    "IPP_ORCH_RECONCILE_INTERVAL_MS"
-    "IPP_ORCH_LOG_PRETTY"
-    "IPP_ORCH_ENABLE_OTLP"
-    "OTEL_EXPORTER_OTLP_ENDPOINT"
-    "OTEL_EXPORTER_OTLP_HEADERS"
-    "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"
-    "OTEL_EXPORTER_OTLP_TRACES_HEADERS"
-    "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"
-    "OTEL_EXPORTER_OTLP_LOGS_HEADERS"
-    "OTEL_RESOURCE_ATTRIBUTES"
-  ]
-}
-
-def local-service-env-content [root_dir: path, dotenv: record]: nothing -> string {
-  let example_dotenv = (load-dotenv ($root_dir | path join ".env.example"))
-  let service_dotenv = ($example_dotenv | merge $dotenv)
-
-  service-env-keys
-  | where {|key| ($service_dotenv | get -o $key) != null}
-  | each {|key|
-      $"($key)=($service_dotenv | get $key)"
-    }
-  | append [""]
-  | str join "\n"
 }
 
 def sync-service-env [
@@ -81,7 +47,7 @@ def local-deploy []: nothing -> nothing {
   let pi_host = $target.host
   let ssh_key_path = $target.key_path
   let app_dir = (get-config $dotenv APP_DIR "/home/pi/apps/ipp-print-orchestrator")
-  let env_content = (local-service-env-content $root_dir $dotenv)
+  let env_content = (local-service-env-content $dotenv)
   let ssh_connect_timeout = 3
   let ssh_connection_attempts = 5
 
