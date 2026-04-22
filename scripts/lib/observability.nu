@@ -1,4 +1,4 @@
-use env.nu [has-value load-dotenv]
+use env.nu [has-value]
 
 export def service-env-keys []: nothing -> list<string> {
   [
@@ -141,19 +141,13 @@ export def validate-observability-env [dotenv: record]: nothing -> nothing {
   }
 }
 
-export def merged-service-env [root_dir: path, dotenv: record]: nothing -> record {
-  let example_dotenv = (load-dotenv ($root_dir | path join ".env.example"))
-  $example_dotenv | merge $dotenv
-}
-
-export def local-service-env-content [root_dir: path, dotenv: record]: nothing -> string {
-  let service_dotenv = (merged-service-env $root_dir $dotenv)
-  validate-observability-env $service_dotenv
+export def local-service-env-content [dotenv: record]: nothing -> string {
+  validate-observability-env $dotenv
 
   service-env-keys
-  | where {|key| has-value ($service_dotenv | get -o $key)}
+  | where {|key| has-value ($dotenv | get -o $key)}
   | each {|key|
-      $"($key)=($service_dotenv | get $key)"
+      $"($key)=($dotenv | get $key)"
     }
   | append [""]
   | str join "\n"

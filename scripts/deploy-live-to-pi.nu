@@ -47,7 +47,7 @@ def local-deploy []: nothing -> nothing {
   let pi_host = $target.host
   let ssh_key_path = $target.key_path
   let app_dir = (get-config $dotenv APP_DIR "/home/pi/apps/ipp-print-orchestrator")
-  let env_content = (local-service-env-content $root_dir $dotenv)
+  let env_content = (local-service-env-content $dotenv)
   let ssh_connect_timeout = 3
   let ssh_connection_attempts = 5
 

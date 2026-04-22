@@ -188,7 +188,7 @@ def "test repo helpers expose stable strings" []: nothing -> nothing {
 def "test deploy live pi service env rendering executes" []: nothing -> nothing {
   let command = '
 use scripts/lib/observability.nu [local-service-env-content]
-local-service-env-content (pwd) {
+local-service-env-content {
   PI_HOST: "ignored@example.local",
   APP_DIR: "/ignored",
   IPP_ORCH_BIND_PORT: "9999"
@@ -199,7 +199,7 @@ local-service-env-content (pwd) {
   assert equal $result.exit_code 0 $"deploy env rendering should execute: ($result.stderr)"
   assert ($result.stdout | str contains "IPP_ORCH_BIND_PORT=9999") "expected deploy env to include overridden bind port"
   assert not ($result.stdout | str contains "PI_HOST=") "deploy env should not include deploy-only PI_HOST"
-  assert not ($result.stdout | str contains "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=") "blank example OTLP values should not be rendered"
+  assert not ($result.stdout | str contains "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=") ".env.example values should not be rendered by deploy"
 }
 
 def "test observability validation rejects enabled blank otlp config" []: nothing -> nothing {

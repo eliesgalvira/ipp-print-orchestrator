@@ -236,8 +236,13 @@ nu scripts/check-observability-live-to-pi.nu
 The check SSHes into the Pi, reads `/etc/ipp-print-orchestrator.env`, verifies
 that enabled OTLP has usable Axiom endpoint/header configuration, triggers one
 local status request, and queries the configured Axiom logs and traces datasets
-for recent rows. If your OTLP token is ingest-only, set `AXIOM_QUERY_TOKEN` in
-local `.env` to an Axiom token with query access before deploying.
+for recent rows.
+
+`AXIOM_QUERY_TOKEN` and `AXIOM_QUERY_DOMAIN` are optional and are only used by
+this live query check. They are not required for OTLP export. If your OTLP token
+is ingest-only, set `AXIOM_QUERY_TOKEN` in local `.env` to an Axiom token with
+query access before deploying. `AXIOM_QUERY_DOMAIN` is only needed when the
+query API domain cannot be derived from the OTLP endpoint.
 
 ## Deploying To The Pi
 
@@ -252,7 +257,7 @@ One-time bootstrap on the live Pi:
 nu scripts/bootstrap-live-to-pi.nu
 ```
 
-Bootstrap installs base packages, installs Nushell on the Pi from the official Nushell Debian/Ubuntu apt repository when `nu` is missing, installs Bun when needed, and creates `/etc/ipp-print-orchestrator.env` on first run. If the Pi already has exactly one CUPS printer queue, the script uses that queue name automatically for `IPP_ORCH_PRINTER_NAME`. If there are multiple queues or none yet, set `IPP_ORCH_PRINTER_NAME` manually after bootstrap.
+Bootstrap installs base packages, installs Nushell on the Pi from the official Nushell Debian/Ubuntu apt repository when `nu` is missing, installs Bun when needed, and creates `/etc/ipp-print-orchestrator.env` on first run. That first file is only a safe placeholder: OTLP defaults to disabled there because bootstrap does not know the production Axiom endpoints or tokens yet. If the Pi already has exactly one CUPS printer queue, the script uses that queue name automatically for `IPP_ORCH_PRINTER_NAME`. If there are multiple queues or none yet, set `IPP_ORCH_PRINTER_NAME` manually after bootstrap.
 
 Before treating the Pi setup as complete, verify on the physical printer itself that any `Auto Power Off`, `Sleep`, `Deep Sleep`, `Eco`, or similar automatic power-saving mode is disabled. This is a mandatory step for reliable USB-attached printing.
 
@@ -292,7 +297,7 @@ Run `nu scripts/bootstrap-live-to-pi.nu` first. If SSH key auth is not already c
 
 The scripts do not use `sshpass`, `PI_PASSWORD`, or `PI_SUDO_PASSWORD`. They assume the Pi user can run the required `sudo` commands without storing a password in this repository.
 
-Your local `.env` is the source of truth for the Pi service environment. Each deploy filters the runtime keys (`IPP_ORCH_*` and `OTEL_*`) from local `.env` plus `.env.example` defaults and installs them to `/etc/ipp-print-orchestrator.env` on the Pi before restarting services. Deploy-only keys such as `PI_HOST`, `APP_DIR`, and `PI_SSH_KEY_PATH` are not written to the Pi service env, and `.env` is excluded from the rsync copy.
+Your local `.env` is the source of truth for the Pi service environment. `.env.example` is only a template for humans; deploy does not read it as runtime configuration. Each deploy filters the service runtime keys from local `.env` and installs them to `/etc/ipp-print-orchestrator.env` on the Pi before restarting services. For example, if local `.env` sets `IPP_ORCH_ENABLE_OTLP=true` with valid `OTEL_*` Axiom endpoint/header values, deploy writes those enabled observability settings over the bootstrap placeholder. Deploy-only keys such as `PI_HOST`, `APP_DIR`, and `PI_SSH_KEY_PATH` are not written to the Pi service env, and `.env` is excluded from the rsync copy.
 
 Directory-valued runtime settings such as `IPP_ORCH_DATA_DIR=data` are relative to the systemd service `WorkingDirectory`. During deploy, `scripts/install-systemd-live-from-pi.nu` renders the installed service unit so `WorkingDirectory` and `ExecStart` point at the configured `APP_DIR`. Use an absolute path for a runtime directory only if you intentionally want it outside `APP_DIR`.
 
