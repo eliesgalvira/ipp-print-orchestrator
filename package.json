@@ -9,7 +9,8 @@
   ],
   "scripts": {
     "prepare": "effect-language-service patch",
-    "build": "tsc --build --pretty false",
+    "build": "tsc --build --pretty false && bun run build:agent-service",
+    "build:agent-service": "rm -rf apps/agent/dist-service && bun build apps/agent/src/main.ts --target=node --format=esm --splitting --outdir apps/agent/dist-service",
     "typecheck": "tsc -p packages/shared/tsconfig.json --pretty false --noEmit && tsc -p packages/ipp/tsconfig.json --pretty false --noEmit && tsc -p packages/testkit/tsconfig.json --pretty false --noEmit && tsc -p apps/agent/tsconfig.json --pretty false --noEmit",
     "test": "vitest run && bun run test:nu",
     "test:nu": "nu scripts/tests.nu",

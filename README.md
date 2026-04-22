@@ -295,6 +295,7 @@ The local wrapper uses the same `PI_HOST`, `APP_DIR`, and `PI_SSH_KEY_PATH` sett
 The deploy script:
 
 - runs the local `bun run build`
+- builds a bundled service entry for faster Pi cold starts
 - rsyncs the repository to the Pi with generated/runtime directories excluded
 - syncs the filtered local service environment to `/etc/ipp-print-orchestrator.env`
 - checks the production dependency stamp and only runs `bun install --frozen-lockfile --ignore-scripts --production` on the Pi when dependency manifests changed
