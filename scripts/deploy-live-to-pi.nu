@@ -91,16 +91,22 @@ def local-deploy []: nothing -> nothing {
       ++ $exclude_args
       ++ [$"($root_dir)/" $"($pi_host):($app_dir)/"]
     )
-    run-external ...$command
+    run-with-retries "rsync repository to pi" {
+      run-external ...$command
+    } --attempts 5 --delay 2sec
   }
 
   run-timed "sync service environment to pi" {
-    sync-service-env $pi_host $ssh_key_path $env_content
+    run-with-retries "sync service environment to pi" {
+      sync-service-env $pi_host $ssh_key_path $env_content
+    } --attempts 5 --delay 2sec
   }
 
   run-timed "remote install/build/restart" {
     let remote_script = ($app_dir | path join "scripts/deploy-live-from-pi.nu")
-    run-ssh $pi_host ["nu" "--no-config-file" $remote_script "--app-dir" $app_dir] --key-path $ssh_key_path --batch --tty
+    run-with-retries "remote install/build/restart" {
+      run-ssh $pi_host ["nu" "--no-config-file" $remote_script "--app-dir" $app_dir] --key-path $ssh_key_path --batch --tty
+    } --attempts 5 --delay 2sec
   }
 
   let port = (get-config $dotenv IPP_ORCH_BIND_PORT "4310")

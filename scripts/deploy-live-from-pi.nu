@@ -51,6 +51,40 @@ def install-production-dependencies []: nothing -> nothing {
   }
 }
 
+def verify-app-health [host: string, port: string]: nothing -> nothing {
+  let max_attempts = 20
+  let url = $"http://($host):($port)/v1/health"
+  mut healthy = false
+
+  for attempt in 1..$max_attempts {
+    let started_at = (date now)
+    print $"[($started_at | format date "%+")] start health check attempt ($attempt)/($max_attempts) ($url)"
+
+    let result = (^curl --fail --silent --show-error --connect-timeout 1 --max-time 2 $url | complete)
+    let elapsed = ((date now) - $started_at)
+
+    if $result.exit_code == 0 {
+      print $"[(date now | format date "%+")] done health check attempt ($attempt)/($max_attempts) \(($elapsed)\) healthy"
+      $healthy = true
+      break
+    }
+
+    let stderr = ($result.stderr | str trim)
+    let reason = if (($stderr | str length) > 0) {
+      $stderr
+    } else {
+      $"curl exited with code ($result.exit_code)"
+    }
+
+    print $"[(date now | format date "%+")] done health check attempt ($attempt)/($max_attempts) \(($elapsed)\) failed: ($reason)"
+    sleep 1sec
+  }
+
+  if not $healthy {
+    error make {msg: $"health check failed after ($max_attempts) attempts: ($url)"}
+  }
+}
+
 def main [
   --app-dir: string = "/home/pi/apps/ipp-print-orchestrator"
 ] : nothing -> nothing {
@@ -79,18 +113,6 @@ def main [
   let port = (get-config $remote_dotenv IPP_ORCH_BIND_PORT "4310")
 
   run-timed "verify app health" {
-    let healthy = (seq 1 20 | any {|_|
-      let result = (^curl --fail --silent $"http://($host):($port)/v1/health" | complete)
-      if $result.exit_code == 0 {
-        true
-      } else {
-        sleep 1sec
-        false
-      }
-    })
-
-    if not $healthy {
-      error make {msg: $"health check failed after 20 seconds: http://($host):($port)/v1/health"}
-    }
+    verify-app-health $host $port
   }
 }

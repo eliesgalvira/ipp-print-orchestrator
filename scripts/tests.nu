@@ -3,7 +3,7 @@
 use std/assert
 
 use lib/env.nu [get-config has-value load-dotenv]
-use lib/remote.nu [remote-target rsync-args ssh-args ssh-options ssh-rsh-command]
+use lib/remote.nu [remote-target rsync-args ssh-args ssh-options ssh-rsh-command run-with-retries]
 use lib/repo.nu [deploy-excludes repo-root]
 
 def main []: nothing -> nothing {
@@ -132,6 +132,30 @@ def "test ssh argument builders use typed optional flags" []: nothing -> nothing
   assert equal (ssh-rsh-command --key-path $key_path --batch) $quoted_ssh
   assert equal (rsync-args --key-path $key_path --batch) ["rsync" "-e" $quoted_ssh]
   assert equal (rsync-args) ["rsync"]
+}
+
+def "test run-with-retries retries transient failures" []: nothing -> nothing {
+  let attempt_path = (mktemp -t ipp-orch-retry-attempt.XXXXXX)
+
+  try {
+    "0" | save --force $attempt_path
+
+    run-with-retries "test retry success" {
+      let attempt = ((open --raw $attempt_path | str trim | into int) + 1)
+      ($attempt | into string) | save --force $attempt_path
+
+      if $attempt < 2 {
+        error make {msg: "transient test failure"}
+      }
+    } --attempts 2 --delay 1ms
+
+    assert equal (open --raw $attempt_path | str trim | into int) 2
+  } catch {|err|
+    rm --force $attempt_path
+    error make $err
+  }
+
+  rm --force $attempt_path
 }
 
 def "test repo helpers expose stable strings" []: nothing -> nothing {

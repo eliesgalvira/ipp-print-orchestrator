@@ -16,20 +16,61 @@ import { Reconciler } from "./services/Reconciler.js"
 import { StatusRuntime } from "./services/StatusRuntime.js"
 import { loadAppEnv } from "./util/loadAppEnv.js"
 
+const processStartupStartedAt = Date.now()
+const logProcessStartup = (
+  message: string,
+  startedAt = processStartupStartedAt,
+) => {
+  console.log(`[startup] ${message} (${Date.now() - startedAt}ms)`)
+}
+
 loadAppEnv()
+logProcessStartup("app environment loaded")
+
+const observabilityStartedAt = Date.now()
 await startObservability()
+logProcessStartup("observability bootstrap complete", observabilityStartedAt)
 
 const program = Effect.scoped(
   Effect.gen(function* () {
+    const effectStartupStartedAt = Date.now()
+    yield* Console.log("[startup] acquiring runtime services")
     const config = yield* AppConfig
+    yield* Console.log(
+      `[startup] AppConfig ready (${Date.now() - effectStartupStartedAt}ms since Effect start)`,
+    )
     const queueRuntime = yield* QueueRuntime
+    yield* Console.log(
+      `[startup] QueueRuntime ready (${Date.now() - effectStartupStartedAt}ms since Effect start)`,
+    )
     const orchestrator = yield* Orchestrator
+    yield* Console.log(
+      `[startup] Orchestrator ready (${Date.now() - effectStartupStartedAt}ms since Effect start)`,
+    )
     const reconciler = yield* Reconciler
+    yield* Console.log(
+      `[startup] Reconciler ready (${Date.now() - effectStartupStartedAt}ms since Effect start)`,
+    )
     const cupsEventStream = yield* CupsEventStream
+    yield* Console.log(
+      `[startup] CupsEventStream ready (${Date.now() - effectStartupStartedAt}ms since Effect start)`,
+    )
     const heartbeat = yield* Heartbeat
+    yield* Console.log(
+      `[startup] Heartbeat ready (${Date.now() - effectStartupStartedAt}ms since Effect start)`,
+    )
     const statusRuntime = yield* StatusRuntime
+    yield* Console.log(
+      `[startup] StatusRuntime ready (${Date.now() - effectStartupStartedAt}ms since Effect start)`,
+    )
     const cupsClient = yield* CupsClient
+    yield* Console.log(
+      `[startup] CupsClient ready (${Date.now() - effectStartupStartedAt}ms since Effect start)`,
+    )
     const childProcessSpawner = yield* ChildProcessSpawner
+    yield* Console.log(
+      `[startup] ChildProcessSpawner ready (${Date.now() - effectStartupStartedAt}ms since Effect start)`,
+    )
 
     const observeStatus = (reason: string) =>
       statusRuntime
@@ -99,7 +140,15 @@ const program = Effect.scoped(
       }),
     )
 
+    const coldStartObservationStartedAt = Date.now()
+    yield* Console.log("[startup] cold-start status observation start")
     yield* observeStatus("cold-start")
+    yield* Console.log(
+      `[startup] cold-start status observation done (${Date.now() - coldStartObservationStartedAt}ms)`,
+    )
+
+    const startupRecoveryStartedAt = Date.now()
+    yield* Console.log("[startup] startup recovery start")
     yield* reconciler
       .recoverStartup()
       .pipe(
@@ -107,6 +156,13 @@ const program = Effect.scoped(
           Console.error(`startup recovery failed: ${error.message}`),
         ),
       )
+    yield* Console.log(
+      `[startup] startup recovery done (${Date.now() - startupRecoveryStartedAt}ms)`,
+    )
+
+    yield* Console.log(
+      `[startup] starting http server and background loops (${Date.now() - effectStartupStartedAt}ms since Effect start)`,
+    )
 
     return yield* Effect.all(
       [
