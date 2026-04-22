@@ -67,6 +67,27 @@ export def run-sudo [args: list<string>]: nothing -> any {
   run-external "sudo" ...$args
 }
 
+export def run-with-retries [
+  phase: string
+  action: closure
+  --attempts: int = 3
+  --delay: duration = 2sec
+]: nothing -> nothing {
+  for attempt in 1..$attempts {
+    try {
+      do $action
+      return
+    } catch {|err|
+      if $attempt >= $attempts {
+        error make $err
+      }
+
+      print $"[(date now | format date "%+")] retry ($phase) after attempt ($attempt)/($attempts) failed: ($err.msg)"
+      sleep $delay
+    }
+  }
+}
+
 export def --env ensure-user-bun-on-path []: nothing -> nothing {
   let bun_bin = ($nu.home-dir | path join ".bun/bin")
   if (($env.PATH | describe) =~ "^list") {
