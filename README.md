@@ -309,6 +309,40 @@ nu scripts/install-systemd-live-to-pi.nu
 
 The local wrapper uses the same `PI_HOST`, `APP_DIR`, and `PI_SSH_KEY_PATH` settings as the other Pi scripts, SSHes into the Pi, and runs the target-side `scripts/install-systemd-live-from-pi.nu` from the deployed app directory.
 
+## CUPS Printer Setup
+
+The HP Laser MFP 135a is a Samsung-derived SPL printer. Do not configure it with
+generic PCL/PCL XL drivers; they can appear to work for simple text while
+producing corrupted output for images, logos, and filled vector graphics. The
+live setup script installs HP's Unified Linux Driver `rastertospl` filter and
+uses the matching `HP_Laser_MFP_13x_Series.ppd`.
+
+Emergency stop from the development machine:
+
+```bash
+nu scripts/setup-cups-live-to-pi.nu --stop-only
+```
+
+This stops CUPS, disables CUPS activation units, clears the CUPS spool, and does
+not print anything.
+
+Safe configuration command:
+
+```bash
+nu scripts/setup-cups-live-to-pi.nu
+```
+
+By default this installs the HP SPL driver, configures the queue, then leaves
+CUPS stopped, disabled, unshared, and rejecting jobs. It does not print a test
+page.
+
+Only expose the queue again when paper is intentionally loaded and the printer
+is known to have no buffered pages:
+
+```bash
+nu scripts/setup-cups-live-to-pi.nu --enable-printing
+```
+
 The deploy script:
 
 - runs the local `bun run build`
