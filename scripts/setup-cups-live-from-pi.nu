@@ -21,6 +21,16 @@ def run-best-effort [command: list<string>]: nothing -> nothing {
   run-external ...$command | complete | ignore
 }
 
+def run-required-with-input [label: string, command: list<string>, input: string]: nothing -> string {
+  let result = ($input | run-external ...$command | complete)
+
+  if $result.exit_code != 0 {
+    error make {msg: $"($label) failed: ($result.stderr | str trim)"}
+  }
+
+  $result.stdout
+}
+
 def apt-package-installed [package: string]: nothing -> bool {
   let result = (run-external "dpkg-query" "-W" "-f=${Status}" $package | complete)
   $result.exit_code == 0 and ($result.stdout | str contains "install ok installed")
@@ -42,29 +52,66 @@ def clear-spool-and-stop-cups []: nothing -> nothing {
   run-best-effort ["sudo" "timeout" "5" "systemctl" "kill" "--kill-whom=all" "--signal=KILL" "cups.service" "cups-browsed.service"]
   run-best-effort ["sudo" "timeout" "5" "systemctl" "stop" "cups.service" "cups.socket" "cups.path" "cups-browsed.service" "ipp-usb.service"]
   run-best-effort ["sudo" "killall" "-9" "cupsd" "cups-browsed" "gstoraster" "pdftopdf" "texttopdf" "rastertogutenprint.5.3" "rastertoqpdl" "rastertospl"]
-  run-best-effort ["sudo" "sh" "-c" "rm -f /var/spool/cups/c* /var/spool/cups/d*"]
+  clear-spool-files
+}
+
+def clear-spool-files []: nothing -> nothing {
+  let spool_files = (
+    run-required "list CUPS spool files" [
+      "sudo"
+      "find"
+      "/var/spool/cups"
+      "-maxdepth"
+      "1"
+      "-type"
+      "f"
+      "("
+      "-name"
+      "c*"
+      "-o"
+      "-name"
+      "d*"
+      ")"
+      "-print"
+    ]
+    | lines
+  )
+
+  for path in $spool_files {
+    run-best-effort ["sudo" "rm" "-f" $path]
+  }
+}
+
+def hp-usb-device-paths []: nothing -> list<string> {
+  glob "/sys/bus/usb/devices/*"
+  | where {|device_path|
+      let vendor_path = ($device_path | path join "idVendor")
+      let product_path = ($device_path | path join "idProduct")
+      let has_usb_ids = (($vendor_path | path exists) and ($product_path | path exists))
+
+      if not $has_usb_ids {
+        false
+      } else {
+        ((open $vendor_path | str trim) == "03f0") and ((open $product_path | str trim) == "f22a")
+      }
+    }
+}
+
+def set-hp-usb-authorized [value: int]: nothing -> nothing {
+  for device_path in (hp-usb-device-paths) {
+    let authorized_path = ($device_path | path join "authorized")
+    if ($authorized_path | path exists) {
+      run-required-with-input $"set USB authorization for ($device_path)" ["sudo" "tee" $authorized_path] ($value | into string) | ignore
+    }
+  }
 }
 
 def deauthorize-hp-usb []: nothing -> nothing {
-  let script = '
-for dev in /sys/bus/usb/devices/*; do
-  if [ -f "$dev/idVendor" ] && [ -f "$dev/idProduct" ] && [ "$(cat "$dev/idVendor")" = "03f0" ] && [ "$(cat "$dev/idProduct")" = "f22a" ]; then
-    echo 0 > "$dev/authorized" || true
-  fi
-done
-'
-  run-best-effort ["sudo" "sh" "-c" $script]
+  set-hp-usb-authorized 0
 }
 
 def authorize-hp-usb []: nothing -> nothing {
-  let script = '
-for dev in /sys/bus/usb/devices/*; do
-  if [ -f "$dev/idVendor" ] && [ -f "$dev/idProduct" ] && [ "$(cat "$dev/idVendor")" = "03f0" ] && [ "$(cat "$dev/idProduct")" = "f22a" ]; then
-    echo 1 > "$dev/authorized" || true
-  fi
-done
-'
-  run-best-effort ["sudo" "sh" "-c" $script]
+  set-hp-usb-authorized 1
 }
 
 def discover-hp-usb-device-uri []: nothing -> string {
@@ -88,42 +135,69 @@ def driver-available [driver: string]: nothing -> bool {
   $models | lines | any {|line| $line == $driver or ($line | str starts-with $"($driver) ")}
 }
 
+def hp-uld-arch [debian_arch: string]: nothing -> string {
+  match $debian_arch {
+    "arm64" => "aarch64"
+    "amd64" => "x86_64"
+    "i386" => "i386"
+    _ => {
+      error make {msg: $"unsupported architecture for HP ULD printer driver: ($debian_arch)"}
+    }
+  }
+}
+
+def install-root-dir [path: string]: nothing -> nothing {
+  run-required $"create root-owned directory ($path)" ["sudo" "install" "-d" "-m" "0755" $path] | ignore
+}
+
+def install-root-file [mode: string, source: string, destination: string]: nothing -> nothing {
+  run-required $"install ($destination)" ["sudo" "install" "-m" $mode $source $destination] | ignore
+}
+
+def install-root-symlink [target: string, link_path: string]: nothing -> nothing {
+  run-required $"link ($link_path)" ["sudo" "ln" "-sf" $target $link_path] | ignore
+}
+
 def ensure-hp-uld-driver []: nothing -> string {
-  let install_script = ('
-set -eu
-tmpdir=$(mktemp -d)
-trap "rm -rf \"\$tmpdir\"" EXIT
+  let temp_dir = (mktemp -d)
+  let archive_path = ($temp_dir | path join "uld.tar.gz")
+  let extracted_dir = ($temp_dir | path join "uld")
 
-curl -fsSL "__HP_ULD_URL__" -o "$tmpdir/uld.tar.gz"
-tar -xzf "$tmpdir/uld.tar.gz" -C "$tmpdir"
+  try {
+    print "Downloading HP Unified Linux Driver package."
+    http get --max-time 60sec $HP_ULD_URL | save -f $archive_path
+    run-required "extract HP Unified Linux Driver package" ["tar" "-xzf" $archive_path "-C" $temp_dir] | ignore
 
-arch=$(dpkg --print-architecture)
-case "$arch" in
-  arm64) uld_arch=aarch64 ;;
-  amd64) uld_arch=x86_64 ;;
-  i386) uld_arch=i386 ;;
-  *) echo "unsupported architecture for HP ULD printer driver: $arch" >&2; exit 1 ;;
-esac
+    let debian_arch = (run-required "detect Debian architecture" ["dpkg" "--print-architecture"] | str trim)
+    let uld_arch = (hp-uld-arch $debian_arch)
+    let arch_dir = ($extracted_dir | path join $uld_arch)
+    let noarch_dir = ($extracted_dir | path join "noarch")
 
-install -d -m 0755 /opt/smfp-common/printer/bin /opt/smfp-common/printer/lib /usr/lib/cups/filter /usr/share/ppd/uld-hp
+    [
+      /opt/smfp-common/printer/bin
+      /opt/smfp-common/printer/lib
+      /usr/lib/cups/filter
+      /usr/share/ppd/uld-hp
+    ] | each {|path| install-root-dir $path } | ignore
 
-install -m 0755 "$tmpdir/uld/$uld_arch/rastertospl" /opt/smfp-common/printer/bin/rastertospl
-install -m 0755 "$tmpdir/uld/$uld_arch/pstosecps" /opt/smfp-common/printer/bin/pstosecps
-install -m 0644 "$tmpdir/uld/$uld_arch/libscmssc.so" /opt/smfp-common/printer/lib/libscmssc.so
-install -m 0644 "$tmpdir/uld/noarch/share/ppd/HP_Laser_MFP_13x_Series.ppd" "__HP_ULD_PPD_PATH__"
+    install-root-file "0755" ($arch_dir | path join "rastertospl") /opt/smfp-common/printer/bin/rastertospl
+    install-root-file "0755" ($arch_dir | path join "pstosecps") /opt/smfp-common/printer/bin/pstosecps
+    install-root-file "0644" ($arch_dir | path join "libscmssc.so") /opt/smfp-common/printer/lib/libscmssc.so
+    install-root-file "0644" ($noarch_dir | path join "share/ppd/HP_Laser_MFP_13x_Series.ppd") $HP_ULD_PPD_PATH
 
-ln -sf /opt/smfp-common/printer/bin/rastertospl /usr/lib/cups/filter/rastertospl
-ln -sf /opt/smfp-common/printer/bin/pstosecps /usr/lib/cups/filter/pstosecps
+    install-root-symlink /opt/smfp-common/printer/bin/rastertospl /usr/lib/cups/filter/rastertospl
+    install-root-symlink /opt/smfp-common/printer/bin/pstosecps /usr/lib/cups/filter/pstosecps
 
-ldconfig
-test -x /usr/lib/cups/filter/rastertospl
-test -r "__HP_ULD_PPD_PATH__"
-printf "%s\n" "__HP_ULD_PPD_PATH__"
-'
-  | str replace --all "__HP_ULD_URL__" $HP_ULD_URL
-  | str replace --all "__HP_ULD_PPD_PATH__" $HP_ULD_PPD_PATH)
+    run-required "refresh dynamic linker cache" ["sudo" "ldconfig"] | ignore
+    run-required "verify rastertospl filter" ["test" "-x" "/usr/lib/cups/filter/rastertospl"] | ignore
+    run-required "verify HP 13x PPD" ["test" "-r" $HP_ULD_PPD_PATH] | ignore
+  } catch {|err|
+    rm -rf $temp_dir
+    error make {msg: $err.msg}
+  }
 
-  run-required "install HP Unified Linux Driver rastertospl filter" ["sudo" "bash" "-c" $install_script] | str trim
+  rm -rf $temp_dir
+  $HP_ULD_PPD_PATH
 }
 
 def configure-cups-network [--enable-printing]: nothing -> nothing {
@@ -149,9 +223,21 @@ def configure-cups-network [--enable-printing]: nothing -> nothing {
       "WebInterface=Yes"
       "Browsing=Yes"
       "BrowseLocalProtocols=dnssd"
+      "PreserveJobFiles=No"
+      "PreserveJobHistory=No"
+      "JobKillDelay=5"
     ] | ignore
   } else {
-    run-best-effort ["sudo" "cupsctl" "--no-share-printers" "WebInterface=Yes" "Browsing=No"]
+    run-best-effort [
+      "sudo"
+      "cupsctl"
+      "--no-share-printers"
+      "WebInterface=Yes"
+      "Browsing=No"
+      "PreserveJobFiles=No"
+      "PreserveJobHistory=No"
+      "JobKillDelay=5"
+    ]
   }
 }
 
@@ -252,7 +338,6 @@ def main [
     cups-filters
     cups-filters-core-drivers
     ca-certificates
-    curl
     tar
     gzip
     avahi-daemon
@@ -281,7 +366,7 @@ def main [
 
   configure-cups-network --enable-printing=$enable_printing
   configure-queue $queue_name $resolved_device_uri $selected_driver.value --ppd=($selected_driver.kind == "ppd") --enable-printing=$enable_printing
-  run-best-effort ["sudo" "sh" "-c" "rm -f /var/spool/cups/c* /var/spool/cups/d*"]
+  clear-spool-files
 
   if $enable_printing {
     run-required "enable CUPS and Avahi services" ["sudo" "systemctl" "enable" "--now" "cups.service" "cups.socket" "cups.path" "cups-browsed.service" "avahi-daemon.service"] | ignore

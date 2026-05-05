@@ -343,6 +343,13 @@ is known to have no buffered pages:
 nu scripts/setup-cups-live-to-pi.nu --enable-printing
 ```
 
+Do not validate this printer with ad hoc local `lp` commands that force
+`page-ranges` or `print-scaling=fit`. Android's working path submits a single
+IPP `Print-Job` with the PDF document attached to the request and uses
+`print-scaling=none`. The orchestrator submit path follows that IPP shape
+directly; local `lp` can create a different CUPS job path that this SPL printer
+may process incorrectly even when CUPS reports the job as completed.
+
 The deploy script:
 
 - runs the local `bun run build`

@@ -1,13 +1,12 @@
+import { requestIpp, type IppExecuteRequest, type IppMessage } from "@ipp/ipp"
 import { Effect, Layer } from "effect"
 import * as FileSystem from "effect/FileSystem"
-import * as Path from "effect/Path"
 import * as ChildProcess from "effect/unstable/process/ChildProcess"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 
 import { AppConfig } from "../config/AppConfig.js"
 import {
   CupsCommandFailed,
-  CupsRejectedJob,
   CupsUnavailable,
   SubmissionUncertainError,
 } from "../domain/Errors.js"
@@ -18,7 +17,7 @@ import {
   type PrinterSummary,
 } from "../services/CupsClient.js"
 import { makeAppPaths } from "../util/Paths.js"
-import { ensureAppDirectories, writeFileAtomic } from "./FileSupport.js"
+import { ensureAppDirectories } from "./FileSupport.js"
 
 export const parseLpSubmitOutput = (output: string): string => {
   const match = output.match(/request id is [^-]+-(\d+)/i)
@@ -26,6 +25,57 @@ export const parseLpSubmitOutput = (output: string): string => {
     throw new Error(`Unable to parse lp output: ${output}`)
   }
   return match[1]
+}
+
+export const printerIppEndpointForName = (printerName: string): string =>
+  `http://localhost:631/printers/${encodeURIComponent(printerName)}`
+
+export const printerIppUriForName = (printerName: string): string =>
+  `ipp://localhost:631/printers/${encodeURIComponent(printerName)}`
+
+export const buildPrintJobRequest = (
+  job: Job,
+  bytes: Uint8Array,
+): IppExecuteRequest => ({
+  endpoint: printerIppEndpointForName(job.printerName),
+  printerUri: printerIppUriForName(job.printerName),
+  operation: "Print-Job",
+  message: {
+    data: Buffer.from(bytes),
+    "operation-attributes-tag": {
+      "requesting-user-name": "ipp-print-orchestrator",
+      "job-name": job.fileName,
+      "document-format": job.mimeType,
+    },
+    "job-attributes-tag": {
+      copies: 1,
+      "orientation-requested": "portrait",
+      "print-scaling": "none",
+      "print-quality": "normal",
+      sides: "one-sided",
+      "print-color-mode": "monochrome",
+    },
+  },
+})
+
+export const parseIppSubmitResponse = (response: IppMessage): string => {
+  if (!response.statusCode?.startsWith("successful-")) {
+    throw new Error(
+      `CUPS rejected Print-Job: ${response.statusCode ?? "missing status"}`,
+    )
+  }
+
+  const rawJobAttributes = response["job-attributes-tag"]
+  const jobAttributes = Array.isArray(rawJobAttributes)
+    ? rawJobAttributes[0]
+    : rawJobAttributes
+  const jobId = jobAttributes?.["job-id"]
+
+  if (typeof jobId !== "number") {
+    throw new Error(`CUPS Print-Job response did not include numeric job-id`)
+  }
+
+  return String(jobId)
 }
 
 export const parseLpstatJobsOutput = (
@@ -103,7 +153,6 @@ export const CupsClientCliLive = Layer.effect(
   CupsClient,
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
-    const path = yield* Path.Path
     const childProcessSpawner = yield* ChildProcessSpawner
     const appConfig = yield* AppConfig
     const paths = yield* makeAppPaths
@@ -125,33 +174,23 @@ export const CupsClientCliLive = Layer.effect(
         "cups.file_name": job.fileName,
         "cups.job_id": String(job.id),
         "cups.printer_name": job.printerName,
+        "cups.submission_operation": "Print-Job",
       })
 
-      const tempPath = path.join(
-        paths.tmpDir,
-        `${String(job.id)}-${job.fileName}`,
-      )
-      yield* writeFileAtomic(fs, path, tempPath, bytes).pipe(
+      const response = yield* requestIpp(buildPrintJobRequest(job, bytes)).pipe(
+        Effect.timeout("2 minutes"),
         Effect.mapError(
-          (error) => new CupsCommandFailed({ message: String(error) }),
+          (error) => new CupsUnavailable({ message: String(error) }),
         ),
       )
 
-      const output = yield* runString(
-        ChildProcess.make("lp", ["-d", job.printerName, tempPath]),
-      ).pipe(
-        Effect.mapError((error) =>
-          String(error).includes("No such file")
-            ? new CupsRejectedJob({ message: String(error) })
-            : new CupsUnavailable({ message: String(error) }),
-        ),
-      )
-
-      return yield* Effect.try({
-        try: () => ({ cupsJobId: parseLpSubmitOutput(output) }),
+      const cupsJobId = yield* Effect.try({
+        try: () => parseIppSubmitResponse(response),
         catch: (error) =>
           new SubmissionUncertainError({ message: String(error) }),
       })
+
+      return { cupsJobId }
     })
 
     const listRecentJobs = Effect.fn("CupsClient.listRecentJobs")(function* () {

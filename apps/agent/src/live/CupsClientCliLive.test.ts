@@ -1,6 +1,11 @@
 import { describe, expect, it } from "@effect/vitest"
+import { parseIppMessage, serializeIppRequest } from "@ipp/ipp"
 
+import { Job } from "../domain/Job.js"
+import { JobId } from "../domain/JobId.js"
 import {
+  buildPrintJobRequest,
+  parseIppSubmitResponse,
   parseLpinfoDevicesOutput,
   parseLpSubmitOutput,
   parseLpstatDeviceOutput,
@@ -9,6 +14,74 @@ import {
 } from "./CupsClientCliLive.js"
 
 describe("CupsClientCliLive parsers", () => {
+  const job = new Job({
+    id: JobId.makeUnsafe("job-test"),
+    requestId: "request-test",
+    printerName: "HP135a",
+    fileName: "print-test-page.pdf",
+    mimeType: "application/pdf",
+    fileSize: 4,
+    state: "Submitting",
+    retryCount: 0,
+    createdAt: "2026-05-05T00:00:00.000Z",
+    updatedAt: "2026-05-05T00:00:00.000Z",
+  })
+
+  it("builds phone-style IPP Print-Job requests instead of lp-style page range jobs", () => {
+    const request = buildPrintJobRequest(job, Buffer.from("%PDF"))
+
+    expect(request.operation).toBe("Print-Job")
+    expect(request.endpoint).toBe("http://localhost:631/printers/HP135a")
+    expect(request.printerUri).toBe("ipp://localhost:631/printers/HP135a")
+    expect(request.message?.["operation-attributes-tag"]).toEqual({
+      "requesting-user-name": "ipp-print-orchestrator",
+      "job-name": "print-test-page.pdf",
+      "document-format": "application/pdf",
+    })
+    expect(request.message?.["job-attributes-tag"]).toEqual({
+      copies: 1,
+      "orientation-requested": "portrait",
+      "print-scaling": "none",
+      "print-quality": "normal",
+      sides: "one-sided",
+      "print-color-mode": "monochrome",
+    })
+    expect(request.message?.["job-attributes-tag"]).not.toHaveProperty(
+      "page-ranges",
+    )
+  })
+
+  it("parses IPP Print-Job response job ids", () => {
+    expect(
+      parseIppSubmitResponse({
+        statusCode: "successful-ok",
+        "job-attributes-tag": {
+          "job-id": 43,
+        },
+      }),
+    ).toBe("43")
+  })
+
+  it("serializes the Print-Job attributes used by the live submit path", () => {
+    const request = buildPrintJobRequest(job, Buffer.from("%PDF"))
+    const parsed = parseIppMessage(serializeIppRequest(request))
+
+    expect(parsed).toMatchObject({
+      operation: "Print-Job",
+      "operation-attributes-tag": {
+        "printer-uri": "ipp://localhost:631/printers/HP135a",
+        "job-name": "print-test-page.pdf",
+        "document-format": "application/pdf",
+      },
+      "job-attributes-tag": {
+        "print-scaling": "none",
+        "print-color-mode": "monochrome",
+        sides: "one-sided",
+      },
+    })
+    expect(parsed.data?.toString()).toBe("%PDF")
+  })
+
   it("parses lp submit output", () => {
     expect(parseLpSubmitOutput("request id is printer-42 (1 file(s))")).toBe(
       "42",
