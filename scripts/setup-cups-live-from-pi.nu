@@ -6,6 +6,9 @@ use lib/repo.nu repo-root
 const HP_ULD_URL = "https://ftp.hp.com/pub/softlib/software13/printers/CLP150/uld-hp_V1.00.39.12_00.15.tar.gz"
 const HP_ULD_PPD_PATH = "/usr/share/ppd/uld-hp/HP_Laser_MFP_13x_Series.ppd"
 const TEMP_QUEUES = [HP135a_PWG_Test HP135a_SPLIX_Test]
+const HP_ULD_GRAYSCALE_8BIT = '*ColorModel Gray/Grayscale: "<</cupsColorSpace 0 /cupsBitsPerColor 8>>setpagedevice"'
+const HP_ULD_STANDARD_600DPI = '*Quality 600dpi/Standard: "<</HWResolution[600 600]>>setpagedevice"'
+const HP_ULD_STANDARD_SAFE_300DPI = '*Quality 600dpi/Standard: "<</HWResolution[300 300]>>setpagedevice"'
 
 def run-required [label: string, command: list<string>]: nothing -> string {
   let result = (run-external ...$command | complete)
@@ -162,6 +165,7 @@ def ensure-hp-uld-driver []: nothing -> string {
   let temp_dir = (mktemp -d)
   let archive_path = ($temp_dir | path join "uld.tar.gz")
   let extracted_dir = ($temp_dir | path join "uld")
+  let patched_ppd_path = ($temp_dir | path join "HP_Laser_MFP_13x_Series-safe-300dpi.ppd")
 
   try {
     print "Downloading HP Unified Linux Driver package."
@@ -172,6 +176,16 @@ def ensure-hp-uld-driver []: nothing -> string {
     let uld_arch = (hp-uld-arch $debian_arch)
     let arch_dir = ($extracted_dir | path join $uld_arch)
     let noarch_dir = ($extracted_dir | path join "noarch")
+    let source_ppd_path = ($noarch_dir | path join "share/ppd/HP_Laser_MFP_13x_Series.ppd")
+
+    let source_ppd = (open $source_ppd_path)
+    for expected in [$HP_ULD_GRAYSCALE_8BIT $HP_ULD_STANDARD_600DPI] {
+      if not ($source_ppd | str contains $expected) {
+        error make {msg: $"HP ULD PPD did not contain expected line: ($expected)"}
+      }
+    }
+
+    $source_ppd | str replace $HP_ULD_STANDARD_600DPI $HP_ULD_STANDARD_SAFE_300DPI | save -f $patched_ppd_path
 
     [
       /opt/smfp-common/printer/bin
@@ -183,7 +197,7 @@ def ensure-hp-uld-driver []: nothing -> string {
     install-root-file "0755" ($arch_dir | path join "rastertospl") /opt/smfp-common/printer/bin/rastertospl
     install-root-file "0755" ($arch_dir | path join "pstosecps") /opt/smfp-common/printer/bin/pstosecps
     install-root-file "0644" ($arch_dir | path join "libscmssc.so") /opt/smfp-common/printer/lib/libscmssc.so
-    install-root-file "0644" ($noarch_dir | path join "share/ppd/HP_Laser_MFP_13x_Series.ppd") $HP_ULD_PPD_PATH
+    install-root-file "0644" $patched_ppd_path $HP_ULD_PPD_PATH
 
     install-root-symlink /opt/smfp-common/printer/bin/rastertospl /usr/lib/cups/filter/rastertospl
     install-root-symlink /opt/smfp-common/printer/bin/pstosecps /usr/lib/cups/filter/pstosecps
@@ -223,6 +237,11 @@ def configure-cups-network [--enable-printing]: nothing -> nothing {
       "WebInterface=Yes"
       "Browsing=Yes"
       "BrowseLocalProtocols=dnssd"
+      "ErrorPolicy=stop-printer"
+      "JobRetryLimit=0"
+      "JobRetryInterval=0"
+      "MaxJobsPerPrinter=1"
+      "MaxJobTime=300"
       "PreserveJobFiles=No"
       "PreserveJobHistory=No"
       "JobKillDelay=5"
@@ -234,6 +253,11 @@ def configure-cups-network [--enable-printing]: nothing -> nothing {
       "--no-share-printers"
       "WebInterface=Yes"
       "Browsing=No"
+      "ErrorPolicy=stop-printer"
+      "JobRetryLimit=0"
+      "JobRetryInterval=0"
+      "MaxJobsPerPrinter=1"
+      "MaxJobTime=300"
       "PreserveJobFiles=No"
       "PreserveJobHistory=No"
       "JobKillDelay=5"

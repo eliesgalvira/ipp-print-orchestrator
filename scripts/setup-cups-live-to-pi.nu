@@ -1,8 +1,16 @@
 #!/usr/bin/env nu
 
 use lib/env.nu *
-use lib/remote.nu [remote-target run-ssh run-timed]
+use lib/remote.nu [remote-target rsync-args run-ssh run-timed ssh-args]
 use lib/repo.nu repo-root
+
+def run-required [label: string, command: list<string>]: nothing -> nothing {
+  let result = (run-external ...$command | complete)
+
+  if $result.exit_code != 0 {
+    error make {msg: $"($label) failed: ($result.stderr | str trim)"}
+  }
+}
 
 def main [
   --printer-name: string
@@ -28,6 +36,31 @@ def main [
   )
 
   run-timed $"setup CUPS on ($pi_host)" {
+    run-required "create remote script directory" (
+      (ssh-args $pi_host --key-path $ssh_key_path --batch) ++ ["mkdir" "-p" ($app_dir | path join "scripts/lib")]
+    )
+
+    let rsync_script_command = (
+      (rsync-args --key-path $ssh_key_path --batch)
+      ++ [
+        "-az"
+        ($root_dir | path join "scripts/setup-cups-live-from-pi.nu")
+        $"($pi_host):($app_dir)/scripts/"
+      ]
+    )
+    run-required "sync target CUPS setup script" $rsync_script_command
+
+    let rsync_lib_command = (
+      (rsync-args --key-path $ssh_key_path --batch)
+      ++ [
+        "-az"
+        ($root_dir | path join "scripts/lib/env.nu")
+        ($root_dir | path join "scripts/lib/repo.nu")
+        $"($pi_host):($app_dir)/scripts/lib/"
+      ]
+    )
+    run-required "sync target CUPS setup libraries" $rsync_lib_command
+
     run-ssh $pi_host (["nu" "--no-config-file" $remote_script] ++ $forwarded_args) --key-path $ssh_key_path --batch
   }
 }

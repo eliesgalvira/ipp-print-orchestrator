@@ -317,6 +317,14 @@ producing corrupted output for images, logos, and filled vector graphics. The
 live setup script installs HP's Unified Linux Driver `rastertospl` filter and
 uses the matching `HP_Laser_MFP_13x_Series.ppd`.
 
+The setup script keeps HP's 8-bit grayscale raster mode intact. Do not force the
+PPD to 1-bit grayscale: `rastertospl` does not handle that stream correctly for
+this printer, and scanned/image-heavy pages can be squeezed horizontally because
+the raster line stride no longer matches what the filter expects. Instead, the
+script lowers the standard render resolution to 300x300 while keeping the
+driver's advertised `600dpi` option name, which reduces scanned-PDF SPL payloads
+without changing the raster bit depth.
+
 Emergency stop from the development machine:
 
 ```bash
@@ -349,6 +357,10 @@ IPP `Print-Job` with the PDF document attached to the request and uses
 `print-scaling=none`. The orchestrator submit path follows that IPP shape
 directly; local `lp` can create a different CUPS job path that this SPL printer
 may process incorrectly even when CUPS reports the job as completed.
+
+CUPS is configured with `ErrorPolicy=stop-printer`, `JobRetryLimit=0`,
+`MaxJobsPerPrinter=1`, and `MaxJobTime=300`. A failed job must stop rather than
+retry.
 
 The deploy script:
 
