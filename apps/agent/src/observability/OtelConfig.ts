@@ -93,9 +93,10 @@ const resolveSignal = (
   sharedHeaders: string | undefined,
   signal: "traces" | "logs",
 ): OtelSignalConfig | null => {
+  const trimmedSpecificEndpoint = specificEndpoint?.trim()
   const endpoint =
-    specificEndpoint?.trim() && specificEndpoint.trim().length > 0
-      ? specificEndpoint.trim()
+    trimmedSpecificEndpoint !== undefined && trimmedSpecificEndpoint.length > 0
+      ? trimmedSpecificEndpoint
       : deriveSignalEndpoint(sharedEndpoint, signal)
 
   if (endpoint === null) {

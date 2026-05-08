@@ -59,7 +59,7 @@ export const buildPrintJobRequest = (
 })
 
 export const parseIppSubmitResponse = (response: IppMessage): string => {
-  if (!response.statusCode?.startsWith("successful-")) {
+  if (response.statusCode?.startsWith("successful-") !== true) {
     throw new Error(
       `CUPS rejected Print-Job: ${response.statusCode ?? "missing status"}`,
     )

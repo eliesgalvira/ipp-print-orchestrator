@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto"
-import { NodeFileSystem, NodePath, NodeRuntime } from "@effect/platform-node"
-import { Console, Effect, Layer } from "effect"
+import { NodeRuntime } from "@effect/platform-node"
+import { Console, Effect } from "effect"
 import * as FileSystem from "effect/FileSystem"
 import { JobId } from "../domain/JobId.js"
 import { MainLayer } from "../live/MainLayer.js"
@@ -11,7 +11,7 @@ import {
 import { Orchestrator } from "../services/Orchestrator.js"
 import { loadAppEnv } from "../util/loadAppEnv.js"
 
-loadAppEnv()
+await loadAppEnv()
 await startObservability()
 
 const mimeFromFileName = (fileName: string): string => {
@@ -36,7 +36,7 @@ const program = Effect.gen(function* () {
   const fileName = filePath.split("/").at(-1) ?? filePath
 
   const job = yield* orchestrator.submit({
-    id: JobId.makeUnsafe(randomUUID()),
+    id: JobId.make(randomUUID()),
     requestId: randomUUID(),
     fileName,
     mimeType: mimeFromFileName(fileName),
@@ -46,15 +46,7 @@ const program = Effect.gen(function* () {
   yield* Console.log(`queued print job ${String(job.id)} in state ${job.state}`)
 })
 
-const appLayer = MainLayer.pipe(
-  Layer.provide(NodeFileSystem.layer),
-  Layer.provide(NodePath.layer),
-)
+// @effect-diagnostics-next-line effect/strictEffectProvide:off
+const main = program.pipe(withObservability, Effect.provide(MainLayer))
 
-const runtimeLayer = Layer.mergeAll(NodeFileSystem.layer, appLayer)
-
-program.pipe(
-  withObservability,
-  Effect.provide(runtimeLayer),
-  NodeRuntime.runMain,
-)
+NodeRuntime.runMain(main)

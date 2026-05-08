@@ -1,14 +1,13 @@
-import type { Effect } from "effect"
-import * as ServiceMap from "effect/ServiceMap"
+import { Context, type Effect } from "effect"
 
 import type { TelemetryUnavailable } from "../domain/Errors.js"
 import type { WideEvent } from "../domain/WideEvent.js"
 
-export class Telemetry extends ServiceMap.Service<
+export class Telemetry extends Context.Service<
   Telemetry,
   {
     readonly emit: (
       event: WideEvent,
     ) => Effect.Effect<void, TelemetryUnavailable>
   }
->()("@ipp/agent/Telemetry") {}
+>()("@ipp/agent/services/Telemetry") {}

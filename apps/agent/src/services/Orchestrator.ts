@@ -1,5 +1,4 @@
-import { Clock, Effect, Layer, Match } from "effect"
-import * as ServiceMap from "effect/ServiceMap"
+import { Clock, Effect, Layer, Match, Context } from "effect"
 
 import { AppConfig } from "../config/AppConfig.js"
 import { type OperationalError, UnsupportedFileType } from "../domain/Errors.js"
@@ -26,7 +25,7 @@ export interface SubmitJobInput {
   readonly bytes: Uint8Array
 }
 
-export class Orchestrator extends ServiceMap.Service<
+export class Orchestrator extends Context.Service<
   Orchestrator,
   {
     readonly submit: (
@@ -34,7 +33,7 @@ export class Orchestrator extends ServiceMap.Service<
     ) => Effect.Effect<Job, OperationalError>
     readonly processJob: (jobId: JobId) => Effect.Effect<Job, OperationalError>
   }
->()("@ipp/agent/Orchestrator") {
+>()("@ipp/agent/services/Orchestrator") {
   static readonly layer = Layer.effect(
     Orchestrator,
     Effect.gen(function* () {

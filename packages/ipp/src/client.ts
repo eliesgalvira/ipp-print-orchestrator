@@ -1,5 +1,4 @@
-import { Effect, Layer } from "effect"
-import * as ServiceMap from "effect/ServiceMap"
+import { Effect, Layer, Schema, Context } from "effect"
 import { parseIppMessage, serializeIppRequest } from "./codec.js"
 import {
   type IppClientError,
@@ -13,14 +12,14 @@ import type {
   IppPrinterOptions,
 } from "./model.js"
 
-export class IppClient extends ServiceMap.Service<
+export class IppClient extends Context.Service<
   IppClient,
   {
     readonly execute: (
       request: IppExecuteRequest,
     ) => Effect.Effect<IppMessage, IppClientError>
   }
->()("@ipp/ipp/IppClient") {}
+>()("@ipp/ipp/client/IppClient") {}
 
 const postIpp = (endpoint: string, body: Buffer): Promise<Buffer> =>
   new Promise<Buffer>((resolve, reject) => {
@@ -81,7 +80,7 @@ export const requestIpp = (request: IppExecuteRequest) =>
         ...(request.charset === undefined ? {} : { charset: request.charset }),
       }),
     catch: (error) =>
-      error instanceof IppSerializationError
+      Schema.is(IppSerializationError)(error)
         ? error
         : new IppSerializationError({ message: String(error) }),
   }).pipe(
@@ -95,7 +94,7 @@ export const requestIpp = (request: IppExecuteRequest) =>
       Effect.try({
         try: () => parseIppMessage(body),
         catch: (error) =>
-          error instanceof IppParseError
+          Schema.is(IppParseError)(error)
             ? error
             : new IppParseError({ message: String(error) }),
       }),

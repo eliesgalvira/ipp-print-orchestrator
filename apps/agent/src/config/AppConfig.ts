@@ -1,5 +1,4 @@
-import { Config, Effect, Layer } from "effect"
-import * as ServiceMap from "effect/ServiceMap"
+import { Config, Effect, Layer, Context } from "effect"
 
 export interface AppConfigShape {
   readonly dataDir: string
@@ -14,8 +13,8 @@ export interface AppConfigShape {
   readonly enableOtlp: boolean
 }
 
-export class AppConfig extends ServiceMap.Service<AppConfig, AppConfigShape>()(
-  "@ipp/agent/AppConfig",
+export class AppConfig extends Context.Service<AppConfig, AppConfigShape>()(
+  "@ipp/agent/config/AppConfig",
 ) {
   static readonly layer = Layer.effect(
     AppConfig,

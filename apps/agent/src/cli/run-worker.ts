@@ -1,5 +1,5 @@
-import { NodeFileSystem, NodePath, NodeRuntime } from "@effect/platform-node"
-import { Console, Effect, Layer, Stream } from "effect"
+import { NodeRuntime } from "@effect/platform-node"
+import { Console, Effect, Stream } from "effect"
 import * as ChildProcess from "effect/unstable/process/ChildProcess"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 
@@ -16,7 +16,7 @@ import { Reconciler } from "../services/Reconciler.js"
 import { StatusRuntime } from "../services/StatusRuntime.js"
 import { loadAppEnv } from "../util/loadAppEnv.js"
 
-loadAppEnv()
+await loadAppEnv()
 await startObservability()
 
 export const workerProgram = Effect.scoped(
@@ -97,13 +97,7 @@ export const workerProgram = Effect.scoped(
   }),
 )
 
-const runtimeLayer = MainLayer.pipe(
-  Layer.provide(NodeFileSystem.layer),
-  Layer.provide(NodePath.layer),
-)
+// @effect-diagnostics-next-line effect/strictEffectProvide:off
+const main = workerProgram.pipe(withObservability, Effect.provide(MainLayer))
 
-workerProgram.pipe(
-  withObservability,
-  Effect.provide(runtimeLayer),
-  NodeRuntime.runMain,
-)
+NodeRuntime.runMain(main)

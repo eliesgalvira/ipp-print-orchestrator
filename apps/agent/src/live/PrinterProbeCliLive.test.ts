@@ -8,6 +8,7 @@ import {
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
+import { NodeServices } from "@effect/platform-node"
 import { describe, expect, it } from "@effect/vitest"
 import { Effect, Layer } from "effect"
 
@@ -154,6 +155,7 @@ describe("PrinterProbeCliLive", () => {
           Effect.provide(
             PrinterProbeCliLive.pipe(
               Layer.provide(appConfigLayer(usbSysfsRoot)),
+              Layer.provide(NodeServices.layer),
               Layer.provide(cupsObserverLayer()),
               Layer.provide(
                 cupsClientLayer(
@@ -190,6 +192,7 @@ describe("PrinterProbeCliLive", () => {
         Effect.provide(
           PrinterProbeCliLive.pipe(
             Layer.provide(appConfigLayer(usbSysfsRoot)),
+            Layer.provide(NodeServices.layer),
             Layer.provide(cupsObserverLayer()),
             Layer.provide(
               cupsClientLayer(
@@ -216,6 +219,7 @@ describe("PrinterProbeCliLive", () => {
           Effect.provide(
             PrinterProbeCliLive.pipe(
               Layer.provide(appConfigLayer(usbSysfsRoot)),
+              Layer.provide(NodeServices.layer),
               Layer.provide(cupsObserverLayer()),
               Layer.provide(cupsClientLayer("ipp://printer.local/ipp/print")),
             ),
@@ -246,6 +250,7 @@ describe("PrinterProbeCliLive", () => {
           Effect.provide(
             PrinterProbeCliLive.pipe(
               Layer.provide(appConfigLayer(usbSysfsRoot)),
+              Layer.provide(NodeServices.layer),
               Layer.provide(cupsObserverLayer()),
               Layer.provide(
                 cupsClientLayer(
@@ -285,6 +290,7 @@ describe("PrinterProbeCliLive", () => {
           Effect.provide(
             PrinterProbeCliLive.pipe(
               Layer.provide(appConfigLayer(usbSysfsRoot)),
+              Layer.provide(NodeServices.layer),
               Layer.provide(cupsObserverLayer()),
               Layer.provide(
                 cupsClientLayer(
@@ -336,6 +342,7 @@ describe("PrinterProbeCliLive", () => {
           Effect.provide(
             PrinterProbeCliLive.pipe(
               Layer.provide(appConfigLayer(usbSysfsRoot)),
+              Layer.provide(NodeServices.layer),
               Layer.provide(cupsObserverLayer()),
               Layer.provide(
                 cupsClientLayer(

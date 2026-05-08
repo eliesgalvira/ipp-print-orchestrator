@@ -1,5 +1,4 @@
-import type { Effect } from "effect"
-import * as ServiceMap from "effect/ServiceMap"
+import { Context, type Effect } from "effect"
 
 import type {
   CupsIppJobNotFound,
@@ -11,7 +10,7 @@ import type {
   CupsPrinterObservation,
 } from "./CupsObservation.js"
 
-export class CupsObserver extends ServiceMap.Service<
+export class CupsObserver extends Context.Service<
   CupsObserver,
   {
     readonly observePrinter: () => Effect.Effect<
@@ -25,4 +24,4 @@ export class CupsObserver extends ServiceMap.Service<
       CupsIppUnavailable | CupsIppProtocolError | CupsIppJobNotFound
     >
   }
->()("@ipp/agent/CupsObserver") {}
+>()("@ipp/agent/cups-observation/CupsObserver") {}

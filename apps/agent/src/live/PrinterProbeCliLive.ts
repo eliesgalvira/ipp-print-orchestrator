@@ -1,11 +1,13 @@
-import { readdir, readFile } from "node:fs/promises"
-import { join } from "node:path"
-
 import { Effect, Layer, Ref, Schema } from "effect"
+import * as FileSystem from "effect/FileSystem"
+import * as Path from "effect/Path"
+import type * as PlatformError from "effect/PlatformError"
 import { AppConfig } from "../config/AppConfig.js"
 import { CupsObserver } from "../cups-observation/CupsObserver.js"
 import { CupsClient } from "../services/CupsClient.js"
 import { PrinterProbe } from "../services/PrinterProbe.js"
+
+type PrinterProbeService = typeof PrinterProbe.Service
 
 interface ParsedUsbDeviceUri {
   readonly deviceUri: string
@@ -67,61 +69,105 @@ export const parseUsbDeviceUri = (
   }
 }
 
-const readOptionalTextFile = async (path: string): Promise<string | null> => {
-  try {
-    const contents = await readFile(path, "utf8")
-    const normalized = contents.trim()
-    return normalized.length === 0 ? null : normalized
-  } catch {
-    return null
-  }
-}
+const readOptionalTextFile = (
+  fs: FileSystem.FileSystem,
+  filePath: string,
+): Effect.Effect<string | null> =>
+  fs.readFileString(filePath, "utf8").pipe(
+    Effect.map((contents) => {
+      const normalized = contents.trim()
+      return normalized.length === 0 ? null : normalized
+    }),
+    Effect.catch(() => Effect.succeed(null)),
+  )
+
+const statUsbSysfsEntry = (
+  fs: FileSystem.FileSystem,
+  entryPath: string,
+): Effect.Effect<boolean> =>
+  fs.stat(entryPath).pipe(
+    Effect.map(
+      (stat) => stat.type === "Directory" || stat.type === "SymbolicLink",
+    ),
+    Effect.catch(() => Effect.succeed(false)),
+  )
+
+const readUsbSysfsDevice = (
+  fs: FileSystem.FileSystem,
+  path: Path.Path,
+  deviceRoot: string,
+): Effect.Effect<UsbSysfsDevice | null> =>
+  Effect.gen(function* () {
+    const manufacturer = yield* readOptionalTextFile(
+      fs,
+      path.join(deviceRoot, "manufacturer"),
+    )
+    const product = yield* readOptionalTextFile(
+      fs,
+      path.join(deviceRoot, "product"),
+    )
+    const serial = yield* readOptionalTextFile(
+      fs,
+      path.join(deviceRoot, "serial"),
+    )
+
+    if (manufacturer === null && product === null && serial === null) {
+      return null
+    }
+
+    return {
+      serial: normalizeSerial(serial),
+      matchTokens: normalizeMatchTokens(
+        `${manufacturer ?? ""} ${product ?? ""}`,
+      ),
+    } satisfies UsbSysfsDevice
+  })
+
+const readUsbSysfsDevices = (
+  fs: FileSystem.FileSystem,
+  path: Path.Path,
+  usbSysfsRoot: string,
+): Effect.Effect<readonly UsbSysfsDevice[], PlatformError.PlatformError> =>
+  Effect.gen(function* () {
+    const entries = yield* fs.readDirectory(usbSysfsRoot)
+    const devices = yield* Effect.all(
+      entries
+        .filter((entry) => !entry.includes(":"))
+        .map((entry) =>
+          Effect.gen(function* () {
+            const deviceRoot = path.join(usbSysfsRoot, entry)
+            const isDeviceDirectory = yield* statUsbSysfsEntry(fs, deviceRoot)
+            if (!isDeviceDirectory) {
+              return null
+            }
+            return yield* readUsbSysfsDevice(fs, path, deviceRoot)
+          }),
+        ),
+      { concurrency: "unbounded" },
+    )
+
+    return devices.flatMap((device) => (device === null ? [] : [device]))
+  })
 
 export const listUsbSysfsDevices = (
   usbSysfsRoot: string,
-): Effect.Effect<readonly UsbSysfsDevice[], UsbSysfsReadFailed> =>
-  Effect.tryPromise({
-    try: async () => {
-      const entries = await readdir(usbSysfsRoot, { withFileTypes: true })
-      const devices = await Promise.all(
-        entries
-          .filter(
-            (entry) =>
-              (entry.isDirectory() || entry.isSymbolicLink()) &&
-              !entry.name.includes(":"),
-          )
-          .map(async (entry) => {
-            const deviceRoot = join(usbSysfsRoot, entry.name)
-            const manufacturer = await readOptionalTextFile(
-              join(deviceRoot, "manufacturer"),
-            )
-            const product = await readOptionalTextFile(
-              join(deviceRoot, "product"),
-            )
-            const serial = await readOptionalTextFile(
-              join(deviceRoot, "serial"),
-            )
-
-            if (manufacturer === null && product === null && serial === null) {
-              return null
-            }
-
-            return {
-              serial: normalizeSerial(serial),
-              matchTokens: normalizeMatchTokens(
-                `${manufacturer ?? ""} ${product ?? ""}`,
-              ),
-            } satisfies UsbSysfsDevice
-          }),
-      )
-
-      return devices.flatMap((device) => (device === null ? [] : [device]))
-    },
-    catch: (error) =>
-      new UsbSysfsReadFailed({
-        message: String(error),
-      }),
-  })
+): Effect.Effect<
+  readonly UsbSysfsDevice[],
+  UsbSysfsReadFailed,
+  FileSystem.FileSystem | Path.Path
+> =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
+    return yield* readUsbSysfsDevices(fs, path, usbSysfsRoot)
+  }).pipe(
+    Effect.mapError(
+      (error) =>
+        new UsbSysfsReadFailed({
+          message: String(error),
+        }),
+    ),
+  )
 
 export const usbDeviceUriMatchesSysfsDevice = (
   target: ParsedUsbDeviceUri,
@@ -143,6 +189,8 @@ export const PrinterProbeCliLive = Layer.effect(
     const appConfig = yield* AppConfig
     const cupsObserver = yield* CupsObserver
     const cupsClient = yield* CupsClient
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
     const configuredDeviceUriRef = yield* Ref.make<string | null>(null)
     const usbAttachedRef = yield* Ref.make<boolean | null>(null)
 
@@ -184,11 +232,21 @@ export const PrinterProbeCliLive = Layer.effect(
           return attachedFromObservation
         }
 
-        return yield* listUsbSysfsDevices(appConfig.usbSysfsRoot).pipe(
+        return yield* readUsbSysfsDevices(
+          fs,
+          path,
+          appConfig.usbSysfsRoot,
+        ).pipe(
           Effect.map((devices) =>
             devices.some((device) =>
               usbDeviceUriMatchesSysfsDevice(parsedUsbDeviceUri, device),
             ),
+          ),
+          Effect.mapError(
+            (error) =>
+              new UsbSysfsReadFailed({
+                message: String(error),
+              }),
           ),
           Effect.tap((usbAttached) => Ref.set(usbAttachedRef, usbAttached)),
           Effect.tap((usbAttached) =>
@@ -239,18 +297,19 @@ export const PrinterProbeCliLive = Layer.effect(
       return yield* refreshUsbAttached(attached)
     })
 
-    const status = Effect.fn("PrinterProbe.status")(function* (
-      reason?: string,
-    ) {
+    const status: PrinterProbeService["status"] = Effect.fn(
+      "PrinterProbe.status",
+    )(function* (reason?: string) {
       return yield* cupsObserver.observePrinter().pipe(
         Effect.flatMap((observation) =>
           Effect.gen(function* () {
             const attached = yield* deriveAttached(observation.attached, reason)
             const configuredDeviceUri = yield* getConfiguredDeviceUri()
-            const isUsbPrinter =
+            const isUsbPrinter: boolean =
               configuredDeviceUri?.startsWith("usb://") ?? false
-            const usbMissing = isUsbPrinter && observation.attached && !attached
-            const usbPresentEvent =
+            const usbMissing: boolean =
+              isUsbPrinter && observation.attached && !attached
+            const usbPresentEvent: boolean =
               isUsbPrinter &&
               reason === "udev-usb-event" &&
               observation.attached &&

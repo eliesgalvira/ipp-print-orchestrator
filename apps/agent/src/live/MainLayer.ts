@@ -1,8 +1,4 @@
-import {
-  NodeChildProcessSpawner,
-  NodeFileSystem,
-  NodePath,
-} from "@effect/platform-node"
+import { NodeServices } from "@effect/platform-node"
 import { NodeIppClientLive } from "@ipp/ipp"
 import { Layer } from "effect"
 import { AppConfig } from "../config/AppConfig.js"
@@ -24,11 +20,13 @@ import { WideEventPublisherLive } from "./WideEventPublisherLive.js"
 
 const configLayer = AppConfig.layer
 
-const fileSupportLayer = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer)
+const nodeServicesLayer = NodeServices.layer
+
+const fileSupportLayer = nodeServicesLayer
 
 const storageSupportLayer = Layer.mergeAll(configLayer, fileSupportLayer)
 
-const commandLayer = NodeChildProcessSpawner.layer
+const commandLayer = nodeServicesLayer
 
 const storageLayer = Layer.mergeAll(
   BlobStoreLive,
@@ -50,6 +48,7 @@ const probeLayer = Layer.mergeAll(
   NetworkProbeCliLive,
   PrinterProbeCliLive.pipe(
     Layer.provide(configLayer),
+    Layer.provide(fileSupportLayer),
     Layer.provide(cupsObservationLayer),
     Layer.provide(cupsLayer),
   ),
@@ -103,6 +102,7 @@ const cupsEventStreamLayer = CupsEventStreamIppLive.pipe(
 )
 
 export const MainLayer = Layer.mergeAll(
+  nodeServicesLayer,
   queueRuntimeLayer,
   statusRuntimeLayer,
   orchestratorLayer,

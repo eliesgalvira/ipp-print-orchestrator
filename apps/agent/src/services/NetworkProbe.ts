@@ -1,14 +1,13 @@
-import type { Effect } from "effect"
-import * as ServiceMap from "effect/ServiceMap"
+import { Context, type Effect } from "effect"
 
 export interface NetworkStatus {
   readonly online: boolean
   readonly localIps: readonly string[]
 }
 
-export class NetworkProbe extends ServiceMap.Service<
+export class NetworkProbe extends Context.Service<
   NetworkProbe,
   {
     readonly status: () => Effect.Effect<NetworkStatus>
   }
->()("@ipp/agent/NetworkProbe") {}
+>()("@ipp/agent/services/NetworkProbe") {}

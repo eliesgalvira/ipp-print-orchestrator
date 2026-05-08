@@ -11,7 +11,9 @@
     "prepare": "effect-language-service patch",
     "build": "tsc --build --pretty false && bun run build:agent-service",
     "build:agent-service": "rm -rf apps/agent/dist-service && bun build apps/agent/src/main.ts --target=node --format=esm --splitting --outdir apps/agent/dist-service",
-    "typecheck": "tsc -p packages/shared/tsconfig.json --pretty false --noEmit && tsc -p packages/ipp/tsconfig.json --pretty false --noEmit && tsc -p packages/testkit/tsconfig.json --pretty false --noEmit && tsc -p apps/agent/tsconfig.json --pretty false --noEmit",
+    "effect:diagnostics": "effect-language-service diagnostics --project tsconfig.json",
+    "effect:quickfixes": "effect-language-service quickfixes --project tsconfig.json",
+    "typecheck": "bun run effect:diagnostics && tsc -p packages/shared/tsconfig.json --pretty false --noEmit && tsc -p packages/ipp/tsconfig.json --pretty false --noEmit && tsc -p packages/testkit/tsconfig.json --pretty false --noEmit && tsc -p apps/agent/tsconfig.json --pretty false --noEmit",
     "test": "vitest run && bun run test:nu",
     "test:nu": "nu scripts/tests.nu",
     "test:watch": "vitest",
@@ -28,8 +30,8 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.6",
-    "@effect/language-service": "^0.79.0",
-    "@effect/vitest": "4.0.0-beta.36",
+    "@effect/language-service": "^0.85.1",
+    "@effect/vitest": "^4.0.0-beta.64",
     "@types/node": "^25.4.0",
     "effect-solutions": "^0.5.2",
     "fast-check": "^4.6.0",
@@ -38,7 +40,7 @@
     "vitest": "^3.2.0"
   },
   "dependencies": {
-    "@effect/platform-node": "^4.0.0-beta.36",
-    "effect": "^4.0.0-beta.36"
+    "@effect/platform-node": "^4.0.0-beta.64",
+    "effect": "^4.0.0-beta.64"
   }
 }

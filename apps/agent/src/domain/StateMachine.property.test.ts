@@ -38,7 +38,7 @@ describe("StateMachine property invariants", () => {
         fc.array(actionArbitrary, { minLength: 1, maxLength: 25 }),
         (actions) => {
           let job = createJob({
-            id: JobId.makeUnsafe("job-property"),
+            id: JobId.make("job-property"),
             requestId: "req-property",
             printerName: "printer",
             fileName: "document.pdf",

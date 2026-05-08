@@ -1,5 +1,4 @@
-import type { Effect } from "effect"
-import * as ServiceMap from "effect/ServiceMap"
+import { Context, type Effect } from "effect"
 
 import type {
   EventSinkUnavailable,
@@ -10,7 +9,7 @@ import type { JobId } from "../domain/JobId.js"
 import { type JobState, terminalJobStates } from "../domain/JobState.js"
 import { WideEvent } from "../domain/WideEvent.js"
 
-export class WideEventPublisher extends ServiceMap.Service<
+export class WideEventPublisher extends Context.Service<
   WideEventPublisher,
   {
     readonly emit: (

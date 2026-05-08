@@ -63,7 +63,7 @@ describe("ReconcilerLive", () => {
       )
 
       const queuedJob = new Job({
-        id: JobId.makeUnsafe("job-reconcile-1"),
+        id: JobId.make("job-reconcile-1"),
         requestId: "req-reconcile-1",
         printerName: "test-printer",
         fileName: "document.pdf",
@@ -145,7 +145,7 @@ describe("ReconcilerLive", () => {
       })
 
       const submittedJob = new Job({
-        id: JobId.makeUnsafe("job-reconcile-2"),
+        id: JobId.make("job-reconcile-2"),
         requestId: "req-reconcile-2",
         printerName: "test-printer",
         fileName: "done.pdf",

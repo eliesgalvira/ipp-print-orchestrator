@@ -1,5 +1,4 @@
-import type { Effect } from "effect"
-import * as ServiceMap from "effect/ServiceMap"
+import { Context, type Effect } from "effect"
 import type {
   BlobStoreDiskFull,
   BlobStoreUnavailable,
@@ -12,7 +11,7 @@ export interface StoredBlobInfo {
   readonly fileName: string
 }
 
-export class BlobStore extends ServiceMap.Service<
+export class BlobStore extends Context.Service<
   BlobStore,
   {
     readonly putOriginal: (
@@ -27,4 +26,4 @@ export class BlobStore extends ServiceMap.Service<
       jobId: JobId,
     ) => Effect.Effect<StoredBlobInfo, BlobStoreUnavailable>
   }
->()("@ipp/agent/BlobStore") {}
+>()("@ipp/agent/services/BlobStore") {}

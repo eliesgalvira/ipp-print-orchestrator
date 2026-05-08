@@ -1,12 +1,11 @@
-import type { Effect } from "effect"
-import * as ServiceMap from "effect/ServiceMap"
+import { Context, type Effect } from "effect"
 
 import type { JobRepoUnavailable } from "../domain/Errors.js"
 import type { Job } from "../domain/Job.js"
 import type { JobId } from "../domain/JobId.js"
 import type { WideEvent } from "../domain/WideEvent.js"
 
-export class JobRepo extends ServiceMap.Service<
+export class JobRepo extends Context.Service<
   JobRepo,
   {
     readonly create: (job: Job) => Effect.Effect<void, JobRepoUnavailable>
@@ -27,4 +26,4 @@ export class JobRepo extends ServiceMap.Service<
       JobRepoUnavailable
     >
   }
->()("@ipp/agent/JobRepo") {}
+>()("@ipp/agent/services/JobRepo") {}
