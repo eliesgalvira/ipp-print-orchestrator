@@ -25,4 +25,4 @@ export class CupsObserver extends ServiceMap.Service<
       CupsIppUnavailable | CupsIppProtocolError | CupsIppJobNotFound
     >
   }
->()("@ipp/agent/CupsObserver") {}
+>()("@ipp/agent/cups-observation/CupsObserver") {}

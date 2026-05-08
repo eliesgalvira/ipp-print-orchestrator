@@ -1,0 +1,23 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Effect: diagnostics",
+      "type": "shell",
+      "command": "bun run effect:diagnostics",
+      "group": "test",
+      "problemMatcher": "$tsc",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    },
+    {
+      "label": "Effect: quickfixes",
+      "type": "shell",
+      "command": "bun run effect:quickfixes",
+      "group": "test",
+      "problemMatcher": []
+    }
+  ]
+}

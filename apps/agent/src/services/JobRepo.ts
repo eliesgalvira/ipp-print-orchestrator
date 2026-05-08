@@ -27,4 +27,4 @@ export class JobRepo extends ServiceMap.Service<
       JobRepoUnavailable
     >
   }
->()("@ipp/agent/JobRepo") {}
+>()("@ipp/agent/services/JobRepo") {}

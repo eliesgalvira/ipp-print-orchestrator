@@ -11,4 +11,4 @@ export class NetworkProbe extends ServiceMap.Service<
   {
     readonly status: () => Effect.Effect<NetworkStatus>
   }
->()("@ipp/agent/NetworkProbe") {}
+>()("@ipp/agent/services/NetworkProbe") {}

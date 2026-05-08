@@ -27,4 +27,4 @@ export class BlobStore extends ServiceMap.Service<
       jobId: JobId,
     ) => Effect.Effect<StoredBlobInfo, BlobStoreUnavailable>
   }
->()("@ipp/agent/BlobStore") {}
+>()("@ipp/agent/services/BlobStore") {}

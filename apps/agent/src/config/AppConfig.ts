@@ -15,7 +15,7 @@ export interface AppConfigShape {
 }
 
 export class AppConfig extends ServiceMap.Service<AppConfig, AppConfigShape>()(
-  "@ipp/agent/AppConfig",
+  "@ipp/agent/config/AppConfig",
 ) {
   static readonly layer = Layer.effect(
     AppConfig,

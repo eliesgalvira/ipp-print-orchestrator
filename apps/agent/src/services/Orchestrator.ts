@@ -34,7 +34,7 @@ export class Orchestrator extends ServiceMap.Service<
     ) => Effect.Effect<Job, OperationalError>
     readonly processJob: (jobId: JobId) => Effect.Effect<Job, OperationalError>
   }
->()("@ipp/agent/Orchestrator") {
+>()("@ipp/agent/services/Orchestrator") {
   static readonly layer = Layer.effect(
     Orchestrator,
     Effect.gen(function* () {

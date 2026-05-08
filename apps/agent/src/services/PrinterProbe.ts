@@ -15,4 +15,4 @@ export class PrinterProbe extends ServiceMap.Service<
   {
     readonly status: (reason?: string) => Effect.Effect<PrinterStatus>
   }
->()("@ipp/agent/PrinterProbe") {}
+>()("@ipp/agent/services/PrinterProbe") {}

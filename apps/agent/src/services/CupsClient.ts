@@ -58,4 +58,4 @@ export class CupsClient extends ServiceMap.Service<
       CupsUnavailable | CupsCommandFailed
     >
   }
->()("@ipp/agent/CupsClient") {}
+>()("@ipp/agent/services/CupsClient") {}

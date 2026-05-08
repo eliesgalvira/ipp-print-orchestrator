@@ -43,4 +43,4 @@ export class StatusRuntime extends ServiceMap.Service<
     ) => Effect.Effect<StatusSnapshot, OperationalError>
     readonly current: () => Effect.Effect<StatusSnapshot, OperationalError>
   }
->()("@ipp/agent/StatusRuntime") {}
+>()("@ipp/agent/services/StatusRuntime") {}

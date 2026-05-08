@@ -1,10 +1,10 @@
-import { NodeFileSystem, NodePath, NodeRuntime } from "@effect/platform-node"
+import { NodeRuntime } from "@effect/platform-node"
 import { Cause, Console, Effect, Layer, Stream } from "effect"
 import * as ChildProcess from "effect/unstable/process/ChildProcess"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 
 import { AppConfig } from "./config/AppConfig.js"
-import { runHttpServer } from "./http/HttpServer.js"
+import { HttpServerLive, runHttpServer } from "./http/HttpServer.js"
 import { MainLayer } from "./live/MainLayer.js"
 import { startObservability, withObservability } from "./observability/index.js"
 import { CupsClient } from "./services/CupsClient.js"
@@ -24,7 +24,7 @@ const logProcessStartup = (
   console.log(`[startup] ${message} (${Date.now() - startedAt}ms)`)
 }
 
-loadAppEnv()
+await loadAppEnv()
 logProcessStartup("app environment loaded")
 
 const observabilityStartedAt = Date.now()
@@ -183,13 +183,19 @@ const program = Effect.scoped(
   }),
 )
 
-const runtimeLayer = MainLayer.pipe(
-  Layer.provide(NodeFileSystem.layer),
-  Layer.provide(NodePath.layer),
+const runtimeLayer = Layer.merge(
+  MainLayer,
+  HttpServerLive.pipe(Layer.provide(AppConfig.layer)),
 )
 
-program.pipe(
-  withObservability,
-  Effect.provide(runtimeLayer),
-  NodeRuntime.runMain,
+const main = Effect.scoped(
+  Effect.gen(function* () {
+    const services = yield* Layer.build(runtimeLayer)
+    return yield* program.pipe(
+      withObservability,
+      Effect.provideServices(services),
+    )
+  }),
 )
+
+NodeRuntime.runMain(main)

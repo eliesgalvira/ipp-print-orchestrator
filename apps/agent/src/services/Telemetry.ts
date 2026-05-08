@@ -11,4 +11,4 @@ export class Telemetry extends ServiceMap.Service<
       event: WideEvent,
     ) => Effect.Effect<void, TelemetryUnavailable>
   }
->()("@ipp/agent/Telemetry") {}
+>()("@ipp/agent/services/Telemetry") {}

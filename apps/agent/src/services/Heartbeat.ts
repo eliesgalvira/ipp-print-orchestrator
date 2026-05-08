@@ -17,4 +17,4 @@ export class Heartbeat extends ServiceMap.Service<
     readonly beat: () => Effect.Effect<HeartbeatSnapshot, OperationalError>
     readonly lastSuccess: () => Effect.Effect<string | null>
   }
->()("@ipp/agent/Heartbeat") {}
+>()("@ipp/agent/services/Heartbeat") {}

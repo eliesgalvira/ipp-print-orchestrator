@@ -6,17 +6,21 @@ import { describe, expect, it } from "@effect/vitest"
 
 import { loadAppEnv, loadAppEnvFromFiles } from "./loadAppEnv.js"
 
-const withCwd = (cwd: string, run: () => void) => {
+const withCwd = async (cwd: string, run: () => Promise<void>) => {
   const previousCwd = process.cwd()
   process.chdir(cwd)
   try {
-    run()
+    await run()
   } finally {
     process.chdir(previousCwd)
   }
 }
 
-const withEnv = (key: string, value: string | undefined, run: () => void) => {
+const withEnv = async (
+  key: string,
+  value: string | undefined,
+  run: () => Promise<void>,
+) => {
   const previousValue = process.env[key]
   if (value === undefined) {
     delete process.env[key]
@@ -25,7 +29,7 @@ const withEnv = (key: string, value: string | undefined, run: () => void) => {
   }
 
   try {
-    run()
+    await run()
   } finally {
     if (previousValue === undefined) {
       delete process.env[key]
@@ -36,7 +40,7 @@ const withEnv = (key: string, value: string | undefined, run: () => void) => {
 }
 
 describe("loadAppEnv", () => {
-  it("keeps values from earlier env files when later files define the same key", () => {
+  it("keeps values from earlier env files when later files define the same key", async () => {
     const tempDir = mkdtempSync(join(tmpdir(), "ipp-env-"))
     try {
       const systemEnv = join(tempDir, "system.env")
@@ -45,7 +49,7 @@ describe("loadAppEnv", () => {
       writeFileSync(repoEnv, "IPP_ORCH_PRINTER_NAME=printer\n")
 
       const env: NodeJS.ProcessEnv = {}
-      loadAppEnvFromFiles([systemEnv, repoEnv], env)
+      await loadAppEnvFromFiles([systemEnv, repoEnv], env)
 
       expect(env.IPP_ORCH_PRINTER_NAME).toBe("HP135a")
     } finally {
@@ -53,7 +57,7 @@ describe("loadAppEnv", () => {
     }
   })
 
-  it("does not let repo .env override shell-defined values", () => {
+  it("does not let repo .env override shell-defined values", async () => {
     const tempDir = mkdtempSync(join(tmpdir(), "ipp-env-"))
     try {
       writeFileSync(
@@ -61,9 +65,9 @@ describe("loadAppEnv", () => {
         "IPP_ORCH_PRINTER_NAME=from-dotenv\n",
       )
 
-      withCwd(tempDir, () =>
-        withEnv("IPP_ORCH_PRINTER_NAME", "from-shell", () => {
-          loadAppEnv()
+      await withCwd(tempDir, () =>
+        withEnv("IPP_ORCH_PRINTER_NAME", "from-shell", async () => {
+          await loadAppEnv()
           expect(process.env.IPP_ORCH_PRINTER_NAME).toBe("from-shell")
         }),
       )

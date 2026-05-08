@@ -20,4 +20,4 @@ export class Reconciler extends ServiceMap.Service<
       StartupRecoveryFailed
     >
   }
->()("@ipp/agent/Reconciler") {}
+>()("@ipp/agent/services/Reconciler") {}

@@ -15,4 +15,4 @@ export class EventSink extends ServiceMap.Service<
       EventSinkUnavailable
     >
   }
->()("@ipp/agent/EventSink") {}
+>()("@ipp/agent/services/EventSink") {}

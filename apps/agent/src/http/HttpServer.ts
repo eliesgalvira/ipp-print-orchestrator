@@ -8,7 +8,7 @@ import * as HttpServer from "effect/unstable/http/HttpServer"
 import { AppConfig } from "../config/AppConfig.js"
 import { HttpRoutes } from "./Routes.js"
 
-const ServerLive = Layer.unwrap(
+export const HttpServerLive = Layer.unwrap(
   Effect.gen(function* () {
     const config = yield* AppConfig
     return NodeHttpServer.layer(createServer, {
@@ -25,9 +25,8 @@ export const HttpLive = Layer.effectDiscard(
         Effect.andThen(Effect.never),
       ),
     ),
-    Effect.provide(ServerLive),
   ),
-)
+).pipe(Layer.provide(HttpServerLive))
 
 export const runHttpServer = HttpRouter.toHttpEffect(HttpRoutes).pipe(
   Effect.flatMap((httpApp) =>
@@ -41,5 +40,4 @@ export const runHttpServer = HttpRouter.toHttpEffect(HttpRoutes).pipe(
       ),
     ),
   ),
-  Effect.provide(ServerLive),
 )

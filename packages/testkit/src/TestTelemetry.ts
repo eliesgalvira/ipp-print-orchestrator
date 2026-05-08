@@ -13,7 +13,7 @@ export const layer = (options?: { readonly failAlways?: boolean }) =>
       const emit = (event: WideEvent) =>
         Ref.update(ref, (events) => [...events, event]).pipe(
           Effect.andThen(
-            options?.failAlways
+            options?.failAlways === true
               ? Effect.fail(
                   new TelemetryUnavailable({
                     message: "telemetry sink unavailable",

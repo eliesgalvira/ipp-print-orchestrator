@@ -6,4 +6,4 @@ export class CupsEventStream extends ServiceMap.Service<
   {
     readonly run: () => Effect.Effect<never>
   }
->()("@ipp/agent/CupsEventStream") {}
+>()("@ipp/agent/services/CupsEventStream") {}

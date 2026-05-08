@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto"
-import { NodeFileSystem, NodePath, NodeRuntime } from "@effect/platform-node"
+import { NodeRuntime } from "@effect/platform-node"
 import { Console, Effect, Layer } from "effect"
 import * as FileSystem from "effect/FileSystem"
 import { JobId } from "../domain/JobId.js"
@@ -11,7 +11,7 @@ import {
 import { Orchestrator } from "../services/Orchestrator.js"
 import { loadAppEnv } from "../util/loadAppEnv.js"
 
-loadAppEnv()
+await loadAppEnv()
 await startObservability()
 
 const mimeFromFileName = (fileName: string): string => {
@@ -46,15 +46,14 @@ const program = Effect.gen(function* () {
   yield* Console.log(`queued print job ${String(job.id)} in state ${job.state}`)
 })
 
-const appLayer = MainLayer.pipe(
-  Layer.provide(NodeFileSystem.layer),
-  Layer.provide(NodePath.layer),
+const main = Effect.scoped(
+  Effect.gen(function* () {
+    const services = yield* Layer.build(MainLayer)
+    return yield* program.pipe(
+      withObservability,
+      Effect.provideServices(services),
+    )
+  }),
 )
 
-const runtimeLayer = Layer.mergeAll(NodeFileSystem.layer, appLayer)
-
-program.pipe(
-  withObservability,
-  Effect.provide(runtimeLayer),
-  NodeRuntime.runMain,
-)
+NodeRuntime.runMain(main)

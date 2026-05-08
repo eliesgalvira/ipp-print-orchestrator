@@ -10,4 +10,4 @@ export class QueueRuntime extends ServiceMap.Service<
     readonly take: () => Effect.Effect<JobId>
     readonly size: () => Effect.Effect<number>
   }
->()("@ipp/agent/QueueRuntime") {}
+>()("@ipp/agent/services/QueueRuntime") {}
