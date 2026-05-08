@@ -1,7 +1,6 @@
-import type { Effect } from "effect"
-import * as ServiceMap from "effect/ServiceMap"
+import { Context, type Effect } from "effect"
 
-export class CupsEventStream extends ServiceMap.Service<
+export class CupsEventStream extends Context.Service<
   CupsEventStream,
   {
     readonly run: () => Effect.Effect<never>

@@ -1,6 +1,6 @@
 import { NodeHttpServer } from "@effect/platform-node"
 import { describe, expect, it } from "@effect/vitest"
-import { Effect, Layer, Schema } from "effect"
+import { Effect, Layer, Schema, Stream } from "effect"
 import * as HttpClient from "effect/unstable/http/HttpClient"
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
 import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
@@ -58,6 +58,12 @@ const apiLayer = Layer.merge(
   HeartbeatLive.pipe(Layer.provide(statusTestLayer)),
 )
 
+const bodyJsonWithoutContentLength = (body: unknown) =>
+  HttpClientRequest.bodyStream(
+    Stream.make(new TextEncoder().encode(JSON.stringify(body))),
+    { contentType: "application/json" },
+  )
+
 describe("HttpRoutes", () => {
   it.effect("supports health, status, submit, and get job", () =>
     Effect.gen(function* () {
@@ -70,7 +76,7 @@ describe("HttpRoutes", () => {
       expect(health.ok).toBe(true)
 
       const submit = yield* HttpClientRequest.post("/v1/jobs").pipe(
-        HttpClientRequest.bodyJsonUnsafe({
+        bodyJsonWithoutContentLength({
           fileName: "document.pdf",
           mimeType: "application/pdf",
           contentBase64: Buffer.from("hello world").toString("base64"),
@@ -104,7 +110,7 @@ describe("HttpRoutes", () => {
       yield* HttpServer.serveEffect(httpApp)
 
       const response = yield* HttpClientRequest.post("/v1/jobs").pipe(
-        HttpClientRequest.bodyJsonUnsafe({
+        bodyJsonWithoutContentLength({
           fileName: "malware.exe",
           mimeType: "application/x-msdownload",
           contentBase64: Buffer.from("oops").toString("base64"),
@@ -123,7 +129,7 @@ describe("HttpRoutes", () => {
 
       yield* HttpClient.get("/v1/health")
       const submit = yield* HttpClientRequest.post("/v1/jobs").pipe(
-        HttpClientRequest.bodyJsonUnsafe({
+        bodyJsonWithoutContentLength({
           fileName: "document.pdf",
           mimeType: "application/pdf",
           contentBase64: Buffer.from("hello world").toString("base64"),

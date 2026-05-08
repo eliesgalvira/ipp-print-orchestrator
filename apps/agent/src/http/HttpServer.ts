@@ -1,4 +1,3 @@
-import { createServer } from "node:http"
 import { NodeHttpServer } from "@effect/platform-node"
 import { Console, Effect, Layer } from "effect"
 import * as HttpMiddleware from "effect/unstable/http/HttpMiddleware"
@@ -7,6 +6,8 @@ import * as HttpServer from "effect/unstable/http/HttpServer"
 
 import { AppConfig } from "../config/AppConfig.js"
 import { HttpRoutes } from "./Routes.js"
+
+const createServer = process.getBuiltinModule("node:http").createServer
 
 export const HttpServerLive = Layer.unwrap(
   Effect.gen(function* () {

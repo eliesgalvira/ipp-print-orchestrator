@@ -1,5 +1,4 @@
-import type { Effect } from "effect"
-import * as ServiceMap from "effect/ServiceMap"
+import { Context, type Effect } from "effect"
 
 import type { OperationalError } from "../domain/Errors.js"
 
@@ -32,7 +31,7 @@ export interface StatusSnapshot {
   readonly nonterminalJobCount: number
 }
 
-export class StatusRuntime extends ServiceMap.Service<
+export class StatusRuntime extends Context.Service<
   StatusRuntime,
   {
     readonly recordObservedStatus: (

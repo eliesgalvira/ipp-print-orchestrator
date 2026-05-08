@@ -1,5 +1,4 @@
-import { Effect, Layer, Schema } from "effect"
-import * as ServiceMap from "effect/ServiceMap"
+import { Effect, Layer, Schema, Context } from "effect"
 import { parseIppMessage, serializeIppRequest } from "./codec.js"
 import {
   type IppClientError,
@@ -13,7 +12,7 @@ import type {
   IppPrinterOptions,
 } from "./model.js"
 
-export class IppClient extends ServiceMap.Service<
+export class IppClient extends Context.Service<
   IppClient,
   {
     readonly execute: (

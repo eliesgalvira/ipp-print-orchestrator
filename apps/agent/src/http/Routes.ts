@@ -140,7 +140,7 @@ export const HttpRoutes = Layer.mergeAll(
         context.requestId = requestId
         const bytes = Uint8Array.from(Buffer.from(body.contentBase64, "base64"))
         const job = yield* orchestrator.submit({
-          id: JobId.makeUnsafe(randomUUID()),
+          id: JobId.make(randomUUID()),
           requestId,
           fileName: body.fileName,
           mimeType: body.mimeType,

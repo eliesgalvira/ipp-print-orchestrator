@@ -30,7 +30,7 @@ const appConfigLayer = (dataDir: string) =>
 
 const makeJob = () =>
   new Job({
-    id: JobId.makeUnsafe("job-file-1"),
+    id: JobId.make("job-file-1"),
     requestId: "req-file-1",
     printerName: "test-printer",
     fileName: "document.pdf",
@@ -47,7 +47,7 @@ const makeEvent = () =>
     timestamp: "2026-03-09T00:00:00.000Z",
     eventName: "print.job.queued",
     requestId: "req-file-1",
-    printId: JobId.makeUnsafe("job-file-1"),
+    printId: JobId.make("job-file-1"),
     printerName: "test-printer",
     fileName: "document.pdf",
     mimeType: "application/pdf",
@@ -78,13 +78,11 @@ describe("file-backed storage", () => {
       const result = yield* Effect.gen(function* () {
         const blobStore = yield* BlobStore
         const info = yield* blobStore.putOriginal(
-          JobId.makeUnsafe("job-file-1"),
+          JobId.make("job-file-1"),
           "document.pdf",
           bytes,
         )
-        const loaded = yield* blobStore.getOriginal(
-          JobId.makeUnsafe("job-file-1"),
-        )
+        const loaded = yield* blobStore.getOriginal(JobId.make("job-file-1"))
         return { info, loaded }
       }).pipe(Effect.provide(liveLayer))
 

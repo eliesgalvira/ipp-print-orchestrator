@@ -7,6 +7,8 @@ import { CupsObserver } from "../cups-observation/CupsObserver.js"
 import { CupsClient } from "../services/CupsClient.js"
 import { PrinterProbe } from "../services/PrinterProbe.js"
 
+type PrinterProbeService = typeof PrinterProbe.Service
+
 interface ParsedUsbDeviceUri {
   readonly deviceUri: string
   readonly serial: string | null
@@ -295,18 +297,19 @@ export const PrinterProbeCliLive = Layer.effect(
       return yield* refreshUsbAttached(attached)
     })
 
-    const status = Effect.fn("PrinterProbe.status")(function* (
-      reason?: string,
-    ) {
+    const status: PrinterProbeService["status"] = Effect.fn(
+      "PrinterProbe.status",
+    )(function* (reason?: string) {
       return yield* cupsObserver.observePrinter().pipe(
         Effect.flatMap((observation) =>
           Effect.gen(function* () {
             const attached = yield* deriveAttached(observation.attached, reason)
             const configuredDeviceUri = yield* getConfiguredDeviceUri()
-            const isUsbPrinter =
+            const isUsbPrinter: boolean =
               configuredDeviceUri?.startsWith("usb://") ?? false
-            const usbMissing = isUsbPrinter && observation.attached && !attached
-            const usbPresentEvent =
+            const usbMissing: boolean =
+              isUsbPrinter && observation.attached && !attached
+            const usbPresentEvent: boolean =
               isUsbPrinter &&
               reason === "udev-usb-event" &&
               observation.attached &&

@@ -1,5 +1,5 @@
 import { NodeRuntime } from "@effect/platform-node"
-import { Console, Effect, Layer } from "effect"
+import { Console, Effect } from "effect"
 
 import { MainLayer } from "../live/MainLayer.js"
 import {
@@ -18,14 +18,7 @@ const program = Effect.gen(function* () {
   yield* Console.log(`recovered ${jobs.length} nonterminal jobs`)
 })
 
-const main = Effect.scoped(
-  Effect.gen(function* () {
-    const services = yield* Layer.build(MainLayer)
-    return yield* program.pipe(
-      withObservability,
-      Effect.provideServices(services),
-    )
-  }),
-)
+// @effect-diagnostics-next-line effect/strictEffectProvide:off
+const main = program.pipe(withObservability, Effect.provide(MainLayer))
 
 NodeRuntime.runMain(main)

@@ -15,7 +15,7 @@ import {
 
 describe("CupsClientCliLive parsers", () => {
   const job = new Job({
-    id: JobId.makeUnsafe("job-test"),
+    id: JobId.make("job-test"),
     requestId: "request-test",
     printerName: "HP135a",
     fileName: "print-test-page.pdf",

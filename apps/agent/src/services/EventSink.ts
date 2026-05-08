@@ -1,10 +1,9 @@
-import type { Effect } from "effect"
-import * as ServiceMap from "effect/ServiceMap"
+import { Context, type Effect } from "effect"
 
 import type { EventSinkUnavailable } from "../domain/Errors.js"
 import type { WideEvent } from "../domain/WideEvent.js"
 
-export class EventSink extends ServiceMap.Service<
+export class EventSink extends Context.Service<
   EventSink,
   {
     readonly append: (

@@ -21,7 +21,7 @@ describe("Orchestrator", () => {
       const queueRuntime = yield* QueueRuntime
 
       const job = yield* orchestrator.submit({
-        id: JobId.makeUnsafe("job-happy"),
+        id: JobId.make("job-happy"),
         requestId: "req-happy",
         fileName: "document.pdf",
         mimeType: "application/pdf",
@@ -65,7 +65,7 @@ describe("Orchestrator", () => {
       const eventSink = yield* EventSink
 
       const job = yield* orchestrator.submit({
-        id: JobId.makeUnsafe("job-printer"),
+        id: JobId.make("job-printer"),
         requestId: "req-printer",
         fileName: "document.pdf",
         mimeType: "application/pdf",
@@ -98,7 +98,7 @@ describe("Orchestrator", () => {
         const jobRepo = yield* JobRepo
 
         const job = yield* orchestrator.submit({
-          id: JobId.makeUnsafe("job-cups-retry"),
+          id: JobId.make("job-cups-retry"),
           requestId: "req-cups-retry",
           fileName: "document.pdf",
           mimeType: "application/pdf",
@@ -142,7 +142,7 @@ describe("Orchestrator", () => {
       const eventSink = yield* EventSink
 
       const job = yield* orchestrator.submit({
-        id: JobId.makeUnsafe("job-telemetry"),
+        id: JobId.make("job-telemetry"),
         requestId: "req-telemetry",
         fileName: "document.pdf",
         mimeType: "application/pdf",
@@ -171,7 +171,7 @@ describe("Orchestrator", () => {
       const jobRepo = yield* JobRepo
 
       const job = yield* orchestrator.submit({
-        id: JobId.makeUnsafe("job-uncertain"),
+        id: JobId.make("job-uncertain"),
         requestId: "req-uncertain",
         fileName: "document.pdf",
         mimeType: "application/pdf",
@@ -211,7 +211,7 @@ describe("Orchestrator", () => {
       const eventSink = yield* EventSink
 
       const job = yield* orchestrator.submit({
-        id: JobId.makeUnsafe("job-terminal-failure"),
+        id: JobId.make("job-terminal-failure"),
         requestId: "req-terminal-failure",
         fileName: "document.pdf",
         mimeType: "application/pdf",
@@ -245,7 +245,7 @@ describe("Orchestrator", () => {
       const orchestrator = yield* Orchestrator
 
       const job = yield* orchestrator.submit({
-        id: JobId.makeUnsafe("job-network-offline"),
+        id: JobId.make("job-network-offline"),
         requestId: "req-network-offline",
         fileName: "document.pdf",
         mimeType: "application/pdf",

@@ -1,5 +1,5 @@
 import { NodeRuntime } from "@effect/platform-node"
-import { Console, Effect, Layer, Stream } from "effect"
+import { Console, Effect, Stream } from "effect"
 import * as ChildProcess from "effect/unstable/process/ChildProcess"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 
@@ -97,14 +97,7 @@ export const workerProgram = Effect.scoped(
   }),
 )
 
-const main = Effect.scoped(
-  Effect.gen(function* () {
-    const services = yield* Layer.build(MainLayer)
-    return yield* workerProgram.pipe(
-      withObservability,
-      Effect.provideServices(services),
-    )
-  }),
-)
+// @effect-diagnostics-next-line effect/strictEffectProvide:off
+const main = workerProgram.pipe(withObservability, Effect.provide(MainLayer))
 
 NodeRuntime.runMain(main)

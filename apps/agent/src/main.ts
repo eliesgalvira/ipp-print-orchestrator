@@ -188,14 +188,7 @@ const runtimeLayer = Layer.merge(
   HttpServerLive.pipe(Layer.provide(AppConfig.layer)),
 )
 
-const main = Effect.scoped(
-  Effect.gen(function* () {
-    const services = yield* Layer.build(runtimeLayer)
-    return yield* program.pipe(
-      withObservability,
-      Effect.provideServices(services),
-    )
-  }),
-)
+// @effect-diagnostics-next-line effect/strictEffectProvide:off
+const main = program.pipe(withObservability, Effect.provide(runtimeLayer))
 
 NodeRuntime.runMain(main)

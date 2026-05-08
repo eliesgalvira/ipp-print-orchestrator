@@ -18,7 +18,7 @@ import {
   type Fiber,
   Match,
   Option,
-  type ServiceMap,
+  type Context,
 } from "effect"
 
 class OtelEffectSpan implements EffectTracer.Span {
@@ -31,7 +31,7 @@ class OtelEffectSpan implements EffectTracer.Span {
   constructor(
     readonly name: string,
     readonly parent: Option.Option<EffectTracer.AnySpan>,
-    readonly annotations: ServiceMap.ServiceMap<never>,
+    readonly annotations: Context.Context<never>,
     readonly links: Array<EffectTracer.SpanLink>,
     readonly sampled: boolean,
     readonly kind: EffectTracer.SpanKind,
