@@ -42,6 +42,22 @@ export type PdfPreflightDecision =
 const fieldPattern = (fieldName: string): RegExp =>
   new RegExp(`^${fieldName}:\\s*(.+?)\\s*$`, "im")
 
+const parseEncryptedValue = (value: string | null): boolean | null => {
+  if (value === null) {
+    return null
+  }
+
+  if (value === "no") {
+    return false
+  }
+
+  if (value === "yes" || value.startsWith("yes ")) {
+    return true
+  }
+
+  return null
+}
+
 export const parsePdfInfoSummary = (stdout: string): PdfInfoSummary => {
   const encryptedValue =
     stdout.match(fieldPattern("Encrypted"))?.[1]?.toLowerCase() ?? null
@@ -49,10 +65,7 @@ export const parsePdfInfoSummary = (stdout: string): PdfInfoSummary => {
   const pages = pagesValue === null ? null : Number.parseInt(pagesValue, 10)
 
   return {
-    encrypted:
-      encryptedValue === null
-        ? null
-        : encryptedValue === "yes" || encryptedValue.startsWith("yes "),
+    encrypted: parseEncryptedValue(encryptedValue),
     pages: pages !== null && Number.isFinite(pages) && pages > 0 ? pages : null,
   }
 }

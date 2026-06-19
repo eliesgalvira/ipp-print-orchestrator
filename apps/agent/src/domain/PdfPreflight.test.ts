@@ -83,6 +83,23 @@ Encrypted:       yes (print:yes copy:no change:no addNotes:no algorithm:AES)
     })
   })
 
+  it("rejects PDFs with unexpected encryption status values", () => {
+    expect(
+      decidePdfPreflight({
+        exitCode: 0,
+        signal: null,
+        stdout: `
+Pages:           1
+Encrypted:       unknown
+        `,
+        stderr: "",
+      }),
+    ).toMatchObject({
+      _tag: "Rejected",
+      reason: "missing-encryption-status",
+    })
+  })
+
   it("parses pdfinfo fields case-insensitively", () => {
     expect(
       parsePdfInfoSummary(`
