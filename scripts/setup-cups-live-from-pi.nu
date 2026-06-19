@@ -8,6 +8,7 @@ const HP_ULD_PPD_PATH = "/usr/share/ppd/uld-hp/HP_Laser_MFP_13x_Series.ppd"
 const CUPS_PDF_PREFLIGHT_FILTER_PATH = "/usr/lib/cups/filter/ipp-pdf-preflight-to-spl"
 const CUPS_PDF_PREFLIGHT_INSTALL_DIR = "/opt/ipp-print-orchestrator/cups-filter"
 const CUPS_PDF_PREFLIGHT_JS_PATH = "/opt/ipp-print-orchestrator/cups-filter/cups-pdf-preflight-filter.js"
+const CUPS_PDF_PREFLIGHT_PACKAGE_JSON_PATH = "/opt/ipp-print-orchestrator/cups-filter/package.json"
 const CUPS_FILTER_CACHE_DIR = "/var/cache/ipp-print-orchestrator"
 const TEMP_QUEUES = [HP135a_PWG_Test HP135a_SPLIX_Test]
 const HP_ULD_GRAYSCALE_8BIT = '*ColorModel Gray/Grayscale: "<</cupsColorSpace 0 /cupsBitsPerColor 8>>setpagedevice"'
@@ -178,11 +179,14 @@ def install-root-symlink [target: string, link_path: string]: nothing -> nothing
 def install-pdf-preflight-filter [app_dir: string]: nothing -> nothing {
   let filter_js = ($app_dir | path join "apps/agent/dist-cups-filter/cups-pdf-preflight-filter.js")
   let tmp_filter = (mktemp)
+  let tmp_package_json = (mktemp)
 
   run-required "verify bundled PDF preflight filter" ["test" "-r" $filter_js] | ignore
 
   try {
     install-root-dir $CUPS_PDF_PREFLIGHT_INSTALL_DIR
+    ['{ "type": "module" }' ""] | str join "\n" | save --force $tmp_package_json
+    install-root-file "0644" $tmp_package_json $CUPS_PDF_PREFLIGHT_PACKAGE_JSON_PATH
     install-root-file "0555" $filter_js $CUPS_PDF_PREFLIGHT_JS_PATH
     install-owned-dir "0750" "lp" "lp" $CUPS_FILTER_CACHE_DIR
 
@@ -197,10 +201,12 @@ def install-pdf-preflight-filter [app_dir: string]: nothing -> nothing {
     run-required "verify installed PDF preflight CUPS filter" ["test" "-x" $CUPS_PDF_PREFLIGHT_FILTER_PATH] | ignore
   } catch {|err|
     rm --force $tmp_filter
+    rm --force $tmp_package_json
     error make $err
   }
 
   rm --force $tmp_filter
+  rm --force $tmp_package_json
 }
 
 def ensure-hp-uld-driver []: nothing -> string {

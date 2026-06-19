@@ -3,6 +3,7 @@ import { Schema } from "effect"
 export const PdfPreflightRejectionReason = Schema.Literals([
   "encrypted",
   "pdfinfo-failed",
+  "missing-encryption-status",
   "missing-page-count",
 ])
 
@@ -92,6 +93,17 @@ export const decidePdfPreflight = (
     }
   }
 
+  if (summary.encrypted !== false) {
+    return {
+      _tag: "Rejected",
+      reason: "missing-encryption-status",
+      message:
+        "PDF encryption status could not be determined; refusing to send it to the printer",
+      ...(output.length > 0 ? { details: output } : {}),
+      summary,
+    }
+  }
+
   if (summary.pages === null) {
     return {
       _tag: "Rejected",
@@ -106,7 +118,7 @@ export const decidePdfPreflight = (
   return {
     _tag: "Accepted",
     summary: {
-      encrypted: false,
+      encrypted: summary.encrypted,
       pages: summary.pages,
     },
   }

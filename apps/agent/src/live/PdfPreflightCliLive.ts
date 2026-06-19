@@ -2,10 +2,7 @@ import { Effect, Layer } from "effect"
 import * as ChildProcess from "effect/unstable/process/ChildProcess"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 
-import {
-  PdfPreflightRejected,
-  PdfPreflightUnavailable,
-} from "../domain/Errors.js"
+import { PdfPreflightRejected } from "../domain/Errors.js"
 import {
   decidePdfPreflight,
   type PdfInfoCommandResult,
@@ -21,9 +18,17 @@ export const PdfPreflightCliLive = Layer.effect(
       filePath: string,
     ) {
       return yield* childProcessSpawner
-        .string(ChildProcess.make("pdfinfo", [filePath]), {
-          includeStderr: true,
-        })
+        .string(
+          ChildProcess.make("pdfinfo", [filePath], {
+            env: {
+              LC_ALL: "C",
+            },
+            extendEnv: true,
+          }),
+          {
+            includeStderr: true,
+          },
+        )
         .pipe(
           Effect.timeout("15 seconds"),
           Effect.map(
@@ -48,11 +53,7 @@ export const PdfPreflightCliLive = Layer.effect(
     const validate = Effect.fn("PdfPreflight.validate")(function* (
       filePath: string,
     ) {
-      const commandResult = yield* readPdfInfo(filePath).pipe(
-        Effect.mapError(
-          (error) => new PdfPreflightUnavailable({ message: String(error) }),
-        ),
-      )
+      const commandResult = yield* readPdfInfo(filePath)
       const decision = decidePdfPreflight(commandResult)
 
       if (decision._tag === "Rejected") {

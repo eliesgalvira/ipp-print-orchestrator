@@ -41,6 +41,9 @@ const ghostscriptRasterFilter =
 const splRasterFilter =
   process.env.IPP_ORCH_CUPS_RASTERTOSPL_FILTER ??
   "/usr/lib/cups/filter/rastertospl"
+const rawPdfContentType = "application/pdf"
+const cupsPdfContentType = "application/vnd.cups-pdf"
+const cupsRasterContentType = "application/vnd.cups-raster"
 
 export const parseCupsFilterInvocation = (
   args: readonly string[],
@@ -95,6 +98,10 @@ const commandOutputToString = (value: unknown): string => {
 const readPdfInfoForCups = (filePath: string): PdfInfoCommandResult => {
   const result = spawnSync("pdfinfo", [filePath], {
     encoding: "utf8",
+    env: {
+      ...process.env,
+      LC_ALL: "C",
+    },
     maxBuffer: 1024 * 1024,
     timeout: 15_000,
   })
@@ -137,21 +144,29 @@ const validatePdfForCups = (filePath: string) =>
   })
 
 const runCupsFilter = (
-  label: string,
-  command: string,
-  args: readonly string[],
-  output:
-    | { readonly _tag: "File"; readonly path: string }
-    | { readonly _tag: "Stdout" },
+  params: {
+    readonly label: string
+    readonly command: string
+    readonly args: readonly string[]
+    readonly inputContentType: string
+    readonly output:
+      | { readonly _tag: "File"; readonly path: string }
+      | { readonly _tag: "Stdout" }
+  },
 ) =>
   Effect.try({
     try: () => {
       const stdout =
-        output._tag === "Stdout" ? "inherit" : openSync(output.path, "w", 0o600)
+        params.output._tag === "Stdout"
+          ? "inherit"
+          : openSync(params.output.path, "w", 0o600)
 
       try {
-        const result = spawnSync(command, args, {
-          env: process.env,
+        const result = spawnSync(params.command, params.args, {
+          env: {
+            ...process.env,
+            CONTENT_TYPE: params.inputContentType,
+          },
           stdio: ["ignore", stdout, "pipe"],
         })
         const stderr = commandOutputToString(result.stderr)
@@ -166,7 +181,7 @@ const runCupsFilter = (
 
         if (result.status !== 0) {
           throw new Error(
-            `${label} exited with status ${result.status ?? "unknown"}`,
+            `${params.label} exited with status ${result.status ?? "unknown"}`,
           )
         }
       } finally {
@@ -177,7 +192,7 @@ const runCupsFilter = (
     },
     catch: (error) =>
       new CupsCommandFailed({
-        message: `${label} failed: ${String(error)}`,
+        message: `${params.label} failed: ${String(error)}`,
       }),
   })
 
@@ -222,24 +237,27 @@ const renderPipeline = (
     const normalizedPdfPath = join(tempDirectory, "normalized.pdf")
     const cupsRasterPath = join(tempDirectory, "document.cups-raster")
 
-    yield* runCupsFilter(
-      "pdftopdf",
-      pdfToPdfFilter,
-      cupsArgsFor(invocation, inputPath),
-      { _tag: "File", path: normalizedPdfPath },
-    )
-    yield* runCupsFilter(
-      "gstoraster",
-      ghostscriptRasterFilter,
-      cupsArgsFor(invocation, normalizedPdfPath),
-      { _tag: "File", path: cupsRasterPath },
-    )
-    yield* runCupsFilter(
-      "rastertospl",
-      splRasterFilter,
-      cupsArgsFor(invocation, cupsRasterPath),
-      { _tag: "Stdout" },
-    )
+    yield* runCupsFilter({
+      label: "pdftopdf",
+      command: pdfToPdfFilter,
+      args: cupsArgsFor(invocation, inputPath),
+      inputContentType: rawPdfContentType,
+      output: { _tag: "File", path: normalizedPdfPath },
+    })
+    yield* runCupsFilter({
+      label: "gstoraster",
+      command: ghostscriptRasterFilter,
+      args: cupsArgsFor(invocation, normalizedPdfPath),
+      inputContentType: cupsPdfContentType,
+      output: { _tag: "File", path: cupsRasterPath },
+    })
+    yield* runCupsFilter({
+      label: "rastertospl",
+      command: splRasterFilter,
+      args: cupsArgsFor(invocation, cupsRasterPath),
+      inputContentType: cupsRasterContentType,
+      output: { _tag: "Stdout" },
+    })
   })
 
 const program = Effect.gen(function* () {
