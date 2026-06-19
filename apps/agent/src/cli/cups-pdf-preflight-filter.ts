@@ -44,6 +44,22 @@ const splRasterFilter =
 const rawPdfContentType = "application/pdf"
 const cupsPdfContentType = "application/vnd.cups-pdf"
 const cupsRasterContentType = "application/vnd.cups-raster"
+const defaultCupsSubfilterTimeoutMs = 285_000
+
+const parsePositiveIntegerEnv = (name: string, fallback: number): number => {
+  const value = process.env[name]
+  if (value === undefined) {
+    return fallback
+  }
+
+  const parsed = Number.parseInt(value, 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
+
+const cupsSubfilterTimeoutMs = parsePositiveIntegerEnv(
+  "IPP_ORCH_CUPS_SUBFILTER_TIMEOUT_MS",
+  defaultCupsSubfilterTimeoutMs,
+)
 
 export const parseCupsFilterInvocation = (
   args: readonly string[],
@@ -167,6 +183,7 @@ const runCupsFilter = (
             ...process.env,
             CONTENT_TYPE: params.inputContentType,
           },
+          timeout: cupsSubfilterTimeoutMs,
           stdio: ["ignore", stdout, "pipe"],
         })
         const stderr = commandOutputToString(result.stderr)

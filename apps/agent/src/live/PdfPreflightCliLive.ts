@@ -25,9 +25,6 @@ export const PdfPreflightCliLive = Layer.effect(
             },
             extendEnv: true,
           }),
-          {
-            includeStderr: true,
-          },
         )
         .pipe(
           Effect.timeout("15 seconds"),
