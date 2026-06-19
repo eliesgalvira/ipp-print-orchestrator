@@ -189,10 +189,11 @@ def install-root-symlink [target: string, link_path: string]: nothing -> nothing
 
 def install-pdf-preflight-filter [app_dir: string]: nothing -> nothing {
   let filter_js = ($app_dir | path join "apps/agent/dist-cups-filter/cups-pdf-preflight-filter.js")
-  let tmp_filter = (mktemp)
-  let tmp_package_json = (mktemp)
 
   run-required "verify bundled PDF preflight filter" ["test" "-r" $filter_js] | ignore
+
+  let tmp_filter = (mktemp)
+  let tmp_package_json = (mktemp)
 
   try {
     install-root-dir $CUPS_PDF_PREFLIGHT_INSTALL_DIR
