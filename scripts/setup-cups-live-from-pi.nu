@@ -45,6 +45,17 @@ def shell-quote [value: string]: nothing -> string {
   "'" + (($value | into string) | str replace --all "'" "'\\''") + "'"
 }
 
+def error-message [err: any]: nothing -> string {
+  let maybe_msg = (try { $err | get -o msg } catch { null })
+  if $maybe_msg == null {
+    try { $err | to nuon } catch { "unknown error" }
+  } else if (($maybe_msg | describe) == "string") {
+    $maybe_msg
+  } else {
+    try { $maybe_msg | to nuon } catch { "unknown error" }
+  }
+}
+
 def apt-package-installed [package: string]: nothing -> bool {
   let result = (run-external "dpkg-query" "-W" "-f=${Status}" $package | complete)
   $result.exit_code == 0 and ($result.stdout | str contains "install ok installed")
@@ -202,7 +213,7 @@ def install-pdf-preflight-filter [app_dir: string]: nothing -> nothing {
   } catch {|err|
     rm --force $tmp_filter
     rm --force $tmp_package_json
-    error make {msg: $err.msg}
+    error make {msg: (error-message $err)}
   }
 
   rm --force $tmp_filter
@@ -258,7 +269,7 @@ def ensure-hp-uld-driver []: nothing -> string {
     run-required "verify HP 13x PPD" ["test" "-r" $HP_ULD_PPD_PATH] | ignore
   } catch {|err|
     rm -rf $temp_dir
-    error make {msg: $err.msg}
+    error make {msg: (error-message $err)}
   }
 
   rm -rf $temp_dir
@@ -424,6 +435,7 @@ def main [
     cups-filters-core-drivers
     ghostscript
     poppler-utils
+    nodejs
     ca-certificates
     tar
     gzip
