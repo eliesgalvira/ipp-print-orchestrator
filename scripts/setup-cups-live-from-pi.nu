@@ -202,7 +202,7 @@ def install-pdf-preflight-filter [app_dir: string]: nothing -> nothing {
   } catch {|err|
     rm --force $tmp_filter
     rm --force $tmp_package_json
-    error make $err
+    error make {msg: $err.msg}
   }
 
   rm --force $tmp_filter

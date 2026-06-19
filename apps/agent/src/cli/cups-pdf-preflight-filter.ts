@@ -6,7 +6,9 @@ import {
   createWriteStream,
   mkdtempSync,
   openSync,
+  readdirSync,
   rmSync,
+  statSync,
 } from "node:fs"
 import { tmpdir } from "node:os"
 // @effect-diagnostics-next-line effect/nodeBuiltinImport:off
@@ -59,6 +61,15 @@ const parsePositiveIntegerEnv = (name: string, fallback: number): number => {
 const cupsSubfilterTimeoutMs = parsePositiveIntegerEnv(
   "IPP_ORCH_CUPS_SUBFILTER_TIMEOUT_MS",
   defaultCupsSubfilterTimeoutMs,
+)
+const tempDirPrefix = "ipp-cups-pdf-"
+const defaultTempDirRetentionMs = 60 * 60 * 1000
+const tempDirRetentionMs = Math.max(
+  parsePositiveIntegerEnv(
+    "IPP_ORCH_CUPS_TEMP_DIR_RETENTION_MS",
+    defaultTempDirRetentionMs,
+  ),
+  cupsSubfilterTimeoutMs + 60_000,
 )
 
 export const parseCupsFilterInvocation = (
@@ -222,11 +233,36 @@ const copyStdinToFile = (targetPath: string) =>
       }),
   })
 
+const cleanupStaleTempDirs = () =>
+  Effect.sync(() => {
+    const tempRoot = tmpdir()
+    const now = Date.now()
+
+    for (const entry of readdirSync(tempRoot, { withFileTypes: true })) {
+      if (!entry.isDirectory() || !entry.name.startsWith(tempDirPrefix)) {
+        continue
+      }
+
+      const tempPath = join(tempRoot, entry.name)
+      try {
+        const ageMs = now - statSync(tempPath).mtimeMs
+        if (ageMs > tempDirRetentionMs) {
+          rmSync(tempPath, { force: true, recursive: true })
+        }
+      } catch {
+        // Best-effort cleanup only; stale temp dirs must not block a print job.
+      }
+    }
+  })
+
 const withTempDir = <A, E, R>(
   use: (directory: string) => Effect.Effect<A, E, R>,
 ) =>
   Effect.acquireRelease(
-    Effect.sync(() => mkdtempSync(join(tmpdir(), "ipp-cups-pdf-"))),
+    cleanupStaleTempDirs().pipe(
+      Effect.asVoid,
+      Effect.andThen(Effect.sync(() => mkdtempSync(join(tmpdir(), tempDirPrefix)))),
+    ),
     (directory) =>
       Effect.sync(() => rmSync(directory, { force: true, recursive: true })),
   ).pipe(Effect.flatMap(use), Effect.scoped)
