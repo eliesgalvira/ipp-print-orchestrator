@@ -26,6 +26,8 @@ def main [
   let ssh_key_path = $target.key_path
   let app_dir = (get-config $dotenv APP_DIR "/home/pi/apps/ipp-print-orchestrator")
   let remote_script = ($app_dir | path join "scripts/setup-cups-live-from-pi.nu")
+  let local_filter_bundle = ($root_dir | path join "apps/agent/dist-cups-filter/cups-pdf-preflight-filter.js")
+  let remote_filter_bundle_dir = ($app_dir | path join "apps/agent/dist-cups-filter")
   let forwarded_args = (
     []
     | append (if (has-value $printer_name) { ["--printer-name" $printer_name] } else { [] })
@@ -36,6 +38,11 @@ def main [
   )
 
   run-timed $"setup CUPS on ($pi_host)" {
+    if not $stop_only {
+      cd $root_dir
+      run-required "build CUPS PDF preflight filter bundle" ["bun" "run" "build:cups-filter"]
+    }
+
     run-required "create remote script directory" (
       (ssh-args $pi_host --key-path $ssh_key_path --batch) ++ ["mkdir" "-p" ($app_dir | path join "scripts/lib")]
     )
@@ -60,6 +67,22 @@ def main [
       ]
     )
     run-required "sync target CUPS setup libraries" $rsync_lib_command
+
+    if not $stop_only {
+      run-required "create remote CUPS filter bundle directory" (
+        (ssh-args $pi_host --key-path $ssh_key_path --batch) ++ ["mkdir" "-p" $remote_filter_bundle_dir]
+      )
+
+      let rsync_filter_bundle_command = (
+        (rsync-args --key-path $ssh_key_path --batch)
+        ++ [
+          "-az"
+          $local_filter_bundle
+          $"($pi_host):($remote_filter_bundle_dir)/"
+        ]
+      )
+      run-required "sync CUPS PDF preflight filter bundle" $rsync_filter_bundle_command
+    }
 
     run-ssh $pi_host (["nu" "--no-config-file" $remote_script] ++ $forwarded_args) --key-path $ssh_key_path --batch
   }
