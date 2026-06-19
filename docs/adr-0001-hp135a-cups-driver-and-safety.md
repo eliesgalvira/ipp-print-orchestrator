@@ -33,6 +33,12 @@ Observed failures during diagnosis:
 - Ad hoc `lp` test commands caused dangerous behavior because they did not
   match the phone/orchestrator IPP shape and could trigger repeated or malformed
   output.
+- On 2026-06-19, Android submitted multiple direct IPP `Print-Job` requests for
+  PDFs after warning that an encrypted/protected file could not be printed. CUPS
+  accepted the jobs, emitted PDF parser warnings for several inputs, and the
+  USB printer interface repeatedly detached/reappeared while the printer emitted
+  bad pages. The default no-retention CUPS configuration removed the job files
+  before forensic inspection.
 
 ## Decision
 
@@ -52,16 +58,22 @@ Patch the HP PPD conservatively:
   `HWResolution[600 600]` to `HWResolution[300 300]`.
 - Keep the driver's existing `Quality 600dpi` option name for compatibility with
   CUPS defaults, but render that default at 300x300.
+- Add a queue-specific `application/pdf` CUPS filter named
+  `ipp-pdf-preflight-to-spl`. It preflights the original PDF with `pdfinfo`,
+  rejects encrypted/protected or unreadable PDFs, then invokes the existing
+  `pdftopdf -> gstoraster -> rastertospl` pipeline for accepted PDFs.
 
 Configure CUPS defensively:
 
 - `ErrorPolicy=stop-printer`
 - `JobRetryLimit=0`
 - `JobRetryInterval=0`
+- `MaxJobs=20`
 - `MaxJobsPerPrinter=1`
 - `MaxJobTime=300`
-- `PreserveJobFiles=No`
-- `PreserveJobHistory=No`
+- `PreserveJobFiles=86400`
+- `PreserveJobHistory=86400`
+- `AutoPurgeJobs=Yes`
 - `JobKillDelay=5`
 
 The setup script is responsible for installing the driver, patching the PPD,
@@ -81,9 +93,17 @@ The live queue should render through:
 PDF -> pdftopdf -> gstoraster -> CUPS raster, 300x300, 8-bit grayscale -> rastertospl -> SPL/QPDL -> USB printer
 ```
 
+For PDF jobs, that pipeline is now enclosed by `ipp-pdf-preflight-to-spl`, so
+the HP/Samsung driver never receives PDFs that the local preflight cannot
+classify as readable and unencrypted.
+
 This reduces payload size for scanned/image-heavy pages while preserving the
 raster format expected by `rastertospl`. It also prevents CUPS from retrying a
 bad job repeatedly if the backend or printer errors.
+
+Preserving job files for one day increases local forensic capability after a
+printer incident. The tradeoff is that recent documents may remain under the
+root-owned CUPS spool for up to 86400 seconds; this is intentional but bounded.
 
 Image quality may be lower than true 600x600 grayscale, but the priority for
 this printer is reliable monochrome document output without runaway pages or
@@ -115,8 +135,9 @@ After applying the accepted setup:
 
 - The live PPD contained `cupsBitsPerColor 8`.
 - The live PPD contained `HWResolution[300 300]` for the standard quality path.
+- The live PPD contained the `ipp-pdf-preflight-to-spl` PDF filter.
 - The queue was idle, enabled, accepting, and shared.
-- The CUPS spool was empty.
+- The CUPS spool was empty before validation.
 - A no-print `cupsfilter` conversion using the installed PPD called Ghostscript
   with `-r300x300 -dcupsBitsPerColor=8`.
 - `rastertospl` exited cleanly during that no-print conversion.

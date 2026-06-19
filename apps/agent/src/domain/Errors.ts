@@ -1,5 +1,7 @@
 import { Schema } from "effect"
 
+import { PdfPreflightRejectionReason } from "./PdfPreflight.js"
+
 class ValidationError extends Schema.TaggedErrorClass<ValidationError>()(
   "ValidationError",
   {
@@ -126,6 +128,22 @@ class UnsupportedFileType extends Schema.TaggedErrorClass<UnsupportedFileType>()
   },
 ) {}
 
+class PdfPreflightRejected extends Schema.TaggedErrorClass<PdfPreflightRejected>()(
+  "PdfPreflightRejected",
+  {
+    reason: PdfPreflightRejectionReason,
+    message: Schema.String,
+    details: Schema.optional(Schema.String),
+  },
+) {}
+
+class PdfPreflightUnavailable extends Schema.TaggedErrorClass<PdfPreflightUnavailable>()(
+  "PdfPreflightUnavailable",
+  {
+    message: Schema.String,
+  },
+) {}
+
 export {
   BlobStoreDiskFull,
   BlobStoreUnavailable,
@@ -138,6 +156,8 @@ export {
   EventSinkUnavailable,
   JobRepoUnavailable,
   NetworkOffline,
+  PdfPreflightRejected,
+  PdfPreflightUnavailable,
   PrinterNotReady,
   PrinterUsbDetached,
   StartupRecoveryFailed,
@@ -162,6 +182,8 @@ export const OperationalError = Schema.Union([
   PrinterUsbDetached,
   PrinterNotReady,
   NetworkOffline,
+  PdfPreflightRejected,
+  PdfPreflightUnavailable,
   TelemetryUnavailable,
   SubmissionUncertainError,
   StartupRecoveryFailed,
