@@ -1,5 +1,6 @@
 #!/usr/bin/env nu
 
+use lib/avahi.nu [advertised-host ensure-avahi-ready]
 use lib/env.nu [get-config has-value load-dotenv]
 use lib/repo.nu repo-root
 
@@ -221,106 +222,6 @@ def non-empty-unique-strings [values: list<string>]: nothing -> list<string> {
   | uniq
 }
 
-def busctl-avahi-string [method: string]: nothing -> string {
-  let result = (
-    run-external
-      "busctl"
-      "--json=short"
-      "call"
-      "org.freedesktop.Avahi"
-      "/"
-      "org.freedesktop.Avahi.Server"
-      $method
-    | complete
-  )
-
-  if $result.exit_code != 0 {
-    error make {msg: $"Avahi D-Bus method ($method) failed: ($result.stderr | str trim)"}
-  }
-
-  let parsed = (try {
-      $result.stdout | from json
-    } catch {|err|
-      error make {msg: $"Avahi D-Bus method ($method) returned invalid JSON: (error-message $err)"}
-    })
-  let value = (try {
-      $parsed | get data | get 0
-    } catch {|err|
-      error make {msg: $"Avahi D-Bus method ($method) did not return a string payload: (error-message $err)"}
-    })
-
-  if (($value | describe) != "string") {
-    error make {msg: $"Avahi D-Bus method ($method) returned non-string payload: ($value | to nuon)"}
-  }
-
-  $value
-}
-
-def busctl-avahi-string-arg [method: string, argument: string]: nothing -> string {
-  let result = (
-    run-external
-      "busctl"
-      "--json=short"
-      "call"
-      "org.freedesktop.Avahi"
-      "/"
-      "org.freedesktop.Avahi.Server"
-      $method
-      "s"
-      $argument
-    | complete
-  )
-
-  if $result.exit_code != 0 {
-    error make {msg: $"Avahi D-Bus method ($method) failed for ($argument): ($result.stderr | str trim)"}
-  }
-
-  let parsed = (try {
-      $result.stdout | from json
-    } catch {|err|
-      error make {msg: $"Avahi D-Bus method ($method) returned invalid JSON for ($argument): (error-message $err)"}
-    })
-  let value = (try {
-      $parsed | get data | get 0
-    } catch {|err|
-      error make {msg: $"Avahi D-Bus method ($method) did not return a string payload for ($argument): (error-message $err)"}
-    })
-
-  if (($value | describe) != "string") {
-    error make {msg: $"Avahi D-Bus method ($method) returned non-string payload for ($argument): ($value | to nuon)"}
-  }
-
-  $value
-}
-
-def ensure-avahi-running []: nothing -> nothing {
-  run-required "refresh Avahi daemon for mDNS hostname discovery" ["sudo" "systemctl" "restart" "avahi-daemon.service"] | ignore
-
-  for attempt in 1..10 {
-    let result = (
-      run-external
-        "busctl"
-        "--json=short"
-        "call"
-        "org.freedesktop.Avahi"
-        "/"
-        "org.freedesktop.Avahi.Server"
-        "GetHostNameFqdn"
-      | complete
-    )
-
-    if $result.exit_code == 0 {
-      return
-    }
-
-    if $attempt == 10 {
-      error make {msg: $"Avahi did not become ready on D-Bus: ($result.stderr | str trim)"}
-    }
-
-    sleep 1sec
-  }
-}
-
 def local-ip-addresses []: nothing -> list<string> {
   run-required "detect local IP addresses" ["hostname" "-I"]
   | split row " "
@@ -367,20 +268,16 @@ def cups-tls-openssl-config [
 }
 
 def install-cups-tls-certificate []: nothing -> record {
-  ensure-avahi-running
+  ensure-avahi-ready
 
   let system_hostname = (run-required "detect system hostname" ["hostname"] | str trim)
-  let avahi_hostname = (busctl-avahi-string "GetHostName" | str trim)
-  let avahi_fqdn = (busctl-avahi-string "GetHostNameFqdn" | str trim | str replace --regex "\\.$" "")
-  let avahi_alternative_hostname = (busctl-avahi-string-arg "GetAlternativeHostName" $system_hostname | str trim)
+  let avahi_host = (advertised-host)
   let dns_names = (non-empty-unique-strings [
     $system_hostname
     $"($system_hostname).local"
-    $avahi_hostname
-    $"($avahi_hostname).local"
-    $avahi_fqdn
-    $avahi_alternative_hostname
-    $"($avahi_alternative_hostname).local"
+    $avahi_host.hostname
+    $"($avahi_host.hostname).local"
+    $avahi_host.fqdn
     "localhost"
   ])
   let ip_addresses = (local-ip-addresses)
@@ -431,8 +328,8 @@ def install-cups-tls-certificate []: nothing -> record {
 
   {
     system_hostname: $system_hostname
-    avahi_hostname: $avahi_hostname
-    avahi_fqdn: $avahi_fqdn
+    avahi_hostname: $avahi_host.hostname
+    avahi_fqdn: $avahi_host.fqdn
     dns_names: $dns_names
     ip_addresses: $ip_addresses
     cert_path: $target_cert_path
@@ -827,6 +724,7 @@ def main [
     print $"Configured and enabled shared CUPS queue ($queue_name) with ($selected_driver.value)."
     print "No test page was printed."
   } else {
+    # Safe setup mode stops CUPS, so TLS verification waits for --enable-printing or --repair-tls-only.
     final-safe-stop $queue_name
     print $"Configured queue ($queue_name) with ($selected_driver.value), then left CUPS stopped, disabled, unshared, and rejecting jobs."
     print "No test page was printed. Re-run with --enable-printing only when you are ready to expose the queue."

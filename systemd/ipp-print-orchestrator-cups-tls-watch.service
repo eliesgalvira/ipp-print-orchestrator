@@ -1,0 +1,16 @@
+[Unit]
+Description=Watch Avahi hostname and repair CUPS TLS identity
+After=network-online.target avahi-daemon.service cups.service
+Wants=network-online.target avahi-daemon.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/pi/apps/ipp-print-orchestrator
+ExecStart=/usr/bin/nu --no-config-file /home/pi/apps/ipp-print-orchestrator/scripts/watch-cups-tls-identity-from-pi.nu
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

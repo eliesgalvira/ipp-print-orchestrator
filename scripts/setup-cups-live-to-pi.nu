@@ -72,6 +72,7 @@ def main [
       (rsync-args --key-path $ssh_key_path --batch)
       ++ [
         "-az"
+        ($root_dir | path join "scripts/lib/avahi.nu")
         ($root_dir | path join "scripts/lib/env.nu")
         ($root_dir | path join "scripts/lib/repo.nu")
         $"($pi_host):($app_dir)/scripts/lib/"

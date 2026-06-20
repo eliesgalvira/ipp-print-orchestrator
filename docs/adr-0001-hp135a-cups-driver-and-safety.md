@@ -82,10 +82,11 @@ Own the TLS identity used by Android and other IPP clients:
 - Generate a CUPS self-signed server certificate whose SANs include the static
   system hostname, the current Avahi hostname/FQDN, `localhost`, and local IP
   addresses.
-- Verify the advertised mDNS hostname and primary IPv4 address after enabling
-  the queue.
+- Verify every generated DNS/IP SAN after enabling the queue.
 - Provide a `--repair-tls-only` setup path that can refresh the certificate and
   restart CUPS without clearing the spool or reconfiguring the queue.
+- Run a small systemd watcher that records Avahi's current advertised FQDN and
+  reruns `--repair-tls-only` whenever that FQDN changes.
 
 The setup script is responsible for installing the driver, patching the PPD,
 configuring the queue, and clearing the spool. By default it leaves CUPS stopped,

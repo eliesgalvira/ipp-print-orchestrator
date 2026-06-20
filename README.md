@@ -370,6 +370,11 @@ This refreshes the CUPS server certificate so its SANs match the currently
 advertised Avahi/mDNS hostname and local IP addresses, restarts CUPS if it was
 already running, and performs no physical print.
 
+The `ipp-print-orchestrator-cups-tls-watch.service` systemd unit keeps that
+invariant current after installation. It records Avahi's advertised FQDN under
+`/run/ipp-print-orchestrator/` and reruns the TLS repair path if Avahi changes
+the advertised host name.
+
 Do not validate this printer with ad hoc local `lp` commands that force
 `page-ranges` or `print-scaling=fit`. Android's working path submits a single
 IPP `Print-Job` with the PDF document attached to the request and uses
