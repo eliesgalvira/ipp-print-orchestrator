@@ -14,7 +14,7 @@ import { tmpdir } from "node:os"
 // @effect-diagnostics-next-line effect/nodeBuiltinImport:off
 import { join } from "node:path"
 import { pipeline } from "node:stream/promises"
-import { Effect, Schema } from "effect"
+import { Cause, Effect, Schema } from "effect"
 
 import {
   CupsCommandFailed,
@@ -47,6 +47,7 @@ const rawPdfContentType = "application/pdf"
 const cupsPdfContentType = "application/vnd.cups-pdf"
 const cupsRasterContentType = "application/vnd.cups-raster"
 const defaultCupsSubfilterTimeoutMs = 285_000
+const defaultCupsSubfilterStderrMaxBufferBytes = 8 * 1024 * 1024
 
 const parsePositiveIntegerEnv = (name: string, fallback: number): number => {
   const value = process.env[name]
@@ -61,6 +62,10 @@ const parsePositiveIntegerEnv = (name: string, fallback: number): number => {
 const cupsSubfilterTimeoutMs = parsePositiveIntegerEnv(
   "IPP_ORCH_CUPS_SUBFILTER_TIMEOUT_MS",
   defaultCupsSubfilterTimeoutMs,
+)
+const cupsSubfilterStderrMaxBufferBytes = parsePositiveIntegerEnv(
+  "IPP_ORCH_CUPS_SUBFILTER_STDERR_MAX_BUFFER_BYTES",
+  defaultCupsSubfilterStderrMaxBufferBytes,
 )
 const tempDirPrefix = "ipp-cups-pdf-"
 const defaultTempDirRetentionMs = 60 * 60 * 1000
@@ -104,7 +109,15 @@ export const parseCupsFilterInvocation = (
 
 const writeCupsStderr = (level: "ERROR" | "INFO" | "STATE", message: string) =>
   Effect.sync(() => {
-    process.stderr.write(`${level}: ${message}\n`)
+    const lines = message.split(/\r?\n/)
+    const linesToWrite =
+      lines.length > 1 && lines[lines.length - 1] === ""
+        ? lines.slice(0, -1)
+        : lines
+
+    for (const line of linesToWrite.length === 0 ? [""] : linesToWrite) {
+      process.stderr.write(`${level}: ${line}\n`)
+    }
   })
 
 const cupsArgsFor = (
@@ -201,6 +214,7 @@ const runCupsFilter = (
             ...process.env,
             CONTENT_TYPE: params.inputContentType,
           },
+          maxBuffer: cupsSubfilterStderrMaxBufferBytes,
           timeout: cupsSubfilterTimeoutMs,
           stdio: ["ignore", stdout, "pipe"],
         })
@@ -384,12 +398,22 @@ const reportFailure = (
     process.exitCode = 1
   })
 
+const reportUnexpectedFailure = (cause: Cause.Cause<unknown>) =>
+  Effect.gen(function* () {
+    yield* writeCupsStderr(
+      "ERROR",
+      `Unexpected CUPS filter failure: ${Cause.pretty(cause)}`,
+    )
+    process.exitCode = 1
+  })
+
 const main = program.pipe(
   Effect.catchTags({
     CupsCommandFailed: reportFailure,
     PdfPreflightRejected: reportFailure,
     ValidationError: reportFailure,
   }),
+  Effect.catchCause(reportUnexpectedFailure),
 )
 
 await Effect.runPromise(main)
