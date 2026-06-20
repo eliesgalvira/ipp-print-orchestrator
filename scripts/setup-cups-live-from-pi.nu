@@ -10,6 +10,8 @@ const CUPS_PDF_PREFLIGHT_INSTALL_DIR = "/opt/ipp-print-orchestrator/cups-filter"
 const CUPS_PDF_PREFLIGHT_JS_PATH = "/opt/ipp-print-orchestrator/cups-filter/cups-pdf-preflight-filter.js"
 const CUPS_PDF_PREFLIGHT_PACKAGE_JSON_PATH = "/opt/ipp-print-orchestrator/cups-filter/package.json"
 const CUPS_FILTER_CACHE_DIR = "/var/cache/ipp-print-orchestrator"
+const CUPS_SSL_DIR = "/etc/cups/ssl"
+const CUPS_TLS_CERT_DAYS = "3650"
 const TEMP_QUEUES = [HP135a_PWG_Test HP135a_SPLIX_Test]
 const HP_ULD_GRAYSCALE_8BIT = '*ColorModel Gray/Grayscale: "<</cupsColorSpace 0 /cupsBitsPerColor 8>>setpagedevice"'
 const HP_ULD_RASTER_FILTER = '*cupsFilter:  "application/vnd.cups-raster 0 rastertospl"'
@@ -210,6 +212,249 @@ def install-owned-dir [mode: string, owner: string, group: string, path: string]
 
 def install-root-symlink [target: string, link_path: string]: nothing -> nothing {
   run-required $"link ($link_path)" ["sudo" "ln" "-sf" $target $link_path] | ignore
+}
+
+def non-empty-unique-strings [values: list<string>]: nothing -> list<string> {
+  $values
+  | each {|value| $value | str trim | str replace --regex "\\.$" ""}
+  | where {|value| ($value | str length) > 0}
+  | uniq
+}
+
+def busctl-avahi-string [method: string]: nothing -> string {
+  let result = (
+    run-external
+      "busctl"
+      "--json=short"
+      "call"
+      "org.freedesktop.Avahi"
+      "/"
+      "org.freedesktop.Avahi.Server"
+      $method
+    | complete
+  )
+
+  if $result.exit_code != 0 {
+    error make {msg: $"Avahi D-Bus method ($method) failed: ($result.stderr | str trim)"}
+  }
+
+  let parsed = (try {
+      $result.stdout | from json
+    } catch {|err|
+      error make {msg: $"Avahi D-Bus method ($method) returned invalid JSON: (error-message $err)"}
+    })
+  let value = (try {
+      $parsed | get data | get 0
+    } catch {|err|
+      error make {msg: $"Avahi D-Bus method ($method) did not return a string payload: (error-message $err)"}
+    })
+
+  if (($value | describe) != "string") {
+    error make {msg: $"Avahi D-Bus method ($method) returned non-string payload: ($value | to nuon)"}
+  }
+
+  $value
+}
+
+def ensure-avahi-running []: nothing -> nothing {
+  run-required "start Avahi daemon for mDNS hostname discovery" ["sudo" "systemctl" "start" "avahi-daemon.service"] | ignore
+
+  for attempt in 1..10 {
+    let result = (
+      run-external
+        "busctl"
+        "--json=short"
+        "call"
+        "org.freedesktop.Avahi"
+        "/"
+        "org.freedesktop.Avahi.Server"
+        "GetHostNameFqdn"
+      | complete
+    )
+
+    if $result.exit_code == 0 {
+      return
+    }
+
+    if $attempt == 10 {
+      error make {msg: $"Avahi did not become ready on D-Bus: ($result.stderr | str trim)"}
+    }
+
+    sleep 1sec
+  }
+}
+
+def local-ip-addresses []: nothing -> list<string> {
+  run-required "detect local IP addresses" ["hostname" "-I"]
+  | split row " "
+  | each {|value| $value | str trim}
+  | where {|value| ($value | str length) > 0}
+  | where {|value| $value != "::1" and not ($value | str starts-with "127.")}
+  | uniq
+}
+
+def indexed-alt-name-lines [kind: string, values: list<string>]: nothing -> list<string> {
+  $values
+  | enumerate
+  | each {|entry| $"($kind).($entry.index + 1) = ($entry.item)"}
+}
+
+def cups-tls-openssl-config [
+  common_name: string
+  dns_names: list<string>
+  ip_addresses: list<string>
+]: nothing -> string {
+  [
+    "[req]"
+    "prompt = no"
+    "distinguished_name = dn"
+    "x509_extensions = v3_req"
+    ""
+    "[dn]"
+    "C = GB"
+    $"CN = ($common_name)"
+    $"O = ($common_name)"
+    "OU = ipp-print-orchestrator"
+    ""
+    "[v3_req]"
+    "basicConstraints = critical,CA:false"
+    "keyUsage = critical,digitalSignature,keyEncipherment"
+    "extendedKeyUsage = serverAuth"
+    "subjectAltName = @alt_names"
+    ""
+    "[alt_names]"
+  ]
+  | append (indexed-alt-name-lines "DNS" $dns_names)
+  | append (indexed-alt-name-lines "IP" $ip_addresses)
+  | str join "\n"
+}
+
+def install-cups-tls-certificate []: nothing -> record {
+  ensure-avahi-running
+
+  let system_hostname = (run-required "detect system hostname" ["hostname"] | str trim)
+  let avahi_hostname = (busctl-avahi-string "GetHostName" | str trim)
+  let avahi_fqdn = (busctl-avahi-string "GetHostNameFqdn" | str trim | str replace --regex "\\.$" "")
+  let dns_names = (non-empty-unique-strings [
+    $system_hostname
+    $"($system_hostname).local"
+    $avahi_hostname
+    $"($avahi_hostname).local"
+    $avahi_fqdn
+    "localhost"
+  ])
+  let ip_addresses = (local-ip-addresses)
+  let tmp_dir = (mktemp -d)
+  let config_path = ($tmp_dir | path join "cups-tls.cnf")
+  let cert_path = ($tmp_dir | path join "cups.crt")
+  let key_path = ($tmp_dir | path join "cups.key")
+  let target_cert_path = ($CUPS_SSL_DIR | path join $"($system_hostname).crt")
+  let target_key_path = ($CUPS_SSL_DIR | path join $"($system_hostname).key")
+
+  try {
+    install-root-dir $CUPS_SSL_DIR
+    cups-tls-openssl-config $system_hostname $dns_names $ip_addresses | save --force $config_path
+
+    run-required "generate CUPS TLS certificate" [
+      "openssl"
+      "req"
+      "-x509"
+      "-newkey"
+      "rsa:2048"
+      "-sha256"
+      "-days"
+      $CUPS_TLS_CERT_DAYS
+      "-nodes"
+      "-keyout"
+      $key_path
+      "-out"
+      $cert_path
+      "-config"
+      $config_path
+      "-extensions"
+      "v3_req"
+    ] | ignore
+
+    install-root-file "0644" $cert_path $target_cert_path
+    install-root-file "0600" $key_path $target_key_path
+  } catch {|err|
+    rm -rf $tmp_dir
+    error make {msg: (error-message $err)}
+  }
+
+  rm -rf $tmp_dir
+
+  print $"Installed CUPS TLS certificate ($target_cert_path) for DNS names: ($dns_names | str join ', ')"
+  if not ($ip_addresses | is-empty) {
+    print $"Installed CUPS TLS certificate IP SANs: ($ip_addresses | str join ', ')"
+  }
+
+  {
+    system_hostname: $system_hostname
+    avahi_hostname: $avahi_hostname
+    avahi_fqdn: $avahi_fqdn
+    dns_names: $dns_names
+    ip_addresses: $ip_addresses
+    cert_path: $target_cert_path
+    key_path: $target_key_path
+  }
+}
+
+def systemd-service-active [service: string]: nothing -> bool {
+  let result = (run-external "systemctl" "is-active" "--quiet" $service | complete)
+  $result.exit_code == 0
+}
+
+def verify-openssl-output-has-matching-identity [label: string, output: string]: nothing -> nothing {
+  if ($output | str contains "hostname mismatch") or ($output | str contains "Verify return code: 62") {
+    error make {msg: $"CUPS TLS identity verification failed for ($label): ($output | str trim)"}
+  }
+
+  if not (($output | str contains "Verify return code: 0") or ($output | str contains "Verify return code: 18")) {
+    error make {msg: $"CUPS TLS verification returned an unexpected result for ($label): ($output | str trim)"}
+  }
+}
+
+def verify-cups-tls-hostname [hostname: string]: nothing -> nothing {
+  let command = $"timeout 5 openssl s_client -connect 127.0.0.1:631 -servername (shell-quote $hostname) -verify_hostname (shell-quote $hostname) </dev/null"
+  let result = (run-external "bash" "-lc" $command | complete)
+  let output = [$result.stdout $result.stderr] | str join "\n"
+
+  if $result.exit_code != 0 {
+    error make {msg: $"CUPS TLS hostname verification command failed for ($hostname): ($output | str trim)"}
+  }
+
+  verify-openssl-output-has-matching-identity $hostname $output
+}
+
+def verify-cups-tls-ip [ip_address: string]: nothing -> nothing {
+  let command = $"timeout 5 openssl s_client -connect 127.0.0.1:631 -verify_ip (shell-quote $ip_address) </dev/null"
+  let result = (run-external "bash" "-lc" $command | complete)
+  let output = [$result.stdout $result.stderr] | str join "\n"
+
+  if $result.exit_code != 0 {
+    error make {msg: $"CUPS TLS IP verification command failed for ($ip_address): ($output | str trim)"}
+  }
+
+  verify-openssl-output-has-matching-identity $ip_address $output
+}
+
+def verify-cups-tls-identity [identity: record]: nothing -> nothing {
+  verify-cups-tls-hostname $identity.avahi_fqdn
+
+  let ipv4_addresses = ($identity.ip_addresses | where {|value| $value | str contains "."})
+  if not ($ipv4_addresses | is-empty) {
+    verify-cups-tls-ip ($ipv4_addresses | first)
+  }
+}
+
+def restart-cups-if-active []: nothing -> bool {
+  if (systemd-service-active "cups.service") {
+    run-required "restart CUPS to load TLS certificate" ["sudo" "systemctl" "restart" "cups.service"] | ignore
+    true
+  } else {
+    false
+  }
 }
 
 def install-pdf-preflight-filter [app_dir: string]: nothing -> nothing {
@@ -433,6 +678,7 @@ def main [
   --device-uri: string
   --enable-printing
   --stop-only
+  --repair-tls-only
 ]: nothing -> nothing {
   let root_dir = (repo-root)
   let repo_dotenv = (load-dotenv ($root_dir | path join ".env"))
@@ -442,6 +688,32 @@ def main [
     $printer_name
   } else {
     get-config $dotenv IPP_ORCH_PRINTER_NAME "HP135a"
+  }
+
+  if $repair_tls_only and $stop_only {
+    error make {msg: "--repair-tls-only cannot be combined with --stop-only"}
+  }
+
+  if $repair_tls_only and $enable_printing {
+    error make {msg: "--repair-tls-only cannot be combined with --enable-printing"}
+  }
+
+  if $repair_tls_only {
+    ensure-apt-packages [
+      avahi-daemon
+      openssl
+    ]
+    let tls_identity = (install-cups-tls-certificate)
+    let cups_was_active = (restart-cups-if-active)
+
+    if $cups_was_active {
+      verify-cups-tls-identity $tls_identity
+      print $"Repaired CUPS TLS identity for advertised mDNS host ($tls_identity.avahi_fqdn)."
+    } else {
+      print $"Installed CUPS TLS identity for advertised mDNS host ($tls_identity.avahi_fqdn). CUPS was not active, so verification was skipped."
+    }
+
+    return
   }
 
   print "Stopping CUPS and clearing all pending CUPS spool files before configuration."
@@ -463,6 +735,7 @@ def main [
     poppler-utils
     nodejs
     ca-certificates
+    openssl
     tar
     gzip
     avahi-daemon
@@ -471,6 +744,7 @@ def main [
 
   run-best-effort ["sudo" "systemctl" "mask" "--now" "ipp-usb.service"]
   authorize-hp-usb
+  let tls_identity = (install-cups-tls-certificate)
 
   let resolved_device_uri = if (has-value $device_uri) {
     $device_uri
@@ -497,6 +771,7 @@ def main [
 
   if $enable_printing {
     run-required "enable CUPS and Avahi services" ["sudo" "systemctl" "enable" "--now" "cups.service" "cups.socket" "cups.path" "cups-browsed.service" "avahi-daemon.service"] | ignore
+    verify-cups-tls-identity $tls_identity
     print $"Configured and enabled shared CUPS queue ($queue_name) with ($selected_driver.value)."
     print "No test page was printed."
   } else {

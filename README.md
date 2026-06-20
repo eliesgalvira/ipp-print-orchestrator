@@ -358,6 +358,18 @@ is known to have no buffered pages:
 nu scripts/setup-cups-live-to-pi.nu --enable-printing
 ```
 
+If Android reports that the printer has blocked encrypted jobs or that the
+printer no longer accepts encrypted jobs, repair the CUPS TLS identity without
+clearing the spool:
+
+```bash
+nu scripts/setup-cups-live-to-pi.nu --repair-tls-only
+```
+
+This refreshes the CUPS server certificate so its SANs match the currently
+advertised Avahi/mDNS hostname and local IP addresses, restarts CUPS if it was
+already running, and performs no physical print.
+
 Do not validate this printer with ad hoc local `lp` commands that force
 `page-ranges` or `print-scaling=fit`. Android's working path submits a single
 IPP `Print-Job` with the PDF document attached to the request and uses

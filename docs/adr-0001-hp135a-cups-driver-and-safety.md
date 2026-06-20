@@ -76,6 +76,17 @@ Configure CUPS defensively:
 - `AutoPurgeJobs=Yes`
 - `JobKillDelay=5`
 
+Own the TLS identity used by Android and other IPP clients:
+
+- Start Avahi before CUPS setup reads the advertised mDNS hostname.
+- Generate a CUPS self-signed server certificate whose SANs include the static
+  system hostname, the current Avahi hostname/FQDN, `localhost`, and local IP
+  addresses.
+- Verify the advertised mDNS hostname and primary IPv4 address after enabling
+  the queue.
+- Provide a `--repair-tls-only` setup path that can refresh the certificate and
+  restart CUPS without clearing the spool or reconfiguring the queue.
+
 The setup script is responsible for installing the driver, patching the PPD,
 configuring the queue, and clearing the spool. By default it leaves CUPS stopped,
 disabled, unshared, and rejecting jobs. It only enables and advertises the queue

@@ -18,6 +18,7 @@ def main [
   --device-uri: string
   --enable-printing
   --stop-only
+  --repair-tls-only
 ]: nothing -> any {
   let root_dir = (repo-root)
   let dotenv = (load-dotenv ($root_dir | path join ".env"))
@@ -35,10 +36,11 @@ def main [
     | append (if (has-value $device_uri) { ["--device-uri" $device_uri] } else { [] })
     | append (if $enable_printing { ["--enable-printing"] } else { [] })
     | append (if $stop_only { ["--stop-only"] } else { [] })
+    | append (if $repair_tls_only { ["--repair-tls-only"] } else { [] })
   )
 
   run-timed $"setup CUPS on ($pi_host)" {
-    if not $stop_only {
+    if not $stop_only and not $repair_tls_only {
       cd $root_dir
       run-required "build CUPS PDF preflight filter bundle" ["bun" "run" "build:cups-filter"]
     }
@@ -68,7 +70,7 @@ def main [
     )
     run-required "sync target CUPS setup libraries" $rsync_lib_command
 
-    if not $stop_only {
+    if not $stop_only and not $repair_tls_only {
       run-required "create remote CUPS filter bundle directory" (
         (ssh-args $pi_host --key-path $ssh_key_path --batch) ++ ["mkdir" "-p" $remote_filter_bundle_dir]
       )
