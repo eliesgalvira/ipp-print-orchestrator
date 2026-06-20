@@ -72,6 +72,13 @@ const tempDirRetentionMs = Math.max(
   cupsSubfilterTimeoutMs + 60_000,
 )
 
+class TempDirCleanupFailed extends Schema.TaggedErrorClass<TempDirCleanupFailed>()(
+  "TempDirCleanupFailed",
+  {
+    message: Schema.String,
+  },
+) {}
+
 export const parseCupsFilterInvocation = (
   args: readonly string[],
 ): CupsFilterInvocation => {
@@ -265,6 +272,15 @@ const cleanupStaleTempDirs = () =>
     }
   })
 
+const removeTempDir = (directory: string) =>
+  Effect.try({
+    try: () => rmSync(directory, { force: true, recursive: true }),
+    catch: (error) =>
+      new TempDirCleanupFailed({
+        message: `failed to remove temp dir ${directory}: ${String(error)}`,
+      }),
+  }).pipe(Effect.catch(() => Effect.void))
+
 const withTempDir = <A, E, R>(
   use: (directory: string) => Effect.Effect<A, E, R>,
 ) =>
@@ -273,8 +289,7 @@ const withTempDir = <A, E, R>(
       Effect.asVoid,
       Effect.andThen(Effect.sync(() => mkdtempSync(join(tmpdir(), tempDirPrefix)))),
     ),
-    (directory) =>
-      Effect.sync(() => rmSync(directory, { force: true, recursive: true })),
+    removeTempDir,
   ).pipe(Effect.flatMap(use), Effect.scoped)
 
 const prepareInputFile = (
