@@ -3,6 +3,11 @@ set -u
 
 REAL_BACKEND=${IPP_ORCH_REAL_USB_BACKEND:-/usr/lib/cups/backend/usb}
 TIMEOUT_SECONDS=${IPP_ORCH_USB_BACKEND_TIMEOUT_SECONDS:-60}
+payload=
+
+cleanup_payload() {
+  [ -n "${payload:-}" ] && rm -f "$payload"
+}
 
 deauthorize_hp_usb() {
   for device in /sys/bus/usb/devices/*; do
@@ -16,8 +21,15 @@ deauthorize_hp_usb() {
 }
 
 if [ "$#" -eq 0 ]; then
-  "$REAL_BACKEND" | sed 's# usb://# ipp-orch-usb://#'
-  exit $?
+  discovery_output=$(mktemp "${TMPDIR:-/tmp}/ipp-orch-usb-discovery.XXXXXX") || exit 1
+  if "$REAL_BACKEND" >"$discovery_output"; then
+    sed 's# usb://# ipp-orch-usb://#' "$discovery_output"
+    status=$?
+  else
+    status=$?
+  fi
+  rm -f "$discovery_output"
+  exit "$status"
 fi
 
 case "${DEVICE_URI:-}" in
@@ -30,11 +42,25 @@ case "${DEVICE_URI:-}" in
     ;;
 esac
 
+payload=$(mktemp "${TMPDIR:-/tmp}/ipp-orch-usb-payload.XXXXXX") || exit 1
+trap cleanup_payload 0 1 2 3 15
+
+if ! cat >"$payload"; then
+  echo "ERROR: ipp-orch-usb backend could not stage printer bytes from the CUPS filter pipeline" >&2
+  exit 1
+fi
+
+payload_bytes=$(wc -c <"$payload" | tr -d '[:space:]')
+if [ "${payload_bytes:-0}" = "0" ]; then
+  echo "ERROR: ipp-orch-usb backend received no printer bytes from the CUPS filter pipeline" >&2
+  exit 1
+fi
+
 if command -v timeout >/dev/null 2>&1; then
-  timeout --foreground --kill-after=5s "$TIMEOUT_SECONDS" "$REAL_BACKEND" "$@"
+  timeout --foreground --kill-after=5s "$TIMEOUT_SECONDS" "$REAL_BACKEND" "$@" <"$payload"
   status=$?
 else
-  "$REAL_BACKEND" "$@"
+  "$REAL_BACKEND" "$@" <"$payload"
   status=$?
 fi
 

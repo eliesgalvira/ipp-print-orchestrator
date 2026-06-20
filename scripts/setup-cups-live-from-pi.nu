@@ -13,6 +13,7 @@ const CUPS_PDF_PREFLIGHT_PACKAGE_JSON_PATH = "/opt/ipp-print-orchestrator/cups-f
 const CUPS_USB_BACKEND_WRAPPER_PATH = "/usr/lib/cups/backend/ipp-orch-usb"
 const CUPS_FILTER_CACHE_DIR = "/var/cache/ipp-print-orchestrator"
 const CUPS_SSL_DIR = "/etc/cups/ssl"
+const AVAHI_IPPS_SERVICE_PATH = "/etc/avahi/services/ipp-print-orchestrator-hp135a.service"
 const CUPS_TLS_CERT_DAYS = "3650"
 const TEMP_QUEUES = [HP135a_PWG_Test HP135a_SPLIX_Test]
 const HP_ULD_GRAYSCALE_8BIT = '*ColorModel Gray/Grayscale: "<</cupsColorSpace 0 /cupsBitsPerColor 8>>setpagedevice"'
@@ -47,6 +48,19 @@ def run-required-with-input [label: string, command: list<string>, input: string
 
 def shell-quote [value: string]: nothing -> string {
   "'" + (($value | into string) | str replace --all "'" "'\\''") + "'"
+}
+
+def xml-escape [value: string]: nothing -> string {
+  let escaped = (
+    $value
+  | str replace --all "&" "&amp;"
+  | str replace --all "<" "&lt;"
+  | str replace --all ">" "&gt;"
+  | str replace --all '"' "&quot;"
+  | str replace --all "'" "&apos;"
+  )
+
+  $escaped
 }
 
 def error-message [err: any]: nothing -> string {
@@ -454,7 +468,10 @@ def install-supervised-usb-backend []: nothing -> nothing {
 
   run-required "verify supervised USB backend source" ["test" "-r" $backend_script] | ignore
   run-required "verify supervised USB backend shell syntax" ["sh" "-n" $backend_script] | ignore
-  install-root-file "0555" $backend_script $CUPS_USB_BACKEND_WRAPPER_PATH
+  # Match CUPS' real usb backend permissions. If this wrapper is executable by
+  # unprivileged users, CUPS runs it as lp and delegation to the root-only usb
+  # backend fails with status 126.
+  install-root-file "0744" $backend_script $CUPS_USB_BACKEND_WRAPPER_PATH
   run-required "verify supervised CUPS USB backend" ["test" "-x" $CUPS_USB_BACKEND_WRAPPER_PATH] | ignore
 }
 
@@ -535,12 +552,12 @@ def configure-cups-network [--enable-printing]: nothing -> nothing {
       "--remote-any"
       "--share-printers"
       "WebInterface=Yes"
-      "Browsing=Yes"
-      "BrowseLocalProtocols=dnssd"
+      "Browsing=No"
+      "BrowseLocalProtocols=none"
       "AccessLogLevel=all"
       "LogLevel=info"
       "MaxLogSize=33554432"
-      "ErrorPolicy=stop-printer"
+      "ErrorPolicy=abort-job"
       "JobRetryLimit=0"
       "JobRetryInterval=0"
       "MaxJobs=20"
@@ -561,7 +578,7 @@ def configure-cups-network [--enable-printing]: nothing -> nothing {
       "AccessLogLevel=all"
       "LogLevel=info"
       "MaxLogSize=33554432"
-      "ErrorPolicy=stop-printer"
+      "ErrorPolicy=abort-job"
       "JobRetryLimit=0"
       "JobRetryInterval=0"
       "MaxJobs=20"
@@ -616,7 +633,7 @@ def configure-queue [
     "-o"
     "ColorModel-default=Gray"
     "-o"
-    "ErrorPolicy=stop-printer"
+    "printer-error-policy=abort-job"
     "-o"
     $"printer-is-shared=($enable_printing)"
   ]) | ignore
@@ -631,10 +648,124 @@ def configure-queue [
   }
 }
 
+def force-queue-error-policy-abort-job [printer_name: string]: nothing -> nothing {
+  run-best-effort ["sudo" "systemctl" "stop" "cups.service" "cups.socket" "cups.path"]
+
+  let perl_expression = (
+    's/(<Printer ' + $printer_name + '>.*?\n)ErrorPolicy \S+(\n.*?<\/Printer>)/${1}ErrorPolicy abort-job${2}/s'
+  )
+
+  run-required "set queue ErrorPolicy to abort-job" [
+    "sudo"
+    "perl"
+    "-0pi"
+    "-e"
+    $perl_expression
+    "/etc/cups/printers.conf"
+  ] | ignore
+
+  let printers_conf = (run-required "verify queue ErrorPolicy" ["sudo" "cat" "/etc/cups/printers.conf"])
+  if not ($printers_conf | str contains $"<Printer ($printer_name)>") or not ($printers_conf | str contains "ErrorPolicy abort-job") {
+    error make {msg: $"failed to set ErrorPolicy abort-job for CUPS printer ($printer_name)"}
+  }
+
+  run-required "restart CUPS after queue ErrorPolicy update" ["sudo" "systemctl" "start" "cups.service"] | ignore
+}
+
+def read-printer-uuid [printer_name: string]: nothing -> string {
+  let printers_conf = (run-required "read CUPS printers.conf" ["sudo" "cat" "/etc/cups/printers.conf"])
+  let lines = ($printers_conf | lines)
+  mut in_printer = false
+
+  for line in $lines {
+    let trimmed = ($line | str trim)
+    if $trimmed == $"<Printer ($printer_name)>" {
+      $in_printer = true
+      continue
+    }
+
+    if $in_printer and $trimmed == "</Printer>" {
+      break
+    }
+
+    if $in_printer and ($trimmed | str starts-with "UUID ") {
+      return (
+        $trimmed
+        | str replace --regex "^UUID\\s+" ""
+        | str replace --regex "^urn:uuid:" ""
+        | str trim
+      )
+    }
+  }
+
+  error make {msg: $"could not find UUID for CUPS printer ($printer_name)"}
+  ""
+}
+
+def avahi-ipps-service-content [printer_name: string, avahi_fqdn: string, printer_uuid: string]: nothing -> string {
+  let avahi_short_name = ($avahi_fqdn | str replace --regex "\\.local$" "")
+  let service_name = (xml-escape $"HP Laser MFP 135a @ ($avahi_short_name)")
+  let rp = (xml-escape $"printers/($printer_name)")
+  let adminurl = (xml-escape $"https://($avahi_fqdn):631/printers/($printer_name)")
+  let uuid = (xml-escape $printer_uuid)
+
+  [
+    "<?xml version=\"1.0\" standalone=\"no\"?>"
+    "<!DOCTYPE service-group SYSTEM \"avahi-service.dtd\">"
+    "<service-group>"
+    $"  <name replace-wildcards=\"no\">($service_name)</name>"
+    "  <service>"
+    "    <type>_ipps._tcp</type>"
+    "    <subtype>_universal._sub._ipps._tcp</subtype>"
+    "    <port>631</port>"
+    "    <txt-record>txtvers=1</txt-record>"
+    "    <txt-record>qtotal=1</txt-record>"
+    $"    <txt-record>rp=($rp)</txt-record>"
+    "    <txt-record>ty=HP Laser MFP 13x Series</txt-record>"
+    "    <txt-record>note=Home</txt-record>"
+    $"    <txt-record>adminurl=($adminurl)</txt-record>"
+    "    <txt-record>pdl=application/pdf,application/postscript,image/jpeg,image/png,image/pwg-raster,image/urf</txt-record>"
+    "    <txt-record>product=(LaserMFP)</txt-record>"
+    $"    <txt-record>UUID=($uuid)</txt-record>"
+    "    <txt-record>TLS=1.2</txt-record>"
+    "    <txt-record>Color=F</txt-record>"
+    "    <txt-record>Duplex=F</txt-record>"
+    "    <txt-record>Copies=T</txt-record>"
+    "    <txt-record>URF=V1.4,CP1,W8,PQ4,RS600,FN3</txt-record>"
+    "    <txt-record>priority=0</txt-record>"
+    "  </service>"
+    "</service-group>"
+    ""
+  ] | str join "\n"
+}
+
+def install-avahi-ipps-service [printer_name: string, avahi_fqdn: string]: nothing -> nothing {
+  let printer_uuid = (read-printer-uuid $printer_name)
+  let service_content = (avahi-ipps-service-content $printer_name $avahi_fqdn $printer_uuid)
+  let tmp_service = (mktemp)
+
+  try {
+    $service_content | save --force $tmp_service
+    run-required "install Avahi IPPS-only printer service" ["sudo" "install" "-m" "0644" $tmp_service $AVAHI_IPPS_SERVICE_PATH] | ignore
+    run-required "restart Avahi after IPPS service install" ["sudo" "systemctl" "restart" "avahi-daemon.service"] | ignore
+  } catch {|err|
+    rm --force $tmp_service
+    error make {msg: (error-message $err)}
+  }
+
+  rm --force $tmp_service
+}
+
+def remove-avahi-ipps-service []: nothing -> nothing {
+  run-best-effort ["sudo" "rm" "-f" $AVAHI_IPPS_SERVICE_PATH]
+  run-best-effort ["sudo" "systemctl" "restart" "avahi-daemon.service"]
+}
+
 def final-safe-stop [printer_name: string]: nothing -> nothing {
   run-best-effort ["sudo" "cupsdisable" $printer_name]
   run-best-effort ["sudo" "cupsreject" $printer_name]
   run-best-effort ["sudo" "lpadmin" "-p" $printer_name "-o" "printer-is-shared=false"]
+  remove-avahi-ipps-service
   clear-spool-and-stop-cups
   run-best-effort ["sudo" "systemctl" "disable" "cups.service" "cups.socket" "cups.path" "cups-browsed.service"]
 }
@@ -736,10 +867,13 @@ def main [
   install-supervised-usb-backend
   configure-cups-network --enable-printing=$enable_printing
   configure-queue $queue_name (supervised-usb-device-uri $resolved_device_uri) $selected_driver.value --ppd=($selected_driver.kind == "ppd") --enable-printing=$enable_printing
+  force-queue-error-policy-abort-job $queue_name
   clear-spool-files
 
   if $enable_printing {
-    run-required "enable CUPS and Avahi services" ["sudo" "systemctl" "enable" "--now" "cups.service" "cups.socket" "cups.path" "cups-browsed.service" "avahi-daemon.service"] | ignore
+    install-avahi-ipps-service $queue_name $tls_identity.avahi_fqdn
+    run-best-effort ["sudo" "systemctl" "disable" "--now" "cups-browsed.service"]
+    run-required "enable CUPS and Avahi services" ["sudo" "systemctl" "enable" "--now" "cups.service" "cups.socket" "cups.path" "avahi-daemon.service"] | ignore
     verify-cups-tls-identity $tls_identity
     print $"Configured and enabled shared CUPS queue ($queue_name) with ($selected_driver.value)."
     print "No test page was printed."

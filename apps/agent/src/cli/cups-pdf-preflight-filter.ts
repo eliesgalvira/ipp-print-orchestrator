@@ -17,7 +17,10 @@ import { join } from "node:path"
 import { pipeline } from "node:stream/promises"
 import { Cause, Effect, Schema } from "effect"
 
-import { decideSplOutputGuard } from "../domain/CupsFilterOutputGuard.js"
+import {
+  decideCupsCopiesGuard,
+  decideSplOutputGuard,
+} from "../domain/CupsFilterOutputGuard.js"
 import {
   CupsCommandFailed,
   OutputGuardRejected,
@@ -70,6 +73,14 @@ const defaultCupsSubfilterTimeoutMs = 285_000
 const defaultCupsSubfilterStderrMaxBufferBytes = 8 * 1024 * 1024
 const defaultCupsSplMaxBytesPerPage = 64 * 1024 * 1024
 const defaultCupsSplMaxTotalBytes = 256 * 1024 * 1024
+const pdfPreflightRejectedStateReason =
+  "com.ipp-print-orchestrator-pdf-preflight-rejected"
+const outputGuardRejectedStateReason =
+  "com.ipp-print-orchestrator-output-guard-rejected"
+const transientCupsStateReasons = [
+  pdfPreflightRejectedStateReason,
+  outputGuardRejectedStateReason,
+] as const
 
 const parsePositiveIntegerEnv = (name: string, fallback: number): number => {
   const value = process.env[name]
@@ -148,6 +159,25 @@ const writeCupsStderr = (level: "ERROR" | "INFO" | "STATE", message: string) =>
     for (const line of linesToWrite.length === 0 ? [""] : linesToWrite) {
       process.stderr.write(`${level}: ${line}\n`)
     }
+  })
+
+const clearTransientCupsStateReasons = () =>
+  Effect.gen(function* () {
+    for (const reason of transientCupsStateReasons) {
+      yield* writeCupsStderr("STATE", `-${reason}`)
+    }
+  })
+
+const setTransientCupsStateReason = (
+  activeReason: (typeof transientCupsStateReasons)[number],
+) =>
+  Effect.gen(function* () {
+    for (const reason of transientCupsStateReasons) {
+      if (reason !== activeReason) {
+        yield* writeCupsStderr("STATE", `-${reason}`)
+      }
+    }
+    yield* writeCupsStderr("STATE", `+${activeReason}`)
   })
 
 const safeOptionsFor = (options: string): string =>
@@ -301,6 +331,28 @@ const copyFileToStdout = (sourcePath: string) =>
 const copyGuardedOutputToStdout = (output: GuardedSplOutput) =>
   copyFileToStdout(output.path)
 
+const readFileSize = (filePath: string) =>
+  Effect.try({
+    try: () => statSync(filePath).size,
+    catch: (error) =>
+      new CupsCommandFailed({
+        message: `failed to stat guarded printer output ${filePath}: ${String(error)}`,
+      }),
+  })
+
+const validateSingleCopyForCups = (invocation: CupsFilterInvocation) =>
+  Effect.gen(function* () {
+    const guardDecision = decideCupsCopiesGuard(invocation.copies)
+
+    if (guardDecision._tag === "Rejected") {
+      return yield* new OutputGuardRejected({
+        reason: guardDecision.reason,
+        message: guardDecision.message,
+        actualBytes: 0,
+      })
+    }
+  })
+
 const cleanupStaleTempDirs = () =>
   Effect.sync(() => {
     const tempRoot = tmpdir()
@@ -401,7 +453,7 @@ const renderPipeline = (
       inputContentType: cupsRasterContentType,
       output: { _tag: "File", path: splPath },
     })
-    const splBytes = statSync(splPath).size
+    const splBytes = yield* readFileSize(splPath)
     const guardDecision = decideSplOutputGuard({
       pdfPages,
       copies: invocation.copies,
@@ -449,11 +501,13 @@ const program = Effect.gen(function* () {
         ? error
         : new ValidationError({ message: String(error) }),
   })
+  yield* clearTransientCupsStateReasons()
 
   return yield* withTempDir((tempDirectory) =>
     Effect.gen(function* () {
       const inputPath = yield* prepareInputFile(invocation, tempDirectory)
       const report = yield* validatePdfForCups(inputPath)
+      yield* validateSingleCopyForCups(invocation)
 
       yield* writeCupsStderr(
         "INFO",
@@ -478,10 +532,7 @@ const reportFailure = (
 ) =>
   Effect.gen(function* () {
     if (error._tag === "PdfPreflightRejected") {
-      yield* writeCupsStderr(
-        "STATE",
-        "+com.ipp-print-orchestrator-pdf-preflight-rejected",
-      )
+      yield* setTransientCupsStateReason(pdfPreflightRejectedStateReason)
       yield* writeCupsStderr(
         "ERROR",
         `PDF preflight rejected job: ${error.reason}: ${error.message}`,
@@ -490,10 +541,7 @@ const reportFailure = (
         yield* writeCupsStderr("ERROR", error.details)
       }
     } else if (error._tag === "OutputGuardRejected") {
-      yield* writeCupsStderr(
-        "STATE",
-        "+com.ipp-print-orchestrator-output-guard-rejected",
-      )
+      yield* setTransientCupsStateReason(outputGuardRejectedStateReason)
       yield* writeCupsStderr(
         "ERROR",
         `Printer output guard rejected job: ${error.reason}: ${error.message}`,

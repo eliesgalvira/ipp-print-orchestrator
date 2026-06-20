@@ -27,7 +27,16 @@ export type SplOutputGuardDecision =
       readonly maxBytes?: number
     }
 
-const pageLogPattern = /^PAGE:\s+\d+\s+\d+\s*$/gim
+export type CupsCopiesGuardDecision =
+  | {
+      readonly _tag: "Accepted"
+      readonly copies: 1
+    }
+  | {
+      readonly _tag: "Rejected"
+      readonly reason: "invalid-copies"
+      readonly message: string
+    }
 
 export const parseCupsCopies = (value: string): number | null => {
   const parsed = Number.parseInt(value, 10)
@@ -35,7 +44,27 @@ export const parseCupsCopies = (value: string): number | null => {
 }
 
 export const countCupsPageLogEntries = (stderr: string): number =>
-  Array.from(stderr.matchAll(pageLogPattern)).length
+  stderr.split(/\r?\n/).filter((line) => /^PAGE:\s+\d+\s+\d+\s*$/i.test(line))
+    .length
+
+export const decideCupsCopiesGuard = (
+  value: string,
+): CupsCopiesGuardDecision => {
+  const copies = parseCupsCopies(value)
+  if (copies === 1) {
+    return {
+      _tag: "Accepted",
+      copies,
+    }
+  }
+
+  return {
+    _tag: "Rejected",
+    reason: "invalid-copies",
+    message:
+      "Only single-copy PDF jobs are accepted by this printer safety filter",
+  }
+}
 
 export const decideSplOutputGuard = (params: {
   readonly pdfPages: number
@@ -45,13 +74,12 @@ export const decideSplOutputGuard = (params: {
   readonly maxBytesPerPage: number
   readonly maxTotalBytes: number
 }): SplOutputGuardDecision => {
-  const copies = parseCupsCopies(params.copies)
-  if (copies !== 1) {
+  const copiesDecision = decideCupsCopiesGuard(params.copies)
+  if (copiesDecision._tag === "Rejected") {
     return {
       _tag: "Rejected",
-      reason: "invalid-copies",
-      message:
-        "Only single-copy PDF jobs are accepted by this printer safety filter",
+      reason: copiesDecision.reason,
+      message: copiesDecision.message,
     }
   }
 

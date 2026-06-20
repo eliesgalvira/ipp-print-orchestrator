@@ -67,14 +67,20 @@ Patch the HP PPD conservatively:
   reject multiple-copy jobs, force the known safe PDF options, and cap final
   output size per page.
 - Route the queue through the `ipp-orch-usb` backend wrapper instead of the raw
-  CUPS `usb` backend. The wrapper delegates to the real USB backend with the
-  original `usb://` URI, but enforces a hard timeout and deauthorizes the HP USB
-  device if the backend wedges. Keep the wrapper as a checked-in script at
+  CUPS `usb` backend. The wrapper stages filter output before touching USB,
+  rejects empty filter output immediately, delegates non-empty payloads to the
+  real USB backend with the original `usb://` URI, and deauthorizes the HP USB
+  device if that backend wedges. Keep the wrapper as a checked-in script at
   `scripts/cups/backend/ipp-orch-usb`, not as generated shell embedded in Nu.
+  Install it with root-only execute permission, matching the real CUPS `usb`
+  backend, so CUPS runs it with enough privilege to delegate to that backend.
 
 Configure CUPS defensively:
 
-- `ErrorPolicy=stop-printer`
+- Disable CUPS' built-in DNS-SD browsing and install an explicit Avahi
+  `_ipps._tcp` service for the queue. Do not advertise the unencrypted `_ipp._tcp`
+  path to Android.
+- `ErrorPolicy=abort-job`
 - `JobRetryLimit=0`
 - `JobRetryInterval=0`
 - `MaxJobs=20`

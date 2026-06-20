@@ -2,6 +2,7 @@ import { describe, expect, it } from "@effect/vitest"
 
 import {
   countCupsPageLogEntries,
+  decideCupsCopiesGuard,
   decideSplOutputGuard,
   parseCupsCopies,
 } from "./CupsFilterOutputGuard.js"
@@ -105,5 +106,16 @@ describe("CUPS filter output guard", () => {
     expect(parseCupsCopies("03")).toBe(3)
     expect(parseCupsCopies("0")).toBeNull()
     expect(parseCupsCopies("not-a-number")).toBeNull()
+  })
+
+  it("classifies copy counts before expensive rendering", () => {
+    expect(decideCupsCopiesGuard("1")).toEqual({
+      _tag: "Accepted",
+      copies: 1,
+    })
+    expect(decideCupsCopiesGuard("2")).toMatchObject({
+      _tag: "Rejected",
+      reason: "invalid-copies",
+    })
   })
 })

@@ -79,7 +79,7 @@ def main [
   --once
   --interval: duration = 30sec
 ]: nothing -> nothing {
-  repair-if-avahi-hostname-changed --force
+  repair-if-avahi-hostname-changed
 
   if $once {
     return

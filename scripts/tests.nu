@@ -251,12 +251,17 @@ def "test supervised CUPS USB backend wrapper delegates through original URI" []
       "#!/bin/sh"
       "set -eu"
       "if [ \"$#\" -eq 0 ]; then"
+      "  if [ \"${IPP_ORCH_FAKE_DISCOVERY_FAIL:-}\" = \"true\" ]; then"
+      "    echo 'fake discovery failed' >&2"
+      "    exit 42"
+      "  fi"
       "  echo 'direct usb://HP/Test?serial=123 \"HP Test\" \"HP Test\"'"
       "  exit 0"
       "fi"
       "printf 'DEVICE_URI=%s\n' \"$DEVICE_URI\" > \"$IPP_ORCH_FAKE_CAPTURE\""
       "printf 'ARGC=%s\n' \"$#\" >> \"$IPP_ORCH_FAKE_CAPTURE\""
       "printf 'ARG1=%s\n' \"$1\" >> \"$IPP_ORCH_FAKE_CAPTURE\""
+      "printf 'STDIN_BYTES=%s\n' \"$(wc -c | tr -d '[:space:]')\" >> \"$IPP_ORCH_FAKE_CAPTURE\""
       "exit 0"
       ""
     ] | str join "\n" | save --force $fake_backend
@@ -273,13 +278,38 @@ def "test supervised CUPS USB backend wrapper delegates through original URI" []
     assert equal $discovery.exit_code 0 $"backend wrapper discovery should execute: ($discovery.stderr)"
     assert ($discovery.stdout | str contains "direct ipp-orch-usb://HP/Test?serial=123") "discovery should advertise supervised USB URIs"
 
+    let failed_discovery = (
+      with-env {
+        IPP_ORCH_REAL_USB_BACKEND: $fake_backend
+        IPP_ORCH_FAKE_DISCOVERY_FAIL: "true"
+      } {
+        run-external "sh" $backend | complete
+      }
+    )
+    assert equal $failed_discovery.exit_code 42 "backend wrapper discovery should preserve the real backend exit code"
+    assert ($failed_discovery.stderr | str contains "fake discovery failed") "backend wrapper discovery should preserve the real backend stderr"
+
+    let empty_job = (
+      with-env {
+        IPP_ORCH_REAL_USB_BACKEND: $fake_backend
+        IPP_ORCH_FAKE_CAPTURE: $capture
+        IPP_ORCH_TEST_BACKEND: $backend
+        DEVICE_URI: "ipp-orch-usb://HP/Test?serial=123"
+      } {
+        run-external "bash" "-c" "printf '' | sh \"$IPP_ORCH_TEST_BACKEND\" 79 Pixel title.pdf 1 print-scaling=none" | complete
+      }
+    )
+    assert equal $empty_job.exit_code 1 "backend wrapper should reject empty filter output"
+    assert ($empty_job.stderr | str contains "received no printer bytes") "backend wrapper should explain empty filter output"
+
     let job = (
       with-env {
         IPP_ORCH_REAL_USB_BACKEND: $fake_backend
         IPP_ORCH_FAKE_CAPTURE: $capture
+        IPP_ORCH_TEST_BACKEND: $backend
         DEVICE_URI: "ipp-orch-usb://HP/Test?serial=123"
       } {
-        run-external "sh" $backend "79" "Pixel" "title.pdf" "1" "print-scaling=none" | complete
+        run-external "bash" "-c" "printf 'printer-bytes' | sh \"$IPP_ORCH_TEST_BACKEND\" 79 Pixel title.pdf 1 print-scaling=none" | complete
       }
     )
     assert equal $job.exit_code 0 $"backend wrapper job mode should execute: ($job.stderr)"
@@ -288,6 +318,7 @@ def "test supervised CUPS USB backend wrapper delegates through original URI" []
     assert ($captured | str contains "DEVICE_URI=usb://HP/Test?serial=123") "job mode should delegate to the original usb:// URI"
     assert ($captured | str contains "ARGC=5") "job mode should preserve backend arguments"
     assert ($captured | str contains "ARG1=79") "job mode should preserve the CUPS job id argument"
+    assert ($captured | str contains "STDIN_BYTES=13") "job mode should feed staged printer bytes to the real backend"
   } catch {|err|
     rm --force $fake_backend
     rm --force $capture

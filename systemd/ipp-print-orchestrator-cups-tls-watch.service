@@ -5,6 +5,7 @@ Wants=network-online.target avahi-daemon.service
 
 [Service]
 Type=simple
+User=pi
 WorkingDirectory=/home/pi/apps/ipp-print-orchestrator
 ExecStart=/usr/bin/nu --no-config-file /home/pi/apps/ipp-print-orchestrator/scripts/watch-cups-tls-identity-from-pi.nu
 Restart=always
