@@ -73,6 +73,31 @@ def ensure-apt-packages [packages: list<string>]: nothing -> nothing {
   run-required "apt install CUPS packages" (["sudo" "apt-get" "install" "-y"] ++ $missing) | ignore
 }
 
+def node-major-version [version: string]: nothing -> int {
+  let major_text = (
+    $version
+    | str trim
+    | str replace --regex "^v" ""
+    | split row "."
+    | first
+  )
+
+  try {
+    $major_text | into int
+  } catch {
+    error make {msg: $"could not parse Node.js version from /usr/bin/node: ($version)"}
+  }
+}
+
+def ensure-node-runtime []: nothing -> nothing {
+  let version = (run-required "detect Node.js runtime" ["/usr/bin/node" "--version"] | str trim)
+  let major = (node-major-version $version)
+
+  if $major < 18 {
+    error make {msg: $"CUPS PDF preflight filter requires /usr/bin/node >= 18, found ($version). Upgrade nodejs or use Raspberry Pi OS/Debian Bookworm or newer."}
+  }
+}
+
 def clear-spool-and-stop-cups []: nothing -> nothing {
   run-best-effort ["sudo" "timeout" "5" "systemctl" "kill" "--kill-whom=all" "--signal=KILL" "cups.service" "cups-browsed.service"]
   run-best-effort ["sudo" "timeout" "5" "systemctl" "stop" "cups.service" "cups.socket" "cups.path" "cups-browsed.service" "ipp-usb.service"]
@@ -442,6 +467,7 @@ def main [
     gzip
     avahi-daemon
   ]
+  ensure-node-runtime
 
   run-best-effort ["sudo" "systemctl" "mask" "--now" "ipp-usb.service"]
   authorize-hp-usb

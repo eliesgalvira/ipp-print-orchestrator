@@ -237,8 +237,18 @@ const cleanupStaleTempDirs = () =>
   Effect.sync(() => {
     const tempRoot = tmpdir()
     const now = Date.now()
+    let entries: ReadonlyArray<{
+      readonly isDirectory: () => boolean
+      readonly name: string
+    }>
 
-    for (const entry of readdirSync(tempRoot, { withFileTypes: true })) {
+    try {
+      entries = readdirSync(tempRoot, { withFileTypes: true })
+    } catch {
+      return
+    }
+
+    for (const entry of entries) {
       if (!entry.isDirectory() || !entry.name.startsWith(tempDirPrefix)) {
         continue
       }
