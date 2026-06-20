@@ -9,8 +9,9 @@
   ],
   "scripts": {
     "prepare": "effect-language-service patch",
-    "build": "tsc --build --pretty false && bun run build:agent-service",
+    "build": "tsc --build --pretty false && bun run build:agent-service && bun run build:cups-filter",
     "build:agent-service": "rm -rf apps/agent/dist-service && bun build apps/agent/src/main.ts --target=node --format=esm --splitting --outdir apps/agent/dist-service",
+    "build:cups-filter": "rm -rf apps/agent/dist-cups-filter && bun build apps/agent/src/cli/cups-pdf-preflight-filter.ts --target=node --format=esm --outfile apps/agent/dist-cups-filter/cups-pdf-preflight-filter.js",
     "effect:diagnostics": "effect-language-service diagnostics --project tsconfig.json",
     "effect:quickfixes": "effect-language-service quickfixes --project tsconfig.json",
     "typecheck": "bun run effect:diagnostics && tsc -p packages/shared/tsconfig.json --pretty false --noEmit && tsc -p packages/ipp/tsconfig.json --pretty false --noEmit && tsc -p packages/testkit/tsconfig.json --pretty false --noEmit && tsc -p apps/agent/tsconfig.json --pretty false --noEmit",

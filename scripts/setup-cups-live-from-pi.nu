@@ -5,8 +5,15 @@ use lib/repo.nu repo-root
 
 const HP_ULD_URL = "https://ftp.hp.com/pub/softlib/software13/printers/CLP150/uld-hp_V1.00.39.12_00.15.tar.gz"
 const HP_ULD_PPD_PATH = "/usr/share/ppd/uld-hp/HP_Laser_MFP_13x_Series.ppd"
+const CUPS_PDF_PREFLIGHT_FILTER_PATH = "/usr/lib/cups/filter/ipp-pdf-preflight-to-spl"
+const CUPS_PDF_PREFLIGHT_INSTALL_DIR = "/opt/ipp-print-orchestrator/cups-filter"
+const CUPS_PDF_PREFLIGHT_JS_PATH = "/opt/ipp-print-orchestrator/cups-filter/cups-pdf-preflight-filter.js"
+const CUPS_PDF_PREFLIGHT_PACKAGE_JSON_PATH = "/opt/ipp-print-orchestrator/cups-filter/package.json"
+const CUPS_FILTER_CACHE_DIR = "/var/cache/ipp-print-orchestrator"
 const TEMP_QUEUES = [HP135a_PWG_Test HP135a_SPLIX_Test]
 const HP_ULD_GRAYSCALE_8BIT = '*ColorModel Gray/Grayscale: "<</cupsColorSpace 0 /cupsBitsPerColor 8>>setpagedevice"'
+const HP_ULD_RASTER_FILTER = '*cupsFilter:  "application/vnd.cups-raster 0 rastertospl"'
+const HP_ULD_PDF_PREFLIGHT_FILTER = '*cupsFilter: "application/pdf 0 ipp-pdf-preflight-to-spl"'
 const HP_ULD_STANDARD_600DPI = '*Quality 600dpi/Standard: "<</HWResolution[600 600]>>setpagedevice"'
 const HP_ULD_STANDARD_SAFE_300DPI = '*Quality 600dpi/Standard: "<</HWResolution[300 300]>>setpagedevice"'
 
@@ -34,6 +41,21 @@ def run-required-with-input [label: string, command: list<string>, input: string
   $result.stdout
 }
 
+def shell-quote [value: string]: nothing -> string {
+  "'" + (($value | into string) | str replace --all "'" "'\\''") + "'"
+}
+
+def error-message [err: any]: nothing -> string {
+  let maybe_msg = (try { $err | get -o msg } catch { null })
+  if $maybe_msg == null {
+    try { $err | to nuon } catch { "unknown error" }
+  } else if (($maybe_msg | describe) == "string") {
+    $maybe_msg
+  } else {
+    try { $maybe_msg | to nuon } catch { "unknown error" }
+  }
+}
+
 def apt-package-installed [package: string]: nothing -> bool {
   let result = (run-external "dpkg-query" "-W" "-f=${Status}" $package | complete)
   $result.exit_code == 0 and ($result.stdout | str contains "install ok installed")
@@ -49,6 +71,31 @@ def ensure-apt-packages [packages: list<string>]: nothing -> nothing {
   print $"Installing missing CUPS packages: ($missing | str join ', ')"
   run-required "apt update" ["sudo" "apt-get" "update"] | ignore
   run-required "apt install CUPS packages" (["sudo" "apt-get" "install" "-y"] ++ $missing) | ignore
+}
+
+def node-major-version [version: string]: nothing -> int {
+  let major_text = (
+    $version
+    | str trim
+    | str replace --regex "^v" ""
+    | split row "."
+    | first
+  )
+
+  try {
+    $major_text | into int
+  } catch {
+    error make {msg: $"could not parse Node.js version from /usr/bin/node: ($version)"}
+  }
+}
+
+def ensure-node-runtime []: nothing -> nothing {
+  let version = (run-required "detect Node.js runtime" ["/usr/bin/node" "--version"] | str trim)
+  let major = (node-major-version $version)
+
+  if $major < 18 {
+    error make {msg: $"CUPS PDF preflight filter requires /usr/bin/node >= 18, found ($version). Upgrade nodejs or use Raspberry Pi OS/Debian Bookworm or newer."}
+  }
 }
 
 def clear-spool-and-stop-cups []: nothing -> nothing {
@@ -157,8 +204,46 @@ def install-root-file [mode: string, source: string, destination: string]: nothi
   run-required $"install ($destination)" ["sudo" "install" "-m" $mode $source $destination] | ignore
 }
 
+def install-owned-dir [mode: string, owner: string, group: string, path: string]: nothing -> nothing {
+  run-required $"create owned directory ($path)" ["sudo" "install" "-d" "-m" $mode "-o" $owner "-g" $group $path] | ignore
+}
+
 def install-root-symlink [target: string, link_path: string]: nothing -> nothing {
   run-required $"link ($link_path)" ["sudo" "ln" "-sf" $target $link_path] | ignore
+}
+
+def install-pdf-preflight-filter [app_dir: string]: nothing -> nothing {
+  let filter_js = ($app_dir | path join "apps/agent/dist-cups-filter/cups-pdf-preflight-filter.js")
+
+  run-required "verify bundled PDF preflight filter" ["test" "-r" $filter_js] | ignore
+
+  let tmp_filter = (mktemp)
+  let tmp_package_json = (mktemp)
+
+  try {
+    install-root-dir $CUPS_PDF_PREFLIGHT_INSTALL_DIR
+    ['{ "type": "module" }' ""] | str join "\n" | save --force $tmp_package_json
+    install-root-file "0644" $tmp_package_json $CUPS_PDF_PREFLIGHT_PACKAGE_JSON_PATH
+    install-root-file "0555" $filter_js $CUPS_PDF_PREFLIGHT_JS_PATH
+    install-owned-dir "0750" "lp" "lp" $CUPS_FILTER_CACHE_DIR
+
+    let exec_line = (["exec" "/usr/bin/node" (shell-quote $CUPS_PDF_PREFLIGHT_JS_PATH) '"$@"'] | str join " ")
+    [
+      "#!/bin/sh"
+      $"export XDG_CACHE_HOME=(shell-quote $CUPS_FILTER_CACHE_DIR)"
+      $exec_line
+      ""
+    ] | str join "\n" | save --force $tmp_filter
+    install-root-file "0555" $tmp_filter $CUPS_PDF_PREFLIGHT_FILTER_PATH
+    run-required "verify installed PDF preflight CUPS filter" ["test" "-x" $CUPS_PDF_PREFLIGHT_FILTER_PATH] | ignore
+  } catch {|err|
+    rm --force $tmp_filter
+    rm --force $tmp_package_json
+    error make {msg: (error-message $err)}
+  }
+
+  rm --force $tmp_filter
+  rm --force $tmp_package_json
 }
 
 def ensure-hp-uld-driver []: nothing -> string {
@@ -179,13 +264,16 @@ def ensure-hp-uld-driver []: nothing -> string {
     let source_ppd_path = ($noarch_dir | path join "share/ppd/HP_Laser_MFP_13x_Series.ppd")
 
     let source_ppd = (open $source_ppd_path)
-    for expected in [$HP_ULD_GRAYSCALE_8BIT $HP_ULD_STANDARD_600DPI] {
+    for expected in [$HP_ULD_GRAYSCALE_8BIT $HP_ULD_RASTER_FILTER $HP_ULD_STANDARD_600DPI] {
       if not ($source_ppd | str contains $expected) {
         error make {msg: $"HP ULD PPD did not contain expected line: ($expected)"}
       }
     }
 
-    $source_ppd | str replace $HP_ULD_STANDARD_600DPI $HP_ULD_STANDARD_SAFE_300DPI | save -f $patched_ppd_path
+    $source_ppd
+    | str replace $HP_ULD_RASTER_FILTER $"($HP_ULD_PDF_PREFLIGHT_FILTER)\n($HP_ULD_RASTER_FILTER)"
+    | str replace $HP_ULD_STANDARD_600DPI $HP_ULD_STANDARD_SAFE_300DPI
+    | save -f $patched_ppd_path
 
     [
       /opt/smfp-common/printer/bin
@@ -207,7 +295,7 @@ def ensure-hp-uld-driver []: nothing -> string {
     run-required "verify HP 13x PPD" ["test" "-r" $HP_ULD_PPD_PATH] | ignore
   } catch {|err|
     rm -rf $temp_dir
-    error make {msg: $err.msg}
+    error make {msg: (error-message $err)}
   }
 
   rm -rf $temp_dir
@@ -237,13 +325,18 @@ def configure-cups-network [--enable-printing]: nothing -> nothing {
       "WebInterface=Yes"
       "Browsing=Yes"
       "BrowseLocalProtocols=dnssd"
+      "AccessLogLevel=all"
+      "LogLevel=info"
+      "MaxLogSize=33554432"
       "ErrorPolicy=stop-printer"
       "JobRetryLimit=0"
       "JobRetryInterval=0"
+      "MaxJobs=20"
       "MaxJobsPerPrinter=1"
       "MaxJobTime=300"
-      "PreserveJobFiles=No"
-      "PreserveJobHistory=No"
+      "PreserveJobFiles=86400"
+      "PreserveJobHistory=86400"
+      "AutoPurgeJobs=Yes"
       "JobKillDelay=5"
     ] | ignore
   } else {
@@ -253,13 +346,18 @@ def configure-cups-network [--enable-printing]: nothing -> nothing {
       "--no-share-printers"
       "WebInterface=Yes"
       "Browsing=No"
+      "AccessLogLevel=all"
+      "LogLevel=info"
+      "MaxLogSize=33554432"
       "ErrorPolicy=stop-printer"
       "JobRetryLimit=0"
       "JobRetryInterval=0"
+      "MaxJobs=20"
       "MaxJobsPerPrinter=1"
       "MaxJobTime=300"
-      "PreserveJobFiles=No"
-      "PreserveJobHistory=No"
+      "PreserveJobFiles=86400"
+      "PreserveJobHistory=86400"
+      "AutoPurgeJobs=Yes"
       "JobKillDelay=5"
     ]
   }
@@ -361,11 +459,15 @@ def main [
     cups-client
     cups-filters
     cups-filters-core-drivers
+    ghostscript
+    poppler-utils
+    nodejs
     ca-certificates
     tar
     gzip
     avahi-daemon
   ]
+  ensure-node-runtime
 
   run-best-effort ["sudo" "systemctl" "mask" "--now" "ipp-usb.service"]
   authorize-hp-usb
@@ -388,6 +490,7 @@ def main [
     {kind: ppd, value: (ensure-hp-uld-driver)}
   }
 
+  install-pdf-preflight-filter $root_dir
   configure-cups-network --enable-printing=$enable_printing
   configure-queue $queue_name $resolved_device_uri $selected_driver.value --ppd=($selected_driver.kind == "ppd") --enable-printing=$enable_printing
   clear-spool-files

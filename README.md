@@ -325,6 +325,13 @@ script lowers the standard render resolution to 300x300 while keeping the
 driver's advertised `600dpi` option name, which reduces scanned-PDF SPL payloads
 without changing the raster bit depth.
 
+The setup script also installs the queue-specific CUPS filter
+`ipp-pdf-preflight-to-spl`. Android and the orchestrator both submit PDFs into
+this queue, so PDF safety has to live at the CUPS boundary. The filter rejects
+encrypted/protected PDFs and PDFs whose metadata cannot be read before invoking
+the HP driver pipeline. Accepted PDFs still render through
+`pdftopdf -> gstoraster -> rastertospl`.
+
 Emergency stop from the development machine:
 
 ```bash
@@ -360,7 +367,9 @@ may process incorrectly even when CUPS reports the job as completed.
 
 CUPS is configured with `ErrorPolicy=stop-printer`, `JobRetryLimit=0`,
 `MaxJobsPerPrinter=1`, and `MaxJobTime=300`. A failed job must stop rather than
-retry.
+retry. CUPS also preserves job files and job history for 86400 seconds so a bad
+PDF can be inspected after an incident; do not treat the spool as permanent
+document storage.
 
 The deploy script:
 
