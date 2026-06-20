@@ -29,6 +29,15 @@ def main [
   let remote_script = ($app_dir | path join "scripts/setup-cups-live-from-pi.nu")
   let local_filter_bundle = ($root_dir | path join "apps/agent/dist-cups-filter/cups-pdf-preflight-filter.js")
   let remote_filter_bundle_dir = ($app_dir | path join "apps/agent/dist-cups-filter")
+
+  if $repair_tls_only and $stop_only {
+    error make {msg: "--repair-tls-only cannot be combined with --stop-only"}
+  }
+
+  if $repair_tls_only and $enable_printing {
+    error make {msg: "--repair-tls-only cannot be combined with --enable-printing"}
+  }
+
   let forwarded_args = (
     []
     | append (if (has-value $printer_name) { ["--printer-name" $printer_name] } else { [] })

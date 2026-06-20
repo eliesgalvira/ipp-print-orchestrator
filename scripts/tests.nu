@@ -179,6 +179,40 @@ def "test run-with-retries retries transient failures" []: nothing -> nothing {
   rm --force $attempt_path
 }
 
+def "test CUPS TLS verification output classifier handles identity mismatches" []: nothing -> nothing {
+  let accepted_self_signed = (
+    nu --no-config-file --commands '
+source scripts/setup-cups-live-from-pi.nu
+verify-openssl-output-has-matching-identity "print-server-2.local" "Verify return code: 18 (self-signed certificate)"
+'
+    | complete
+  )
+
+  assert equal $accepted_self_signed.exit_code 0 $"expected self-signed cert with matching identity to pass: ($accepted_self_signed.stderr)"
+
+  let ip_mismatch = (
+    nu --no-config-file --commands '
+source scripts/setup-cups-live-from-pi.nu
+verify-openssl-output-has-matching-identity "192.168.4.128" "Verification error: IP address mismatch Verify return code: 64 (IP address mismatch)"
+'
+    | complete
+  )
+
+  assert equal $ip_mismatch.exit_code 1 "expected IP SAN mismatch to fail"
+  assert ($ip_mismatch.stderr | str contains "CUPS TLS identity verification failed") "expected IP mismatch to use the identity failure diagnostic"
+
+  let case_variant_hostname_mismatch = (
+    nu --no-config-file --commands '
+source scripts/setup-cups-live-from-pi.nu
+verify-openssl-output-has-matching-identity "print-server.local" "Verification error: Hostname mismatch Verify return code: 62 (hostname mismatch)"
+'
+    | complete
+  )
+
+  assert equal $case_variant_hostname_mismatch.exit_code 1 "expected hostname mismatch to fail"
+  assert ($case_variant_hostname_mismatch.stderr | str contains "CUPS TLS identity verification failed") "expected hostname mismatch to use the identity failure diagnostic"
+}
+
 def "test repo helpers expose stable strings" []: nothing -> nothing {
   assert equal (repo-root | path expand) (pwd | path expand)
   assert ("node_modules" in (deploy-excludes)) "deploy excludes should include node_modules"

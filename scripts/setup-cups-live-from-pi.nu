@@ -406,7 +406,14 @@ def systemd-service-active [service: string]: nothing -> bool {
 }
 
 def verify-openssl-output-has-matching-identity [label: string, output: string]: nothing -> nothing {
-  if ($output | str contains "hostname mismatch") or ($output | str contains "Verify return code: 62") {
+  let lowered_output = ($output | str downcase)
+
+  if (
+    ($lowered_output | str contains "hostname mismatch")
+    or ($lowered_output | str contains "ip address mismatch")
+    or ($output | str contains "Verify return code: 62")
+    or ($output | str contains "Verify return code: 64")
+  ) {
     error make {msg: $"CUPS TLS identity verification failed for ($label): ($output | str trim)"}
   }
 
@@ -442,9 +449,8 @@ def verify-cups-tls-ip [ip_address: string]: nothing -> nothing {
 def verify-cups-tls-identity [identity: record]: nothing -> nothing {
   verify-cups-tls-hostname $identity.avahi_fqdn
 
-  let ipv4_addresses = ($identity.ip_addresses | where {|value| $value | str contains "."})
-  if not ($ipv4_addresses | is-empty) {
-    verify-cups-tls-ip ($ipv4_addresses | first)
+  for ip_address in $identity.ip_addresses {
+    verify-cups-tls-ip $ip_address
   }
 }
 
