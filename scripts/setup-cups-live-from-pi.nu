@@ -10,6 +10,7 @@ const CUPS_PDF_PREFLIGHT_FILTER_PATH = "/usr/lib/cups/filter/ipp-pdf-preflight-t
 const CUPS_PDF_PREFLIGHT_INSTALL_DIR = "/opt/ipp-print-orchestrator/cups-filter"
 const CUPS_PDF_PREFLIGHT_JS_PATH = "/opt/ipp-print-orchestrator/cups-filter/cups-pdf-preflight-filter.js"
 const CUPS_PDF_PREFLIGHT_PACKAGE_JSON_PATH = "/opt/ipp-print-orchestrator/cups-filter/package.json"
+const CUPS_USB_BACKEND_WRAPPER_PATH = "/usr/lib/cups/backend/ipp-orch-usb"
 const CUPS_FILTER_CACHE_DIR = "/var/cache/ipp-print-orchestrator"
 const CUPS_SSL_DIR = "/etc/cups/ssl"
 const CUPS_TLS_CERT_DAYS = "3650"
@@ -440,6 +441,23 @@ def install-pdf-preflight-filter [app_dir: string]: nothing -> nothing {
   rm --force $tmp_package_json
 }
 
+def supervised-usb-device-uri [device_uri: string]: nothing -> string {
+  if ($device_uri | str starts-with "usb://") {
+    "ipp-orch-usb://" + ($device_uri | str substring 6..)
+  } else {
+    $device_uri
+  }
+}
+
+def install-supervised-usb-backend []: nothing -> nothing {
+  let backend_script = (repo-root | path join "scripts/cups/backend/ipp-orch-usb")
+
+  run-required "verify supervised USB backend source" ["test" "-r" $backend_script] | ignore
+  run-required "verify supervised USB backend shell syntax" ["sh" "-n" $backend_script] | ignore
+  install-root-file "0555" $backend_script $CUPS_USB_BACKEND_WRAPPER_PATH
+  run-required "verify supervised CUPS USB backend" ["test" "-x" $CUPS_USB_BACKEND_WRAPPER_PATH] | ignore
+}
+
 def ensure-hp-uld-driver []: nothing -> string {
   let temp_dir = (mktemp -d)
   let archive_path = ($temp_dir | path join "uld.tar.gz")
@@ -687,6 +705,7 @@ def main [
     openssl
     tar
     gzip
+    coreutils
     avahi-daemon
   ]
   ensure-node-runtime
@@ -714,8 +733,9 @@ def main [
   }
 
   install-pdf-preflight-filter $root_dir
+  install-supervised-usb-backend
   configure-cups-network --enable-printing=$enable_printing
-  configure-queue $queue_name $resolved_device_uri $selected_driver.value --ppd=($selected_driver.kind == "ppd") --enable-printing=$enable_printing
+  configure-queue $queue_name (supervised-usb-device-uri $resolved_device_uri) $selected_driver.value --ppd=($selected_driver.kind == "ppd") --enable-printing=$enable_printing
   clear-spool-files
 
   if $enable_printing {

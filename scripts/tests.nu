@@ -224,6 +224,80 @@ verify-openssl-output-has-matching-identity "print-server.local" "Verification e
   assert ($case_variant_hostname_mismatch.stderr | str contains "CUPS TLS identity verification failed") "expected hostname mismatch to use the identity failure diagnostic"
 }
 
+def "test supervised CUPS USB URI rewriting" []: nothing -> nothing {
+  let result = (
+    nu --no-config-file --commands '
+source scripts/setup-cups-live-from-pi.nu
+print (supervised-usb-device-uri "usb://HP/Laser%20MFP?serial=123")
+print (supervised-usb-device-uri "file:///tmp/output")
+'
+    | complete
+  )
+
+  assert equal $result.exit_code 0 $"expected supervised USB URI rewriting to execute: ($result.stderr)"
+  let lines = ($result.stdout | lines)
+  assert equal ($lines | get 0) "ipp-orch-usb://HP/Laser%20MFP?serial=123"
+  assert equal ($lines | get 1) "file:///tmp/output"
+}
+
+def "test supervised CUPS USB backend wrapper delegates through original URI" []: nothing -> nothing {
+  let root = (repo-root)
+  let backend = ($root | path join "scripts/cups/backend/ipp-orch-usb")
+  let fake_backend = (mktemp -t ipp-orch-fake-usb-backend.XXXXXX)
+  let capture = (mktemp -t ipp-orch-fake-usb-capture.XXXXXX)
+
+  try {
+    [
+      "#!/bin/sh"
+      "set -eu"
+      "if [ \"$#\" -eq 0 ]; then"
+      "  echo 'direct usb://HP/Test?serial=123 \"HP Test\" \"HP Test\"'"
+      "  exit 0"
+      "fi"
+      "printf 'DEVICE_URI=%s\n' \"$DEVICE_URI\" > \"$IPP_ORCH_FAKE_CAPTURE\""
+      "printf 'ARGC=%s\n' \"$#\" >> \"$IPP_ORCH_FAKE_CAPTURE\""
+      "printf 'ARG1=%s\n' \"$1\" >> \"$IPP_ORCH_FAKE_CAPTURE\""
+      "exit 0"
+      ""
+    ] | str join "\n" | save --force $fake_backend
+    chmod +x $fake_backend
+
+    let syntax = (run-external "sh" "-n" $backend | complete)
+    assert equal $syntax.exit_code 0 $"backend wrapper shell syntax should be valid: ($syntax.stderr)"
+
+    let discovery = (
+      with-env {IPP_ORCH_REAL_USB_BACKEND: $fake_backend} {
+        run-external "sh" $backend | complete
+      }
+    )
+    assert equal $discovery.exit_code 0 $"backend wrapper discovery should execute: ($discovery.stderr)"
+    assert ($discovery.stdout | str contains "direct ipp-orch-usb://HP/Test?serial=123") "discovery should advertise supervised USB URIs"
+
+    let job = (
+      with-env {
+        IPP_ORCH_REAL_USB_BACKEND: $fake_backend
+        IPP_ORCH_FAKE_CAPTURE: $capture
+        DEVICE_URI: "ipp-orch-usb://HP/Test?serial=123"
+      } {
+        run-external "sh" $backend "79" "Pixel" "title.pdf" "1" "print-scaling=none" | complete
+      }
+    )
+    assert equal $job.exit_code 0 $"backend wrapper job mode should execute: ($job.stderr)"
+
+    let captured = (open --raw $capture)
+    assert ($captured | str contains "DEVICE_URI=usb://HP/Test?serial=123") "job mode should delegate to the original usb:// URI"
+    assert ($captured | str contains "ARGC=5") "job mode should preserve backend arguments"
+    assert ($captured | str contains "ARG1=79") "job mode should preserve the CUPS job id argument"
+  } catch {|err|
+    rm --force $fake_backend
+    rm --force $capture
+    error make $err
+  }
+
+  rm --force $fake_backend
+  rm --force $capture
+}
+
 def "test repo helpers expose stable strings" []: nothing -> nothing {
   assert equal (repo-root | path expand) (pwd | path expand)
   assert ("node_modules" in (deploy-excludes)) "deploy excludes should include node_modules"

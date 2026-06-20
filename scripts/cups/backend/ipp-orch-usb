@@ -1,0 +1,50 @@
+#!/bin/sh
+set -u
+
+REAL_BACKEND=${IPP_ORCH_REAL_USB_BACKEND:-/usr/lib/cups/backend/usb}
+TIMEOUT_SECONDS=${IPP_ORCH_USB_BACKEND_TIMEOUT_SECONDS:-60}
+
+deauthorize_hp_usb() {
+  for device in /sys/bus/usb/devices/*; do
+    [ -r "$device/idVendor" ] || continue
+    [ -w "$device/authorized" ] || continue
+    vendor=$(cat "$device/idVendor" 2>/dev/null || true)
+    case "$vendor" in
+      03f0 | 03F0) echo 0 >"$device/authorized" 2>/dev/null || true ;;
+    esac
+  done
+}
+
+if [ "$#" -eq 0 ]; then
+  "$REAL_BACKEND" | sed 's# usb://# ipp-orch-usb://#'
+  exit $?
+fi
+
+case "${DEVICE_URI:-}" in
+  ipp-orch-usb://*)
+    export DEVICE_URI="usb://${DEVICE_URI#ipp-orch-usb://}"
+    ;;
+  *)
+    echo "ERROR: ipp-orch-usb backend requires DEVICE_URI=ipp-orch-usb://..." >&2
+    exit 1
+    ;;
+esac
+
+if command -v timeout >/dev/null 2>&1; then
+  timeout --foreground --kill-after=5s "$TIMEOUT_SECONDS" "$REAL_BACKEND" "$@"
+  status=$?
+else
+  "$REAL_BACKEND" "$@"
+  status=$?
+fi
+
+case "$status" in
+  124 | 137)
+    echo "ERROR: ipp-orch-usb backend timed out after ${TIMEOUT_SECONDS}s; deauthorizing HP USB device" >&2
+    deauthorize_hp_usb
+    exit 1
+    ;;
+  *)
+    exit "$status"
+    ;;
+esac

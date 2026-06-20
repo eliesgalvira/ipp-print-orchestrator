@@ -62,6 +62,15 @@ Patch the HP PPD conservatively:
   `ipp-pdf-preflight-to-spl`. It preflights the original PDF with `pdfinfo`,
   rejects encrypted/protected or unreadable PDFs, then invokes the existing
   `pdftopdf -> gstoraster -> rastertospl` pipeline for accepted PDFs.
+- Stage final SPL/QPDL output to a temporary file before handing bytes to the
+  backend. Validate that `rastertospl` reports exactly the expected page count,
+  reject multiple-copy jobs, force the known safe PDF options, and cap final
+  output size per page.
+- Route the queue through the `ipp-orch-usb` backend wrapper instead of the raw
+  CUPS `usb` backend. The wrapper delegates to the real USB backend with the
+  original `usb://` URI, but enforces a hard timeout and deauthorizes the HP USB
+  device if the backend wedges. Keep the wrapper as a checked-in script at
+  `scripts/cups/backend/ipp-orch-usb`, not as generated shell embedded in Nu.
 
 Configure CUPS defensively:
 
@@ -102,16 +111,23 @@ silently reinstall an old unsafe PPD.
 The live queue should render through:
 
 ```text
-PDF -> pdftopdf -> gstoraster -> CUPS raster, 300x300, 8-bit grayscale -> rastertospl -> SPL/QPDL -> USB printer
+PDF -> pdftopdf -> gstoraster -> CUPS raster, 300x300, 8-bit grayscale -> rastertospl -> guarded SPL/QPDL file -> supervised USB backend -> USB printer
 ```
 
 For PDF jobs, that pipeline is now enclosed by `ipp-pdf-preflight-to-spl`, so
 the HP/Samsung driver never receives PDFs that the local preflight cannot
-classify as readable and unencrypted.
+classify as readable and unencrypted. The filter also refuses to stream final
+printer bytes until it has a complete driver output file with a matching page
+count and bounded size.
 
 This reduces payload size for scanned/image-heavy pages while preserving the
 raster format expected by `rastertospl`. It also prevents CUPS from retrying a
 bad job repeatedly if the backend or printer errors.
+
+The USB backend wrapper exists because a valid one-page render can still leave
+the CUPS USB backend stuck in the device phase. In that state, stopping CUPS may
+wait for systemd's service timeout while the printer is physically misbehaving.
+The wrapper makes that failure bounded and detaches the HP USB device on timeout.
 
 Preserving job files for one day increases local forensic capability after a
 printer incident. The tradeoff is that recent documents may remain under the
@@ -129,9 +145,12 @@ Allowed safe checks:
 
 - `nu scripts/setup-cups-live-to-pi.nu --stop-only`
 - `nu scripts/setup-cups-live-to-pi.nu`
-- `nu scripts/setup-cups-live-to-pi.nu --enable-printing`
 - `cupsfilter` conversions redirected to a temporary file
 - `lpstat`, PPD inspection, CUPS config inspection, and spool inspection
+
+`nu scripts/setup-cups-live-to-pi.nu --enable-printing` exposes the queue to
+clients and must be treated as a live-operation step, not a passive check,
+especially when Android may still have a local queued job.
 
 Physical print tests require explicit confirmation of the exact sheet count.
 Use one sheet unless the user explicitly authorizes more.

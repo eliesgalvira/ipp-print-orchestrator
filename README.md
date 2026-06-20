@@ -330,7 +330,16 @@ The setup script also installs the queue-specific CUPS filter
 this queue, so PDF safety has to live at the CUPS boundary. The filter rejects
 encrypted/protected PDFs and PDFs whose metadata cannot be read before invoking
 the HP driver pipeline. Accepted PDFs still render through
-`pdftopdf -> gstoraster -> rastertospl`.
+`pdftopdf -> gstoraster -> rastertospl`, but final SPL/QPDL output is staged
+first and only streamed to CUPS after the filter verifies a matching page count,
+single-copy output, and a bounded byte size. The filter also forces the known
+safe PDF options, including `print-scaling=none`, for direct Android jobs.
+
+The queue device URI uses the `ipp-orch-usb` backend wrapper. That wrapper
+delegates to the real CUPS `usb` backend with the original HP `usb://` URI, but
+adds a hard timeout and deauthorizes the HP USB device if the backend wedges
+after rendering. The wrapper is checked in at `scripts/cups/backend/ipp-orch-usb`
+and installed verbatim by the CUPS setup script.
 
 Emergency stop from the development machine:
 
@@ -383,10 +392,11 @@ directly; local `lp` can create a different CUPS job path that this SPL printer
 may process incorrectly even when CUPS reports the job as completed.
 
 CUPS is configured with `ErrorPolicy=stop-printer`, `JobRetryLimit=0`,
-`MaxJobsPerPrinter=1`, and `MaxJobTime=300`. A failed job must stop rather than
-retry. CUPS also preserves job files and job history for 86400 seconds so a bad
-PDF can be inspected after an incident; do not treat the spool as permanent
-document storage.
+`MaxJobsPerPrinter=1`, and `MaxJobTime=300`; the supervised USB backend adds a
+shorter device-phase timeout. A failed job must stop rather than retry. CUPS also
+preserves job files and job history for 86400 seconds so a bad PDF can be
+inspected after an incident; do not treat the spool as permanent document
+storage.
 
 The deploy script:
 

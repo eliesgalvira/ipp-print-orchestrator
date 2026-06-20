@@ -55,7 +55,12 @@ def main [
     }
 
     run-required "create remote script directory" (
-      (ssh-args $pi_host --key-path $ssh_key_path --batch) ++ ["mkdir" "-p" ($app_dir | path join "scripts/lib")]
+      (ssh-args $pi_host --key-path $ssh_key_path --batch) ++ [
+        "mkdir"
+        "-p"
+        ($app_dir | path join "scripts/lib")
+        ($app_dir | path join "scripts/cups/backend")
+      ]
     )
 
     let rsync_script_command = (
@@ -79,6 +84,16 @@ def main [
       ]
     )
     run-required "sync target CUPS setup libraries" $rsync_lib_command
+
+    let rsync_backend_command = (
+      (rsync-args --key-path $ssh_key_path --batch)
+      ++ [
+        "-az"
+        ($root_dir | path join "scripts/cups/backend/ipp-orch-usb")
+        $"($pi_host):($app_dir)/scripts/cups/backend/"
+      ]
+    )
+    run-required "sync supervised CUPS USB backend" $rsync_backend_command
 
     if not $stop_only and not $repair_tls_only {
       run-required "create remote CUPS filter bundle directory" (
