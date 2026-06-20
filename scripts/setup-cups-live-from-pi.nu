@@ -256,8 +256,45 @@ def busctl-avahi-string [method: string]: nothing -> string {
   $value
 }
 
+def busctl-avahi-string-arg [method: string, argument: string]: nothing -> string {
+  let result = (
+    run-external
+      "busctl"
+      "--json=short"
+      "call"
+      "org.freedesktop.Avahi"
+      "/"
+      "org.freedesktop.Avahi.Server"
+      $method
+      "s"
+      $argument
+    | complete
+  )
+
+  if $result.exit_code != 0 {
+    error make {msg: $"Avahi D-Bus method ($method) failed for ($argument): ($result.stderr | str trim)"}
+  }
+
+  let parsed = (try {
+      $result.stdout | from json
+    } catch {|err|
+      error make {msg: $"Avahi D-Bus method ($method) returned invalid JSON for ($argument): (error-message $err)"}
+    })
+  let value = (try {
+      $parsed | get data | get 0
+    } catch {|err|
+      error make {msg: $"Avahi D-Bus method ($method) did not return a string payload for ($argument): (error-message $err)"}
+    })
+
+  if (($value | describe) != "string") {
+    error make {msg: $"Avahi D-Bus method ($method) returned non-string payload for ($argument): ($value | to nuon)"}
+  }
+
+  $value
+}
+
 def ensure-avahi-running []: nothing -> nothing {
-  run-required "start Avahi daemon for mDNS hostname discovery" ["sudo" "systemctl" "start" "avahi-daemon.service"] | ignore
+  run-required "refresh Avahi daemon for mDNS hostname discovery" ["sudo" "systemctl" "restart" "avahi-daemon.service"] | ignore
 
   for attempt in 1..10 {
     let result = (
@@ -335,12 +372,15 @@ def install-cups-tls-certificate []: nothing -> record {
   let system_hostname = (run-required "detect system hostname" ["hostname"] | str trim)
   let avahi_hostname = (busctl-avahi-string "GetHostName" | str trim)
   let avahi_fqdn = (busctl-avahi-string "GetHostNameFqdn" | str trim | str replace --regex "\\.$" "")
+  let avahi_alternative_hostname = (busctl-avahi-string-arg "GetAlternativeHostName" $system_hostname | str trim)
   let dns_names = (non-empty-unique-strings [
     $system_hostname
     $"($system_hostname).local"
     $avahi_hostname
     $"($avahi_hostname).local"
     $avahi_fqdn
+    $avahi_alternative_hostname
+    $"($avahi_alternative_hostname).local"
     "localhost"
   ])
   let ip_addresses = (local-ip-addresses)
@@ -405,19 +445,23 @@ def systemd-service-active [service: string]: nothing -> bool {
   $result.exit_code == 0
 }
 
+def openssl-verify-return-code-is [output: string, code: int]: nothing -> bool {
+  $output | str contains $"Verify return code: ($code) "
+}
+
 def verify-openssl-output-has-matching-identity [label: string, output: string]: nothing -> nothing {
   let lowered_output = ($output | str downcase)
 
   if (
     ($lowered_output | str contains "hostname mismatch")
     or ($lowered_output | str contains "ip address mismatch")
-    or ($output | str contains "Verify return code: 62")
-    or ($output | str contains "Verify return code: 64")
+    or (openssl-verify-return-code-is $output 62)
+    or (openssl-verify-return-code-is $output 64)
   ) {
     error make {msg: $"CUPS TLS identity verification failed for ($label): ($output | str trim)"}
   }
 
-  if not (($output | str contains "Verify return code: 0") or ($output | str contains "Verify return code: 18")) {
+  if not ((openssl-verify-return-code-is $output 0) or (openssl-verify-return-code-is $output 18)) {
     error make {msg: $"CUPS TLS verification returned an unexpected result for ($label): ($output | str trim)"}
   }
 }
@@ -447,7 +491,9 @@ def verify-cups-tls-ip [ip_address: string]: nothing -> nothing {
 }
 
 def verify-cups-tls-identity [identity: record]: nothing -> nothing {
-  verify-cups-tls-hostname $identity.avahi_fqdn
+  for dns_name in $identity.dns_names {
+    verify-cups-tls-hostname $dns_name
+  }
 
   for ip_address in $identity.ip_addresses {
     verify-cups-tls-ip $ip_address

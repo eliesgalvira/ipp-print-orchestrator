@@ -190,6 +190,17 @@ verify-openssl-output-has-matching-identity "print-server-2.local" "Verify retur
 
   assert equal $accepted_self_signed.exit_code 0 $"expected self-signed cert with matching identity to pass: ($accepted_self_signed.stderr)"
 
+  let unrelated_verify_code = (
+    nu --no-config-file --commands '
+source scripts/setup-cups-live-from-pi.nu
+verify-openssl-output-has-matching-identity "print-server.local" "Verify return code: 20 (unable to get local issuer certificate)"
+'
+    | complete
+  )
+
+  assert equal $unrelated_verify_code.exit_code 1 "expected unrelated OpenSSL verification codes to fail"
+  assert ($unrelated_verify_code.stderr | str contains "CUPS TLS verification returned an unexpected result") "expected unrelated verification code to use the generic verification diagnostic"
+
   let ip_mismatch = (
     nu --no-config-file --commands '
 source scripts/setup-cups-live-from-pi.nu
