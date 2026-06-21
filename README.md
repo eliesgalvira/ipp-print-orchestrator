@@ -179,6 +179,19 @@ bun run lint
 bun run format
 ```
 
+Nix build-system checks:
+
+```bash
+nix flake check
+nix build .#packages.x86_64-linux.ipp-print-orchestrator
+nix build .#checks.x86_64-linux.nixos-module
+```
+
+The flake exposes `nixosModules.ipp-print-orchestrator` for the long-term NixOS
+target. The current live Pi deploy still uses the transitional non-NixOS path:
+it builds aarch64 closures locally or on a configured builder, copies those
+closures to the Pi, and activates systemd/CUPS from copied store paths.
+
 Agent package commands:
 
 ```bash
@@ -323,8 +336,9 @@ The local wrapper uses the same `PI_HOST`, `APP_DIR`, and `PI_SSH_KEY_PATH` sett
 The HP Laser MFP 135a is a Samsung-derived SPL printer. Do not configure it with
 generic PCL/PCL XL drivers; they can appear to work for simple text while
 producing corrupted output for images, logos, and filled vector graphics. The
-live setup script installs HP's Unified Linux Driver `rastertospl` filter and
-uses the matching `HP_Laser_MFP_13x_Series.ppd`.
+live setup script builds and copies the Nix HP driver closure, then installs the
+store-backed `rastertospl` filter and matching
+`HP_Laser_MFP_13x_Series.ppd` integration points into CUPS.
 
 The setup script keeps HP's 8-bit grayscale raster mode intact. Do not force the
 PPD to 1-bit grayscale: `rastertospl` does not handle that stream correctly for
@@ -335,8 +349,9 @@ driver's advertised `600dpi` option name, which reduces scanned-PDF SPL payloads
 without changing the raster bit depth.
 
 The setup script also installs the queue-specific CUPS filter
-`ipp-pdf-preflight-to-spl`. Android and the orchestrator both submit PDFs into
-this queue, so PDF safety has to live at the CUPS boundary. The filter rejects
+`ipp-pdf-preflight-to-spl` from the copied Nix runtime closure. Android and the
+orchestrator both submit PDFs into this queue, so PDF safety has to live at the
+CUPS boundary. The filter rejects
 encrypted/protected PDFs and PDFs whose metadata cannot be read before invoking
 the HP driver pipeline. Accepted PDFs still render through
 `pdftopdf -> gstoraster -> rastertospl`, but final SPL/QPDL output is staged
@@ -349,11 +364,12 @@ stages the filter pipeline output before invoking the real CUPS `usb` backend
 with the original HP `usb://` URI. If the filter produces no printer bytes, the
 wrapper fails immediately without touching USB; if bytes are present, it feeds
 the staged payload to the real backend with a hard timeout and deauthorizes the
-HP USB device if the backend wedges after rendering. The wrapper is checked in
-at `scripts/cups/backend/ipp-orch-usb` and installed by the CUPS setup script
-with root-only execute permission, matching the real `usb` backend. That
-permission matters: CUPS otherwise runs the wrapper as `lp`, and delegation to
-`/usr/lib/cups/backend/usb` fails before bytes can reach the printer.
+HP USB device if the backend wedges after rendering. The backend implementation
+is packaged as a Nix output. The CUPS setup script installs a tiny root-owned
+launcher at `/usr/lib/cups/backend/ipp-orch-usb` that execs the copied store
+backend. That permission matters: CUPS otherwise runs the backend as `lp`, and
+delegation to `/usr/lib/cups/backend/usb` fails before bytes can reach the
+printer.
 
 Emergency stop from the development machine:
 
@@ -370,9 +386,9 @@ Safe configuration command:
 nu scripts/setup-cups-live-to-pi.nu
 ```
 
-By default this installs the HP SPL driver, configures the queue, then leaves
-CUPS stopped, disabled, unshared, and rejecting jobs. It does not print a test
-page.
+By default this builds/copies the required Nix closures, installs the CUPS
+integration points from those store paths, configures the queue, then leaves CUPS
+stopped, disabled, unshared, and rejecting jobs. It does not print a test page.
 
 Only expose the queue again when paper is intentionally loaded and the printer
 is known to have no buffered pages:

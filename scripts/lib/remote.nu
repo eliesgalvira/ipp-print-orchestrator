@@ -289,6 +289,43 @@ export def --env ensure-user-bun-on-path []: nothing -> nothing {
   }
 }
 
+export def parse-nix-paths [stdout: string]: nothing -> record<runtime_path: string, driver_path: string, backend_path: string> {
+  let marker = "IPP_ORCH_NIX_PATHS\t"
+  let lines = (
+    $stdout
+    | lines
+    | where {|line| $line | str starts-with $marker}
+  )
+
+  if (($lines | length) != 1) {
+    error make {msg: $"expected exactly one ($marker) line from Nix closure build, got ($lines | length)"}
+  }
+
+  let fields = (($lines | first) | split row "\t")
+
+  if (($fields | length) != 4) {
+    error make {msg: $"expected closure path marker to contain 3 store paths, got ($fields | length) fields"}
+  }
+
+  {
+    runtime_path: ($fields | get 1)
+    driver_path: ($fields | get 2)
+    backend_path: ($fields | get 3)
+  }
+}
+
+export def build-and-copy-nix-closures []: nothing -> record<runtime_path: string, driver_path: string, backend_path: string> {
+  let result = (^nu scripts/build-nix-closures-live-to-pi.nu | complete)
+
+  print --raw $result.stdout
+
+  if $result.exit_code != 0 {
+    error make {msg: $"Nix closure build/copy failed: ($result.stderr | str trim)"}
+  }
+
+  parse-nix-paths $result.stdout
+}
+
 export def run-ssh [
   host: string
   remote_args: list<string>

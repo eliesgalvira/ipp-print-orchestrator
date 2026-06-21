@@ -52,12 +52,15 @@
         }
       );
 
+      nixosModules.ipp-print-orchestrator = import ./nix/modules/ipp-print-orchestrator.nix;
+
       checks = forAllSystems (
         { pkgs, ... }:
         import ./nix/checks {
           inherit pkgs;
           src = self;
           packages = self.packages.${pkgs.stdenv.hostPlatform.system};
+          nixosModule = self.nixosModules.ipp-print-orchestrator;
         }
       );
 
@@ -67,6 +70,6 @@
         }
       );
 
-      formatter = forAllSystems ({ pkgs, ... }: pkgs.nixfmt);
+      formatter = forAllSystems ({ pkgs, ... }: import ./nix/formatter.nix { inherit pkgs; });
     };
 }

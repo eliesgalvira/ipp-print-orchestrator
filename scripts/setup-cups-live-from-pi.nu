@@ -4,12 +4,8 @@ use lib/avahi.nu [advertised-host ensure-avahi-ready]
 use lib/env.nu [get-config has-value load-dotenv]
 use lib/repo.nu repo-root
 
-const HP_ULD_URL = "https://ftp.hp.com/pub/softlib/software13/printers/CLP150/uld-hp_V1.00.39.12_00.15.tar.gz"
 const HP_ULD_PPD_PATH = "/usr/share/ppd/uld-hp/HP_Laser_MFP_13x_Series.ppd"
 const CUPS_PDF_PREFLIGHT_FILTER_PATH = "/usr/lib/cups/filter/ipp-pdf-preflight-to-spl"
-const CUPS_PDF_PREFLIGHT_INSTALL_DIR = "/opt/ipp-print-orchestrator/cups-filter"
-const CUPS_PDF_PREFLIGHT_JS_PATH = "/opt/ipp-print-orchestrator/cups-filter/cups-pdf-preflight-filter.js"
-const CUPS_PDF_PREFLIGHT_PACKAGE_JSON_PATH = "/opt/ipp-print-orchestrator/cups-filter/package.json"
 const CUPS_USB_BACKEND_WRAPPER_PATH = "/usr/lib/cups/backend/ipp-orch-usb"
 const CUPS_FILTER_CACHE_DIR = "/var/cache/ipp-print-orchestrator"
 const CUPS_SSL_DIR = "/etc/cups/ssl"
@@ -18,7 +14,6 @@ const CUPS_TLS_CERT_DAYS = "3650"
 const PUBLIC_DIRECTORY_MODE = "0755" # owner=rwx, group/other=rx.
 const PUBLIC_DATA_FILE_MODE = "0644" # owner=rw, group/other=r.
 const PRIVATE_SECRET_FILE_MODE = "0600" # owner=rw, no group/other access.
-const PUBLIC_EXECUTABLE_FILE_MODE = "0755" # owner=rwx, group/other=rx.
 const ROOT_REPLACED_EXECUTABLE_FILE_MODE = "0555" # owner/group/other=rx; root replaces the file instead of editing it in place.
 const CUPS_FILTER_CACHE_DIRECTORY_MODE = "0750" # lp:lp can read/write/traverse; other users get no access.
 const CUPS_ROOT_EXECUTED_BACKEND_MODE = "0744" # owner=rwx, group/other=read-only; CUPS runs backends with no group/other execute bit as root.
@@ -96,31 +91,6 @@ def ensure-apt-packages [packages: list<string>]: nothing -> nothing {
   print $"Installing missing CUPS packages: ($missing | str join ', ')"
   run-required "apt update" ["sudo" "apt-get" "update"] | ignore
   run-required "apt install CUPS packages" (["sudo" "apt-get" "install" "-y"] ++ $missing) | ignore
-}
-
-def node-major-version [version: string]: nothing -> int {
-  let major_text = (
-    $version
-    | str trim
-    | str replace --regex "^v" ""
-    | split row "."
-    | first
-  )
-
-  try {
-    $major_text | into int
-  } catch {
-    error make {msg: $"could not parse Node.js version from /usr/bin/node: ($version)"}
-  }
-}
-
-def ensure-node-runtime []: nothing -> nothing {
-  let version = (run-required "detect Node.js runtime" ["/usr/bin/node" "--version"] | str trim)
-  let major = (node-major-version $version)
-
-  if $major < 18 {
-    error make {msg: $"CUPS PDF preflight filter requires /usr/bin/node >= 18, found ($version). Upgrade nodejs or use Raspberry Pi OS/Debian Bookworm or newer."}
-  }
 }
 
 def clear-spool-and-stop-cups []: nothing -> nothing {
@@ -210,17 +180,6 @@ def driver-available [driver: string]: nothing -> bool {
   $models | lines | any {|line| $line == $driver or ($line | str starts-with $"($driver) ")}
 }
 
-def hp-uld-arch [debian_arch: string]: nothing -> string {
-  match $debian_arch {
-    "arm64" => "aarch64"
-    "amd64" => "x86_64"
-    "i386" => "i386"
-    _ => {
-      error make {msg: $"unsupported architecture for HP ULD printer driver: ($debian_arch)"}
-    }
-  }
-}
-
 def install-root-dir [path: string]: nothing -> nothing {
   run-required $"create root-owned directory ($path)" ["sudo" "install" "-d" "-m" $PUBLIC_DIRECTORY_MODE $path] | ignore
 }
@@ -235,6 +194,20 @@ def install-owned-dir [mode: string, owner: string, group: string, path: string]
 
 def install-root-symlink [target: string, link_path: string]: nothing -> nothing {
   run-required $"link ($link_path)" ["sudo" "ln" "-sf" $target $link_path] | ignore
+}
+
+def require-store-path [label: string, store_path: string]: nothing -> nothing {
+  if (($store_path | str trim | str length) == 0) {
+    error make {msg: $"missing --($label)-path"}
+  }
+
+  if not ($store_path | str starts-with "/nix/store/") {
+    error make {msg: $"--($label)-path must be a /nix/store path, got: ($store_path)"}
+  }
+
+  if not ($store_path | path exists) {
+    error make {msg: $"--($label)-path does not exist on the Pi: ($store_path)"}
+  }
 }
 
 def non-empty-unique-strings [values: list<string>]: nothing -> list<string> {
@@ -428,38 +401,20 @@ def restart-cups-if-active []: nothing -> bool {
   }
 }
 
-def install-pdf-preflight-filter [app_dir: string]: nothing -> nothing {
-  let filter_js = ($app_dir | path join "apps/agent/dist-cups-filter/cups-pdf-preflight-filter.js")
+def install-pdf-preflight-filter [runtime_path: string]: nothing -> nothing {
+  let store_filter = ($runtime_path | path join "lib/cups/filter/ipp-pdf-preflight-to-spl")
 
-  run-required "verify bundled PDF preflight filter" ["test" "-r" $filter_js] | ignore
+  run-required "verify Nix PDF preflight CUPS filter" ["test" "-x" $store_filter] | ignore
+  install-root-dir "/usr/lib/cups/filter"
+  install-owned-dir $CUPS_FILTER_CACHE_DIRECTORY_MODE "lp" "lp" $CUPS_FILTER_CACHE_DIR
+  install-root-symlink $store_filter $CUPS_PDF_PREFLIGHT_FILTER_PATH
+  run-required "verify installed PDF preflight CUPS filter" ["test" "-x" $CUPS_PDF_PREFLIGHT_FILTER_PATH] | ignore
+}
 
-  let tmp_filter = (mktemp)
-  let tmp_package_json = (mktemp)
-
-  try {
-    install-root-dir $CUPS_PDF_PREFLIGHT_INSTALL_DIR
-    ['{ "type": "module" }' ""] | str join "\n" | save --force $tmp_package_json
-    install-root-file $PUBLIC_DATA_FILE_MODE $tmp_package_json $CUPS_PDF_PREFLIGHT_PACKAGE_JSON_PATH
-    install-root-file $ROOT_REPLACED_EXECUTABLE_FILE_MODE $filter_js $CUPS_PDF_PREFLIGHT_JS_PATH
-    install-owned-dir $CUPS_FILTER_CACHE_DIRECTORY_MODE "lp" "lp" $CUPS_FILTER_CACHE_DIR
-
-    let exec_line = (["exec" "/usr/bin/node" (shell-quote $CUPS_PDF_PREFLIGHT_JS_PATH) '"$@"'] | str join " ")
-    [
-      "#!/bin/sh"
-      $"export XDG_CACHE_HOME=(shell-quote $CUPS_FILTER_CACHE_DIR)"
-      $exec_line
-      ""
-    ] | str join "\n" | save --force $tmp_filter
-    install-root-file $ROOT_REPLACED_EXECUTABLE_FILE_MODE $tmp_filter $CUPS_PDF_PREFLIGHT_FILTER_PATH
-    run-required "verify installed PDF preflight CUPS filter" ["test" "-x" $CUPS_PDF_PREFLIGHT_FILTER_PATH] | ignore
-  } catch {|err|
-    rm --force $tmp_filter
-    rm --force $tmp_package_json
-    error make {msg: (error-message $err)}
-  }
-
-  rm --force $tmp_filter
-  rm --force $tmp_package_json
+def install-nix-filter-link [source: string, destination: string]: nothing -> nothing {
+  run-required $"verify Nix CUPS filter ($source)" ["test" "-x" $source] | ignore
+  install-root-symlink $source $destination
+  run-required $"verify installed CUPS filter ($destination)" ["test" "-x" $destination] | ignore
 }
 
 def supervised-usb-device-uri [device_uri: string]: nothing -> string {
@@ -470,68 +425,46 @@ def supervised-usb-device-uri [device_uri: string]: nothing -> string {
   }
 }
 
-def install-supervised-usb-backend []: nothing -> nothing {
-  let backend_script = (repo-root | path join "scripts/cups/backend/ipp-orch-usb")
-
-  run-required "verify supervised USB backend source" ["test" "-r" $backend_script] | ignore
-  run-required "verify supervised USB backend shell syntax" ["sh" "-n" $backend_script] | ignore
-  install-root-file $CUPS_ROOT_EXECUTED_BACKEND_MODE $backend_script $CUPS_USB_BACKEND_WRAPPER_PATH
-  run-required "verify supervised CUPS USB backend" ["test" "-x" $CUPS_USB_BACKEND_WRAPPER_PATH] | ignore
-}
-
-def ensure-hp-uld-driver []: nothing -> string {
-  let temp_dir = (mktemp -d)
-  let archive_path = ($temp_dir | path join "uld.tar.gz")
-  let extracted_dir = ($temp_dir | path join "uld")
-  let patched_ppd_path = ($temp_dir | path join "HP_Laser_MFP_13x_Series-safe-300dpi.ppd")
+def install-supervised-usb-backend [backend_path: string]: nothing -> nothing {
+  let store_backend = ($backend_path | path join "lib/cups/backend/ipp-orch-usb")
+  let tmp_backend = (mktemp)
 
   try {
-    print "Downloading HP Unified Linux Driver package."
-    http get --max-time 60sec $HP_ULD_URL | save -f $archive_path
-    run-required "extract HP Unified Linux Driver package" ["tar" "-xzf" $archive_path "-C" $temp_dir] | ignore
-
-    let debian_arch = (run-required "detect Debian architecture" ["dpkg" "--print-architecture"] | str trim)
-    let uld_arch = (hp-uld-arch $debian_arch)
-    let arch_dir = ($extracted_dir | path join $uld_arch)
-    let noarch_dir = ($extracted_dir | path join "noarch")
-    let source_ppd_path = ($noarch_dir | path join "share/ppd/HP_Laser_MFP_13x_Series.ppd")
-
-    let source_ppd = (open $source_ppd_path)
-    for expected in [$HP_ULD_GRAYSCALE_8BIT $HP_ULD_RASTER_FILTER $HP_ULD_STANDARD_600DPI] {
-      if not ($source_ppd | str contains $expected) {
-        error make {msg: $"HP ULD PPD did not contain expected line: ($expected)"}
-      }
-    }
-
-    $source_ppd
-    | str replace $HP_ULD_RASTER_FILTER $"($HP_ULD_PDF_PREFLIGHT_FILTER)\n($HP_ULD_RASTER_FILTER)"
-    | str replace $HP_ULD_STANDARD_600DPI $HP_ULD_STANDARD_SAFE_300DPI
-    | save -f $patched_ppd_path
-
+    run-required "verify Nix supervised USB backend" ["test" "-x" $store_backend] | ignore
     [
-      /opt/smfp-common/printer/bin
-      /opt/smfp-common/printer/lib
-      /usr/lib/cups/filter
-      /usr/share/ppd/uld-hp
-    ] | each {|path| install-root-dir $path } | ignore
-
-    install-root-file $PUBLIC_EXECUTABLE_FILE_MODE ($arch_dir | path join "rastertospl") /opt/smfp-common/printer/bin/rastertospl
-    install-root-file $PUBLIC_EXECUTABLE_FILE_MODE ($arch_dir | path join "pstosecps") /opt/smfp-common/printer/bin/pstosecps
-    install-root-file $PUBLIC_DATA_FILE_MODE ($arch_dir | path join "libscmssc.so") /opt/smfp-common/printer/lib/libscmssc.so
-    install-root-file $PUBLIC_DATA_FILE_MODE $patched_ppd_path $HP_ULD_PPD_PATH
-
-    install-root-symlink /opt/smfp-common/printer/bin/rastertospl /usr/lib/cups/filter/rastertospl
-    install-root-symlink /opt/smfp-common/printer/bin/pstosecps /usr/lib/cups/filter/pstosecps
-
-    run-required "refresh dynamic linker cache" ["sudo" "ldconfig"] | ignore
-    run-required "verify rastertospl filter" ["test" "-x" "/usr/lib/cups/filter/rastertospl"] | ignore
-    run-required "verify HP 13x PPD" ["test" "-r" $HP_ULD_PPD_PATH] | ignore
+      "#!/bin/sh"
+      (["exec" (shell-quote $store_backend) '"$@"'] | str join " ")
+      ""
+    ] | str join "\n" | save --force $tmp_backend
+    run-required "verify supervised USB backend launcher shell syntax" ["sh" "-n" $tmp_backend] | ignore
+    install-root-file $CUPS_ROOT_EXECUTED_BACKEND_MODE $tmp_backend $CUPS_USB_BACKEND_WRAPPER_PATH
+    run-required "verify supervised CUPS USB backend" ["sudo" "test" "-x" $CUPS_USB_BACKEND_WRAPPER_PATH] | ignore
   } catch {|err|
-    rm -rf $temp_dir
+    rm --force $tmp_backend
     error make {msg: (error-message $err)}
   }
 
-  rm -rf $temp_dir
+  rm --force $tmp_backend
+}
+
+def ensure-hp-uld-driver [driver_path: string]: nothing -> string {
+  let store_ppd = ($driver_path | path join "share/ppd/uld-hp/HP_Laser_MFP_13x_Series.ppd")
+  let store_raster_filter = ($driver_path | path join "lib/cups/filter/rastertospl")
+  let store_pstosecps_filter = ($driver_path | path join "lib/cups/filter/pstosecps")
+
+  let source_ppd = (open $store_ppd)
+  for expected in [$HP_ULD_GRAYSCALE_8BIT $HP_ULD_RASTER_FILTER $HP_ULD_PDF_PREFLIGHT_FILTER $HP_ULD_STANDARD_SAFE_300DPI] {
+    if not ($source_ppd | str contains $expected) {
+      error make {msg: $"Nix HP ULD PPD did not contain expected line: ($expected)"}
+    }
+  }
+
+  install-root-dir "/usr/lib/cups/filter"
+  install-root-dir "/usr/share/ppd/uld-hp"
+  install-root-file $PUBLIC_DATA_FILE_MODE $store_ppd $HP_ULD_PPD_PATH
+  install-nix-filter-link $store_raster_filter "/usr/lib/cups/filter/rastertospl"
+  install-nix-filter-link $store_pstosecps_filter "/usr/lib/cups/filter/pstosecps"
+  run-required "verify HP 13x PPD" ["test" "-r" $HP_ULD_PPD_PATH] | ignore
   $HP_ULD_PPD_PATH
 }
 
@@ -792,6 +725,9 @@ def main [
   --printer-name: string
   --driver: string
   --device-uri: string
+  --runtime-path: string
+  --driver-path: string
+  --backend-path: string
   --enable-printing
   --stop-only
   --repair-tls-only
@@ -857,7 +793,9 @@ def main [
     coreutils
     avahi-daemon
   ]
-  ensure-node-runtime
+  require-store-path "runtime" $runtime_path
+  require-store-path "driver" $driver_path
+  require-store-path "backend" $backend_path
 
   run-best-effort ["sudo" "systemctl" "mask" "--now" "ipp-usb.service"]
   authorize-hp-usb
@@ -878,11 +816,11 @@ def main [
 
     {kind: model, value: $driver}
   } else {
-    {kind: ppd, value: (ensure-hp-uld-driver)}
+    {kind: ppd, value: (ensure-hp-uld-driver $driver_path)}
   }
 
-  install-pdf-preflight-filter $root_dir
-  install-supervised-usb-backend
+  install-pdf-preflight-filter $runtime_path
+  install-supervised-usb-backend $backend_path
   configure-cups-network --enable-printing=$enable_printing
   configure-queue $queue_name (supervised-usb-device-uri $resolved_device_uri) $selected_driver.value --ppd=($selected_driver.kind == "ppd") --enable-printing=$enable_printing
   force-queue-error-policy-abort-job $queue_name

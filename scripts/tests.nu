@@ -4,7 +4,7 @@ use std/assert
 
 use lib/env.nu [get-config has-value load-dotenv]
 use lib/observability.nu [local-service-env-content otel-signal-config validate-observability-env]
-use lib/remote.nu [aarch64-builder-target remote-target rsync-args ssh-args ssh-options ssh-rsh-command run-with-retries]
+use lib/remote.nu [aarch64-builder-target parse-nix-paths remote-target rsync-args ssh-args ssh-options ssh-rsh-command run-with-retries]
 use lib/repo.nu [deploy-excludes repo-root]
 
 def main []: nothing -> nothing {
@@ -368,6 +368,8 @@ def "test supervised CUPS USB backend wrapper delegates through original URI" []
 def "test repo helpers expose stable strings" []: nothing -> nothing {
   assert equal (repo-root | path expand) (pwd | path expand)
   assert ("node_modules" in (deploy-excludes)) "deploy excludes should include node_modules"
+  assert ("result" in (deploy-excludes)) "deploy excludes should include Nix result symlink"
+  assert ("result-*" in (deploy-excludes)) "deploy excludes should include numbered Nix result symlinks"
   assert (".git" in (deploy-excludes)) "deploy excludes should include .git"
 }
 
@@ -389,15 +391,8 @@ local-service-env-content {
 }
 
 def "test deploy parses nix closure path marker" []: nothing -> nothing {
-  let command = '
-source scripts/deploy-live-to-pi.nu
-let paths = (parse-nix-paths "noise\nIPP_ORCH_NIX_PATHS\t/nix/store/runtime\t/nix/store/driver\t/nix/store/backend\n")
-print ($paths | to nuon)
-'
-  let result = (nu --no-config-file --commands $command | complete)
+  let paths = (parse-nix-paths "noise\nIPP_ORCH_NIX_PATHS\t/nix/store/runtime\t/nix/store/driver\t/nix/store/backend\n")
 
-  assert equal $result.exit_code 0 $"closure path parsing should execute: ($result.stderr)"
-  let paths = ($result.stdout | str trim | from nuon)
   assert equal $paths.runtime_path "/nix/store/runtime"
   assert equal $paths.driver_path "/nix/store/driver"
   assert equal $paths.backend_path "/nix/store/backend"

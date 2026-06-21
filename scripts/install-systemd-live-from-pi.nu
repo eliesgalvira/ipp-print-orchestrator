@@ -112,7 +112,7 @@ def restart-systemd-unit [unit: string]: nothing -> nothing {
 
 def require-runtime-path [runtime_path: string]: nothing -> nothing {
   if (($runtime_path | str trim | str length) == 0) {
-    return
+    error make {msg: "missing --runtime-path. Run scripts/deploy-live-to-pi.nu so the service unit is rendered against a copied Nix runtime closure."}
   }
 
   if not ($runtime_path | str starts-with "/nix/store/") {

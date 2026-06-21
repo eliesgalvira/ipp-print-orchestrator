@@ -1,8 +1,8 @@
 {
   coreutils,
+  dash,
   gnused,
   lib,
-  makeWrapper,
   src,
   stdenvNoCC,
 }:
@@ -13,8 +13,6 @@ stdenvNoCC.mkDerivation {
 
   inherit src;
 
-  nativeBuildInputs = [ makeWrapper ];
-
   dontUnpack = true;
   dontBuild = true;
 
@@ -22,15 +20,20 @@ stdenvNoCC.mkDerivation {
     runHook preInstall
 
     install -Dm755 "${src}/scripts/cups/backend/ipp-orch-usb" "$out/libexec/ipp-orch-usb"
-    patchShebangs "$out/libexec/ipp-orch-usb"
+    substituteInPlace "$out/libexec/ipp-orch-usb" \
+      --replace-fail "#!/bin/sh" ${lib.escapeShellArg "#!${dash}/bin/dash"} \
+      --replace-fail "set -u" ${lib.escapeShellArg ''
+        set -u
+        PATH=${
+          lib.makeBinPath [
+            coreutils
+            gnused
+          ]
+        }:$PATH
+        export PATH
+      ''}
 
-    makeWrapper "$out/libexec/ipp-orch-usb" "$out/lib/cups/backend/ipp-orch-usb" \
-      --prefix PATH : "${
-        lib.makeBinPath [
-          coreutils
-          gnused
-        ]
-      }"
+    install -Dm755 "$out/libexec/ipp-orch-usb" "$out/lib/cups/backend/ipp-orch-usb"
 
     runHook postInstall
   '';

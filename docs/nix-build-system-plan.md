@@ -1066,6 +1066,52 @@ Do not add hardening that breaks CUPS/USB interactions without tests.
 - Module assertions catch unsafe config.
 - Existing Pi scripts can still operate during transition.
 
+### Slice 5 Verification Result
+
+The flake now exposes:
+
+```text
+nixosModules.ipp-print-orchestrator
+```
+
+Implemented module surface:
+
+1. `services.ippPrintOrchestrator.enable`
+2. explicit `package`, `hpDriverPackage`, and `cupsUsbBackendPackage` inputs
+3. service user/group and runtime/cache directory options
+4. HTTP bind host/port options
+5. HP 135a safety-profile options for queue name, live printing, advertisement,
+   CUPS job preservation, max job time, and supervised USB backend timeout
+6. service timing options for heartbeat and reconciliation
+7. OTLP logs/traces endpoint and header options
+8. generated systemd service and heartbeat timer using store paths
+
+The module deliberately does not replace the transitional non-NixOS Pi deploy
+path yet. It is the declarative target interface for a future NixOS Pi or image,
+while `scripts/deploy-live-to-pi.nu` remains the proven live deployment path on
+the current Raspberry Pi OS host.
+
+Assertions now fail evaluation for unsafe or incoherent state:
+
+1. service enabled without an explicit package
+2. `hp135a-safe` without the HP ULD driver package
+3. `hp135a-safe` without the supervised USB backend package
+4. live printing without explicit advertisement opt-in
+5. enabled OTLP without logs/traces endpoints and headers
+
+Verified locally:
+
+```text
+nu scripts/tests.nu
+nix build .#checks.x86_64-linux.nixos-module --print-build-logs
+nix flake check --print-build-logs
+```
+
+The `nixos-module` check instantiates the module through Nixpkgs'
+`nixos/lib/eval-config.nix`, checks that `ExecStart` uses the packaged store
+wrapper, checks that heartbeat uses store `curl`, and proves the printing and
+OTLP assertion failures are rejected.
+
 ## Next Slice 6: Replace Deployment Flow
 
 ### Problem
@@ -1184,6 +1230,41 @@ Do this gradually:
 
 Never delete a live recovery script before the replacement has been exercised on
 the Pi.
+
+### Slice 7 Verification Result
+
+The active CUPS setup path now consumes copied Nix closures instead of rebuilding
+or downloading printer artifacts on the Pi.
+
+Implemented behavior:
+
+1. `scripts/setup-cups-live-to-pi.nu --enable-printing` builds, copies, and
+   verifies the same runtime, HP ULD driver, and supervised USB backend closures
+   used by deploy.
+2. `scripts/setup-cups-live-from-pi.nu` requires `--runtime-path`,
+   `--driver-path`, and `--backend-path` for full setup.
+3. The Pi-side CUPS setup no longer downloads HP ULD, extracts HP archives,
+   patches PPDs, installs `/opt/smfp-common`, or builds/syncs a local CUPS
+   filter bundle.
+4. `/usr/lib/cups/filter/ipp-pdf-preflight-to-spl` is a symlink to the copied
+   runtime closure.
+5. `/usr/lib/cups/filter/rastertospl` and `/usr/lib/cups/filter/pstosecps` are
+   symlinks to the copied HP ULD driver closure.
+6. `/usr/lib/cups/backend/ipp-orch-usb` is a root-owned launcher with CUPS
+   root-backend permissions that execs the copied backend closure.
+7. `/usr/share/ppd/uld-hp/HP_Laser_MFP_13x_Series.ppd` is copied from the Nix
+   HP ULD package and verified to contain the PDF preflight filter, raster
+   filter, 8-bit grayscale mode, and safe 300x300 standard-quality line.
+
+Verified on the live Pi:
+
+```text
+nu scripts/setup-cups-live-to-pi.nu --enable-printing
+nu scripts/smoke-test-live-to-pi.nu
+```
+
+The smoke check passed with CUPS reachable, printer attached, queue available,
+and queue state idle. No test page was printed.
 
 ## Cache Strategy
 
@@ -1447,6 +1528,8 @@ Verified acceptance criteria:
 8. Deploy activates the copied runtime path through systemd.
 9. Live smoke passes against the real CUPS queue and attached printer.
 
-The next concrete step is to migrate CUPS setup from the legacy `/opt` and
-`/usr/lib/cups` driver install path to the copied Nix driver/backend closures,
-with a rollback path that leaves the existing queue recoverable.
+The next concrete step is cache work and, separately, enabling real telemetry
+export by setting the production OTLP/Axiom configuration in local `.env` before
+deploy. The build-system refactor can now build, copy, deploy, and verify
+store-backed service/CUPS artifacts on the live Pi without using the Pi as the
+builder.
