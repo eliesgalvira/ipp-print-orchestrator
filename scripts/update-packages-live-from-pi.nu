@@ -54,51 +54,7 @@ def update-bun []: nothing -> nothing {
   }
 }
 
-def dependency-manifest-paths []: nothing -> list<string> {
-  [
-    "package.json"
-    "bun.lock"
-    "apps/agent/package.json"
-    "packages/ipp/package.json"
-    "packages/shared/package.json"
-    "packages/testkit/package.json"
-  ]
-}
-
-def production-install-stamp-path []: nothing -> string {
-  ".ipp-orch-production-install.sha256"
-}
-
-def production-install-fingerprint []: nothing -> string {
-  dependency-manifest-paths
-  | where {|path| $path | path exists}
-  | each {|path|
-      {
-        path: $path
-        sha256: (open --raw $path | hash sha256)
-      }
-    }
-  | to json -r
-  | hash sha256
-}
-
-def update-production-dependencies [app_dir: string]: nothing -> nothing {
-  if not ($app_dir | path exists) {
-    error make {msg: $"app directory does not exist: ($app_dir)"}
-  }
-  if not (command-exists bun) {
-    print "bun is not installed; skipping production dependency update"
-    return
-  }
-
-  cd $app_dir
-  ^bun install --frozen-lockfile --ignore-scripts --production
-  production-install-fingerprint | save --force (production-install-stamp-path)
-}
-
-def main [
-  --app-dir: string = "/home/pi/apps/ipp-print-orchestrator"
-] : nothing -> nothing {
+def main []: nothing -> nothing {
   ensure-user-bun-on-path
 
   run-timed "update apt packages" {
@@ -107,9 +63,5 @@ def main [
 
   run-timed "update bun runtime" {
     update-bun
-  }
-
-  run-timed "update production dependencies" {
-    update-production-dependencies $app_dir
   }
 }

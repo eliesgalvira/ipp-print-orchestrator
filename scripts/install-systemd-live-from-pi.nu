@@ -12,11 +12,31 @@ def run-sudo-timed [phase: string, args: list<string>]: nothing -> any {
   }
 }
 
-def install-rendered-unit [source: path, destination: string, app_dir: path]: nothing -> bool {
-  let rendered = (
+def render-unit [
+  source: path
+  app_dir: path
+  --runtime-path: string = ""
+]: nothing -> string {
+  let base = (
     open --raw $source
     | str replace --all "/home/pi/apps/ipp-print-orchestrator" ($app_dir | into string)
   )
+
+  if (($runtime_path | str trim | str length) == 0) {
+    return $base
+  }
+
+  $base
+  | str replace --regex "(?m)^ExecStart=.*$" $"ExecStart=($runtime_path)/bin/ipp-print-orchestrator-agent"
+}
+
+def install-rendered-unit [
+  source: path
+  destination: string
+  app_dir: path
+  --runtime-path: string = ""
+]: nothing -> bool {
+  let rendered = (render-unit $source $app_dir --runtime-path $runtime_path)
 
   if ($destination | path exists) and ((open --raw $destination) == $rendered) {
     print $"systemd unit already current: ($destination)"
@@ -90,12 +110,31 @@ def restart-systemd-unit [unit: string]: nothing -> nothing {
   run-sudo-timed $"systemctl restart ($unit)" ["systemctl" "restart" $unit]
 }
 
-def main []: nothing -> nothing {
+def require-runtime-path [runtime_path: string]: nothing -> nothing {
+  if (($runtime_path | str trim | str length) == 0) {
+    return
+  }
+
+  if not ($runtime_path | str starts-with "/nix/store/") {
+    error make {msg: $"--runtime-path must be a /nix/store path, got: ($runtime_path)"}
+  }
+
+  let wrapper = ($runtime_path | path join "bin/ipp-print-orchestrator-agent")
+  if not ($wrapper | path exists) {
+    error make {msg: $"runtime wrapper not found: ($wrapper)"}
+  }
+}
+
+def main [
+  --runtime-path: string = ""
+]: nothing -> nothing {
   let root_dir = (repo-root)
   let systemd_dir = ($root_dir | path join "systemd")
 
+  require-runtime-path $runtime_path
+
   run-sudo-timed "ensure systemd unit directory" ["install" "-d" "/etc/systemd/system"]
-  let app_service_changed = (install-rendered-unit ($systemd_dir | path join "ipp-print-orchestrator.service") "/etc/systemd/system/ipp-print-orchestrator.service" $root_dir)
+  let app_service_changed = (install-rendered-unit ($systemd_dir | path join "ipp-print-orchestrator.service") "/etc/systemd/system/ipp-print-orchestrator.service" $root_dir --runtime-path $runtime_path)
   let heartbeat_service_changed = (install-rendered-unit ($systemd_dir | path join "ipp-print-orchestrator-heartbeat.service") "/etc/systemd/system/ipp-print-orchestrator-heartbeat.service" $root_dir)
   let heartbeat_timer_changed = (install-rendered-unit ($systemd_dir | path join "ipp-print-orchestrator-heartbeat.timer") "/etc/systemd/system/ipp-print-orchestrator-heartbeat.timer" $root_dir)
   let cups_tls_watch_service_changed = (install-rendered-unit ($systemd_dir | path join "ipp-print-orchestrator-cups-tls-watch.service") "/etc/systemd/system/ipp-print-orchestrator-cups-tls-watch.service" $root_dir)

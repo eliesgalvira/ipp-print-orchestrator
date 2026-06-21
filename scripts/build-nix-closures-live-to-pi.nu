@@ -304,4 +304,5 @@ def main [
   print $"  runtime: ($paths.runtime_path)"
   print $"  driver:  ($paths.driver_path)"
   print $"  backend: ($paths.backend_path)"
+  print $"IPP_ORCH_NIX_PATHS\t($paths.runtime_path)\t($paths.driver_path)\t($paths.backend_path)"
 }

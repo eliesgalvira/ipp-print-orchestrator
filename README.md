@@ -308,7 +308,7 @@ The scripts do not use `sshpass`, `PI_PASSWORD`, or `PI_SUDO_PASSWORD`. They ass
 
 Your local `.env` is the source of truth for the Pi service environment. `.env.example` is only a template for humans; deploy does not read it as runtime configuration. Each deploy filters the service runtime keys from local `.env` and installs them to `/etc/ipp-print-orchestrator.env` on the Pi before restarting services. For example, if local `.env` sets `IPP_ORCH_ENABLE_OTLP=true` with valid `OTEL_*` Axiom endpoint/header values, deploy writes those enabled observability settings over the bootstrap placeholder. Deploy-only keys such as `PI_HOST`, `APP_DIR`, and `PI_SSH_KEY_PATH` are not written to the Pi service env, and `.env` is excluded from the rsync copy.
 
-Directory-valued runtime settings such as `IPP_ORCH_DATA_DIR=data` are relative to the systemd service `WorkingDirectory`. During deploy, `scripts/install-systemd-live-from-pi.nu` renders the installed service unit so `WorkingDirectory` and `ExecStart` point at the configured `APP_DIR`. Use an absolute path for a runtime directory only if you intentionally want it outside `APP_DIR`.
+Directory-valued runtime settings such as `IPP_ORCH_DATA_DIR=data` are relative to the systemd service `WorkingDirectory`. During deploy, `scripts/install-systemd-live-from-pi.nu` renders the installed service unit so `WorkingDirectory` points at the configured `APP_DIR`, while `ExecStart` points at the copied Nix store wrapper. Use an absolute path for a runtime directory only if you intentionally want it outside `APP_DIR`.
 
 To reinstall only the systemd units from the development machine after the app has already been deployed to the Pi:
 
@@ -419,41 +419,27 @@ storage.
 
 The deploy script:
 
-- runs the local `bun run build`
-- builds a bundled service entry for faster Pi cold starts
+- builds the aarch64 Nix runtime, HP ULD driver, and supervised USB backend closures
+- copies those closures to the Pi Nix store
+- verifies the copied store paths on the Pi before activation
 - rsyncs the repository to the Pi with generated/runtime directories excluded
 - validates enabled OTLP/Axiom settings before writing the service environment
 - syncs the filtered local service environment to `/etc/ipp-print-orchestrator.env`
-- checks the production dependency stamp and only runs `bun install --frozen-lockfile --ignore-scripts --production` on the Pi when dependency manifests changed
-- installs systemd units
+- installs systemd units with `ipp-print-orchestrator.service` executing the Nix store wrapper
 - restarts the service and heartbeat timer
 - verifies `/v1/health`
-- prints phase timings for the local build/rsync steps and each remote deployment step
+- prints phase timings and the exact store paths deployed
 
-To intentionally update already-installed Pi packages and production dependencies:
+To intentionally update already-installed Pi packages:
 
 ```bash
 bun run update:live-to-pi
 ```
 
-The update script upgrades only related apt packages that are already installed, skips missing packages, upgrades Bun only when Bun is present, refreshes production dependencies, and prints `timeit` timings for each update phase.
-
-The deploy install step skips lifecycle scripts on the Pi. This is intentional:
-
-- the root `prepare` hook only patches the local TypeScript install for the Effect editor language service
-- that patch is not needed to build or run the service on the Pi
-- on low-memory Raspberry Pi targets, the patch step can abort with a Node heap OOM during `bun install`
-
-If a deploy already failed on the Pi with an OOM in `effect-language-service patch`, rerun the install manually and continue:
-
-```bash
-ssh pi@print-server.local
-cd /home/pi/apps/ipp-print-orchestrator
-bun install --frozen-lockfile --ignore-scripts
-nu scripts/install-systemd-live-from-pi.nu
-sudo systemctl restart ipp-print-orchestrator
-sudo systemctl restart ipp-print-orchestrator-heartbeat.timer
-```
+The update script upgrades only related apt packages that are already installed,
+skips missing packages, upgrades Bun only when Bun is present, and prints
+`timeit` timings for each update phase. Deploy no longer runs `bun install` on
+the Pi; the service process comes from the copied Nix store closure.
 
 If `/v1/status` shows `cupsReachable: false` and `printerAttached: false` even though `lpstat -p` works on the Pi, verify the configured queue name:
 

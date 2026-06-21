@@ -44,6 +44,43 @@ rm --force $tmp_env
   run-remote-nu-source $host $remote_script --key-path $key_path --control-path $control_path --connect-timeout $connect_timeout --connection-attempts $connection_attempts --batch
 }
 
+def parse-nix-paths [stdout: string]: nothing -> record<runtime_path: string, driver_path: string, backend_path: string> {
+  let marker = "IPP_ORCH_NIX_PATHS\t"
+  let lines = (
+    $stdout
+    | lines
+    | where {|line| $line | str starts-with $marker}
+  )
+
+  if (($lines | length) != 1) {
+    error make {msg: $"expected exactly one ($marker) line from Nix closure build, got ($lines | length)"}
+  }
+
+  let fields = (($lines | first) | split row "\t")
+
+  if (($fields | length) != 4) {
+    error make {msg: $"expected closure path marker to contain 3 store paths, got ($fields | length) fields"}
+  }
+
+  {
+    runtime_path: ($fields | get 1)
+    driver_path: ($fields | get 2)
+    backend_path: ($fields | get 3)
+  }
+}
+
+def build-and-copy-nix-closures []: nothing -> record<runtime_path: string, driver_path: string, backend_path: string> {
+  let result = (^nu scripts/build-nix-closures-live-to-pi.nu | complete)
+
+  print --raw $result.stdout
+
+  if $result.exit_code != 0 {
+    error make {msg: $"Nix closure build/copy failed: ($result.stderr | str trim)"}
+  }
+
+  parse-nix-paths $result.stdout
+}
+
 def local-deploy []: nothing -> nothing {
   let root_dir = (repo-root)
   let dotenv = (load-dotenv ($root_dir | path join ".env"))
@@ -55,12 +92,14 @@ def local-deploy []: nothing -> nothing {
   let ssh_connect_timeout = 3
   let ssh_connection_attempts = 5
 
-  [nu bun rsync ssh] | each {|command| require-command $command} | ignore
+  [nu nix rsync ssh] | each {|command| require-command $command} | ignore
 
-  run-timed "local typescript build" {
-    cd $root_dir
-    ^bun run build
-  }
+  print $"[(date now | format date "%+")] start build, copy, and verify Nix closures"
+  let closure_started_at = (date now)
+  cd $root_dir
+  let nix_paths = (build-and-copy-nix-closures)
+  let closure_elapsed = ((date now) - $closure_started_at)
+  print $"[(date now | format date "%+")] done build, copy, and verify Nix closures \(($closure_elapsed)\)"
 
   let control_dir = (mktemp --directory)
   let control_path = ($control_dir | path join "ssh-control")
@@ -101,7 +140,19 @@ def local-deploy []: nothing -> nothing {
     run-timed "remote install/build/restart" {
       let remote_script = ($app_dir | path join "scripts/deploy-live-from-pi.nu")
       run-with-retries "remote install/build/restart" {
-        run-ssh $pi_host ["nu" "--no-config-file" $remote_script "--app-dir" $app_dir] --key-path $ssh_key_path --control-path $control_path --connect-timeout $ssh_connect_timeout --connection-attempts $ssh_connection_attempts --batch --tty
+        run-ssh $pi_host [
+          "nu"
+          "--no-config-file"
+          $remote_script
+          "--app-dir"
+          $app_dir
+          "--runtime-path"
+          $nix_paths.runtime_path
+          "--driver-path"
+          $nix_paths.driver_path
+          "--backend-path"
+          $nix_paths.backend_path
+        ] --key-path $ssh_key_path --control-path $control_path --connect-timeout $ssh_connect_timeout --connection-attempts $ssh_connection_attempts --batch --tty
       } --attempts 5 --delay 2sec
     }
   } finally {

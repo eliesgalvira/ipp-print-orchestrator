@@ -1139,6 +1139,32 @@ This mode:
 - Smoke checks run after activation.
 - Existing deploy remains available until Nix deploy is proven.
 
+### Slice 6 Verification Result
+
+The transitional non-NixOS closure deploy is now active through
+`scripts/deploy-live-to-pi.nu`.
+
+Verified on the live Pi:
+
+1. `scripts/deploy-live-to-pi.nu` builds the aarch64 runtime, HP ULD driver, and
+   supervised USB backend closures.
+2. The closures copy to the Pi store.
+3. `scripts/check-nix-closures-live-to-pi.nu` verifies the copied store paths on
+   the Pi before service activation.
+4. `scripts/deploy-live-from-pi.nu` no longer calls `bun install` or reads
+   `node_modules`.
+5. `scripts/install-systemd-live-from-pi.nu --runtime-path <store-path>` renders
+   `ipp-print-orchestrator.service` with `ExecStart=<store>/bin/ipp-print-orchestrator-agent`.
+6. `systemctl cat ipp-print-orchestrator.service` confirmed that the active
+   service runs from `/nix/store`.
+7. `scripts/smoke-test-live-to-pi.nu` passed after aligning
+   `IPP_ORCH_PRINTER_NAME` with the real CUPS queue `HP135a`.
+
+This keeps the mutable Pi as a deployment target, not a build machine. The repo
+directory on the Pi remains useful for operator scripts, CUPS setup helpers, and
+state-relative service working directory behavior. The service executable itself
+now comes from an immutable Nix output.
+
 ## Next Slice 7: Retire Mutable Script Responsibilities
 
 After Nix packages/modules are proven, remove or shrink old mutable behavior.
@@ -1149,7 +1175,9 @@ Do this gradually:
 2. Replace HP driver install path with Nix package usage.
 3. Replace CUPS backend install path with Nix package usage.
 4. Replace systemd string replacement with generated unit files.
-5. Replace Pi `bun install` with Nix package deployment.
+5. Replace Pi `bun install` with Nix package deployment. Done for app deploy;
+   remaining Bun usage belongs only to legacy/manual update helpers until those
+   are retired.
 6. Keep diagnostic/watch/smoke Nu scripts.
 7. Delete dead install/update code only after equivalent Nix path has live Pi
    verification.
@@ -1398,14 +1426,16 @@ The build-system refactor is done when:
 
 ## Immediate Next Action
 
-Prepare local emulation or provision `AARCH64_BUILDER_HOST`, then run:
+The previous immediate action is complete:
 
 ```bash
 nu scripts/prepare-aarch64-builder.nu
 nu scripts/build-nix-closures-live-to-pi.nu
+nu scripts/deploy-live-to-pi.nu
+nu scripts/smoke-test-live-to-pi.nu
 ```
 
-Acceptance criteria for that slice:
+Verified acceptance criteria:
 
 1. The builder realizes `.#packages.aarch64-linux.ipp-print-orchestrator`.
 2. The builder realizes `.#packages.aarch64-linux.hp-uld-hp135a`.
@@ -1414,4 +1444,9 @@ Acceptance criteria for that slice:
 5. The resulting closures copy to the Pi store.
 6. The Pi verifier passes using only explicit store paths.
 7. No package build runs on the live Pi.
-8. The existing live service remains unchanged until a separate activation step.
+8. Deploy activates the copied runtime path through systemd.
+9. Live smoke passes against the real CUPS queue and attached printer.
+
+The next concrete step is to migrate CUPS setup from the legacy `/opt` and
+`/usr/lib/cups` driver install path to the copied Nix driver/backend closures,
+with a rollback path that leaves the existing queue recoverable.

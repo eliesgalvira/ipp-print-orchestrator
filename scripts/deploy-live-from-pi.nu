@@ -1,53 +1,19 @@
 #!/usr/bin/env nu
 
 use lib/env.nu *
-use lib/remote.nu [ensure-user-bun-on-path run-sudo run-timed]
+use lib/remote.nu [run-sudo run-timed]
 
-def dependency-manifest-paths []: nothing -> list<string> {
-  [
-    "package.json"
-    "bun.lock"
-    "apps/agent/package.json"
-    "packages/ipp/package.json"
-    "packages/shared/package.json"
-    "packages/testkit/package.json"
-  ]
-}
-
-def production-install-stamp-path []: nothing -> string {
-  ".ipp-orch-production-install.sha256"
-}
-
-def production-install-fingerprint []: nothing -> string {
-  dependency-manifest-paths
-  | where {|path| $path | path exists}
-  | each {|path|
-      {
-        path: $path
-        sha256: (open --raw $path | hash sha256)
-      }
-    }
-  | to json -r
-  | hash sha256
-}
-
-def production-install-current []: nothing -> bool {
-  let stamp_path = (production-install-stamp-path)
-  if (not ("node_modules" | path exists)) or (not ($stamp_path | path exists)) {
-    false
-  } else {
-    ((open --raw $stamp_path | str trim) == (production-install-fingerprint))
+def require-store-path [label: string, store_path: string]: nothing -> nothing {
+  if (($store_path | str trim | str length) == 0) {
+    error make {msg: $"missing --($label)-path"}
   }
-}
 
-def install-production-dependencies []: nothing -> nothing {
-  let fingerprint = (production-install-fingerprint)
+  if not ($store_path | str starts-with "/nix/store/") {
+    error make {msg: $"--($label)-path must be a /nix/store path, got: ($store_path)"}
+  }
 
-  if (production-install-current) {
-    print "production dependencies already current; skipping bun install"
-  } else {
-    ^bun install --frozen-lockfile --ignore-scripts --production
-    $fingerprint | save --force (production-install-stamp-path)
+  if not ($store_path | path exists) {
+    error make {msg: $"--($label)-path does not exist on the Pi: ($store_path)"}
   }
 }
 
@@ -87,17 +53,18 @@ def verify-app-health [host: string, port: string]: nothing -> nothing {
 
 def main [
   --app-dir: string = "/home/pi/apps/ipp-print-orchestrator"
+  --runtime-path: string = ""
+  --driver-path: string = ""
+  --backend-path: string = ""
 ] : nothing -> nothing {
-  ensure-user-bun-on-path
+  require-store-path "runtime" $runtime_path
+  require-store-path "driver" $driver_path
+  require-store-path "backend" $backend_path
 
   cd $app_dir
 
-  run-timed "production dependency check/install" {
-    install-production-dependencies
-  }
-
   run-timed "install systemd units" {
-    ^nu scripts/install-systemd-live-from-pi.nu
+    ^nu scripts/install-systemd-live-from-pi.nu --runtime-path $runtime_path
   }
 
   run-timed "restart app service" {

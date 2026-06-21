@@ -388,6 +388,34 @@ local-service-env-content {
   assert not ($result.stdout | str contains "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=") ".env.example values should not be rendered by deploy"
 }
 
+def "test deploy parses nix closure path marker" []: nothing -> nothing {
+  let command = '
+source scripts/deploy-live-to-pi.nu
+let paths = (parse-nix-paths "noise\nIPP_ORCH_NIX_PATHS\t/nix/store/runtime\t/nix/store/driver\t/nix/store/backend\n")
+print ($paths | to nuon)
+'
+  let result = (nu --no-config-file --commands $command | complete)
+
+  assert equal $result.exit_code 0 $"closure path parsing should execute: ($result.stderr)"
+  let paths = ($result.stdout | str trim | from nuon)
+  assert equal $paths.runtime_path "/nix/store/runtime"
+  assert equal $paths.driver_path "/nix/store/driver"
+  assert equal $paths.backend_path "/nix/store/backend"
+}
+
+def "test systemd renderer points app service at nix runtime wrapper" []: nothing -> nothing {
+  let command = '
+source scripts/install-systemd-live-from-pi.nu
+print (render-unit systemd/ipp-print-orchestrator.service /srv/ipp --runtime-path /nix/store/runtime)
+'
+  let result = (nu --no-config-file --commands $command | complete)
+
+  assert equal $result.exit_code 0 $"systemd unit rendering should execute: ($result.stderr)"
+  assert ($result.stdout | str contains "WorkingDirectory=/srv/ipp") "renderer should preserve configured app working directory"
+  assert ($result.stdout | str contains "ExecStart=/nix/store/runtime/bin/ipp-print-orchestrator-agent") "renderer should point ExecStart at Nix runtime wrapper"
+  assert not ($result.stdout | str contains "/usr/bin/node") "renderer should remove mutable node ExecStart"
+}
+
 def "test observability validation rejects enabled blank otlp config" []: nothing -> nothing {
   let result = (try {
       validate-observability-env {IPP_ORCH_ENABLE_OTLP: "true"}
