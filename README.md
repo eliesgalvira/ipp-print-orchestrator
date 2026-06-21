@@ -267,15 +267,21 @@ Deploy to the live Pi from the development machine:
 nu scripts/deploy-live-to-pi.nu
 ```
 
-Local deploy requirements:
+Nix-closure deploy requirements:
 
 - `nu`
-- `bun`
+- `nix`
 - `ssh`
-- `ssh-keygen`
 - `rsync`
-- ability to password-login once with `ssh pi@print-server.local` for first-time bootstrap
-- passwordless `sudo` for the Pi user
+- `AARCH64_BUILDER_HOST=local` requires `qemu-aarch64` in `binfmt_misc` and `aarch64-linux` in `nix config show extra-platforms`
+
+If you are using local emulation, run once:
+
+```bash
+nu scripts/prepare-aarch64-builder.nu
+```
+
+If `AARCH64_BUILDER_HOST` points to a remote host, that host must be configured as an aarch64 builder and must not be `PI_HOST`.
 
 Deployment target and auth can be configured in the ignored local `.env` file:
 
@@ -283,6 +289,9 @@ Deployment target and auth can be configured in the ignored local `.env` file:
 PI_HOST=pi@print-server.local
 APP_DIR=/home/pi/apps/ipp-print-orchestrator
 ```
+`APP_DIR` is the deployment destination on the Pi (for example, where scripts install
+systemd units and where `install-systemd` renders unit paths). The local checkout
+still runs from this machine; it is synchronized into this remote directory during deploy.
 
 Optionally set `PI_SSH_KEY_PATH` in local `.env` if you want to override the default key location of `~/.ssh/ipp-print-orchestrator-pi`.
 

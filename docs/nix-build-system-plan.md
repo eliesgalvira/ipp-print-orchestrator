@@ -1214,6 +1214,14 @@ AARCH64_BUILDER_SSH_KEY_PATH=...
 must be distinct from `PI_HOST`. The script rejects the Pi target as the builder
 to keep this invariant explicit.
 
+A new helper is available to normalize a fresh machine setup:
+
+```bash
+nu scripts/prepare-aarch64-builder.nu
+```
+
+Run it once after setting `.env` and before the first `AARCH64_BUILDER_HOST=local` build.
+
 ### Public Cache
 
 Most base packages should come from `cache.nixos.org`:
@@ -1390,9 +1398,10 @@ The build-system refactor is done when:
 
 ## Immediate Next Action
 
-Install local aarch64 emulation or provision `AARCH64_BUILDER_HOST`, then run:
+Prepare local emulation or provision `AARCH64_BUILDER_HOST`, then run:
 
 ```bash
+nu scripts/prepare-aarch64-builder.nu
 nu scripts/build-nix-closures-live-to-pi.nu
 ```
 

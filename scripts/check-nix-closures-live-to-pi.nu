@@ -96,7 +96,13 @@ if not ($filter_probe.stderr | str contains "usage: ipp-pdf-preflight-to-spl") {
 }
 
 if not (which ldd | is-empty) {
-  run-required "verify HP raster filter dynamic linker dependencies" ["ldd" $raster_filter] | ignore
+  let raster_ldd = (run-external "ldd" $raster_filter | complete)
+  if $raster_ldd.exit_code != 0 {
+    let raster_ldd_error = ($raster_ldd.stderr | str trim)
+    if not ($raster_ldd_error | str contains "not a dynamic executable") {
+      error make {msg: $"verify HP raster filter dynamic linker dependencies failed: ($raster_ldd_error)"}
+    }
+  }
 }
 
 print $"Nix store checks passed for ($runtime_path)"

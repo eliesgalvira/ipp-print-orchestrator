@@ -63,7 +63,11 @@ def remote-nu-installed [
   --control-path: path
   --batch
 ] : nothing -> bool {
-  let command = (ssh-args $host --key-path=$key_path --control-path=$control_path --batch=$batch)
+  let command = if $batch {
+    (ssh-args $host --key-path $key_path --control-path $control_path --batch)
+  } else {
+    (ssh-args $host --key-path $key_path --control-path $control_path)
+  }
   let result = (run-external ...$command "nu" "--version" | complete)
   $result.exit_code == 0
 }

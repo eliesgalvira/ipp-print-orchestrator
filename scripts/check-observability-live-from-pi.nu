@@ -132,8 +132,9 @@ def main [
 
   for signal in ["logs" "traces"] {
     let signal_config = (otel-signal-config $dotenv $signal)
+    let endpoint = ($signal_config.endpoint | default "")
 
-    if not (($signal_config.endpoint | into string) | str contains "axiom.co") {
+    if not (($endpoint | str contains "axiom.co")) {
       print $"Skipping Axiom query for ($signal); endpoint is not an Axiom endpoint."
       continue
     }

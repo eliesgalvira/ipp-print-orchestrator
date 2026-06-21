@@ -6,7 +6,6 @@ use lib/remote.nu [
   remote-target
   rsync-args
   run-ssh
-  run-ssh-with-input
   run-timed
   ssh-options
 ]
@@ -38,22 +37,27 @@ def store-url [host: string]: nothing -> string {
   $"ssh-ng://($host)"
 }
 
-def sh-single-quote [value: string]: nothing -> string {
-  "'" + (($value | into string) | str replace --all "'" "'\\''") + "'"
-}
-
 def nix-ssh-opts [
   --key-path: path
   --connect-timeout: int
   --connection-attempts: int
   --batch
 ]: nothing -> string {
-  ssh-options
-    --key-path=$key_path
-    --connect-timeout=$connect_timeout
-    --connection-attempts=$connection_attempts
-    --batch=$batch
-  | str join " "
+  let ssh_options = if $batch {
+    (ssh-options
+      --key-path $key_path
+      --batch
+      --connect-timeout $connect_timeout
+      --connection-attempts $connection_attempts
+    )
+  } else {
+    (ssh-options
+      --key-path $key_path
+      --connect-timeout $connect_timeout
+      --connection-attempts $connection_attempts
+    )
+  }
+  $ssh_options | str join " "
 }
 
 def verify-remote-nix [
@@ -75,64 +79,54 @@ def verify-remote-nix [
   print $"($label) nix: ($result.stdout | str trim)"
 }
 
-def remote-build-script [
-  source_dir: string
-  runtime_installable: string
-  driver_installable: string
-  backend_installable: string
-]: nothing -> string {
-  [
-    "set -eu"
-    $"source_dir=(sh-single-quote $source_dir)"
-    $"runtime_installable=(sh-single-quote $runtime_installable)"
-    $"driver_installable=(sh-single-quote $driver_installable)"
-    $"backend_installable=(sh-single-quote $backend_installable)"
-    $"remote_nix=(sh-single-quote $REMOTE_NIX)"
-    ""
-    "\"$remote_nix\" --version >/dev/null"
-    "test -r \"$source_dir/flake.nix\""
-    "cd \"$source_dir\""
-    ""
-    "single_out_path() {"
-    "  installable=\"$1\""
-    "  out_path=$(\"$remote_nix\" build --max-jobs 1 --cores 1 --no-link --print-out-paths \"$installable\")"
-    "  case \"$out_path\" in"
-    "    /nix/store/*) printf '%s\\n' \"$out_path\" ;;"
-    "    *) printf 'expected one /nix/store output path for %s, got: %s\\n' \"$installable\" \"$out_path\" >&2; exit 1 ;;"
-    "  esac"
-    "}"
-    ""
-    "runtime_path=$(single_out_path \"$runtime_installable\")"
-    "driver_path=$(single_out_path \"$driver_installable\")"
-    "backend_path=$(single_out_path \"$backend_installable\")"
-    ""
-    "printf 'IPP_ORCH_NIX_PATHS\\t%s\\t%s\\t%s\\n' \"$runtime_path\" \"$driver_path\" \"$backend_path\""
-  ] | str join "\n"
+def remote-installable [source_dir: string, installable: string]: nothing -> string {
+  if ($installable | str starts-with ".#") {
+    $installable
+      | str replace --regex "^\\.#" $"($source_dir)#"
+  } else {
+    $installable
+  }
 }
 
-def parse-build-paths [stdout: string]: nothing -> record<runtime_path: string, driver_path: string, backend_path: string> {
-  let marker = "IPP_ORCH_NIX_PATHS\t"
-  let lines = (
-    $stdout
-    | lines
-    | where {|line| $line | str starts-with $marker}
+def remote-out-path [
+  host: string
+  key_path: path
+  source_dir: string
+  installable: string
+  --connect-timeout: int
+  --connection-attempts: int
+]: nothing -> string {
+  let flake_ref = (remote-installable $source_dir $installable)
+  let result = (
+    run-ssh $host [
+      $REMOTE_NIX
+      "build"
+      "--max-jobs"
+      "1"
+      "--cores"
+      "1"
+      "--no-link"
+      "--print-out-paths"
+      $flake_ref
+    ] --key-path $key_path --connect-timeout $connect_timeout --connection-attempts $connection_attempts --server-alive-interval 15 --server-alive-count-max 160 --batch
+    | complete
   )
 
-  if (($lines | length) != 1) {
-    error make {msg: $"expected exactly one ($marker) line from aarch64 builder, got ($lines | length)"}
+  if $result.exit_code != 0 {
+    error make {msg: $"aarch64 builder failed for ($installable): ($result.stderr | str trim)"}
   }
 
-  let fields = (($lines | first) | split row "\t")
+  let out_paths = (
+    $result.stdout
+    | lines
+    | where {|line| ($line | str trim | str starts-with "/nix/store/")}
+  )
 
-  if (($fields | length) != 4) {
-    error make {msg: $"expected builder path line to contain 3 store paths, got ($fields | length) fields"}
+  if (($out_paths | length) != 1) {
+    error make {msg: $"expected exactly one /nix/store output path for ($installable), got ($out_paths | length)"}
   }
 
-  {
-    runtime_path: ($fields | get 1)
-    driver_path: ($fields | get 2)
-    backend_path: ($fields | get 3)
-  }
+  $out_paths | first
 }
 
 def single-local-out-path [installable: string]: nothing -> string {
@@ -159,7 +153,7 @@ def local-aarch64-emulation-ready []: nothing -> nothing {
   let binfmt_path = "/proc/sys/fs/binfmt_misc/qemu-aarch64"
 
   if not ($binfmt_path | path exists) {
-    error make {msg: "local aarch64 emulation is not registered. Install qemu-user-static and qemu-user-static-binfmt, restart systemd-binfmt, and add aarch64-linux to Nix extra-platforms."}
+    error make {msg: "local aarch64 emulation is not registered. Run `nu scripts/prepare-aarch64-builder.nu` to set up emulation and verify Nix extra-platforms."}
   }
 
   let config = (run-external "nix" "config" "show" "extra-platforms" | complete)
@@ -169,7 +163,7 @@ def local-aarch64-emulation-ready []: nothing -> nothing {
   }
 
   if not ($config.stdout | str contains "aarch64-linux") {
-    error make {msg: "Nix extra-platforms does not include aarch64-linux. Add it to /etc/nix/nix.conf and restart nix-daemon."}
+    error make {msg: "Nix extra-platforms does not include aarch64-linux. Run `nu scripts/prepare-aarch64-builder.nu` for setup guidance."}
   }
 }
 
@@ -198,9 +192,9 @@ def copy-closure [
 ]: nothing -> nothing {
   let nix_ssh_opts = (
     nix-ssh-opts
-      --key-path=$key_path
-      --connect-timeout=$connect_timeout
-      --connection-attempts=$connection_attempts
+      --key-path $key_path
+      --connect-timeout $connect_timeout
+      --connection-attempts $connection_attempts
       --batch
   )
 
@@ -213,7 +207,7 @@ def copy-closure [
   }
 
   with-env {NIX_SSHOPTS: $nix_ssh_opts} {
-    let result = (run-external "nix" "copy" ...$direction_args ...$paths | complete)
+    let result = (run-external "nix" "copy" "--no-check-sigs" ...$direction_args ...$paths | complete)
 
     if $result.exit_code != 0 {
       error make {msg: $"($phase) failed: ($result.stderr | str trim)"}
@@ -274,18 +268,16 @@ def main [
 
     let build_started_at = (date now)
     print $"[($build_started_at | format date "%+")] start build Nix closures on aarch64 builder"
-    let build_result = (
-      run-ssh-with-input $builder.host (remote-build-script $builder_source_dir $runtime_installable $driver_installable $backend_installable) ["sh" "-s"] --key-path $builder.key_path --connect-timeout $ssh_connect_timeout --connection-attempts $ssh_connection_attempts --server-alive-interval 15 --server-alive-count-max 160 --batch
-      | complete
-    )
 
-    if $build_result.exit_code != 0 {
-      error make {msg: $"aarch64 builder failed: ($build_result.stderr | str trim)"}
+    let built_paths = {
+      runtime_path: (remote-out-path $builder.host $builder.key_path $builder_source_dir $runtime_installable --connect-timeout $ssh_connect_timeout --connection-attempts $ssh_connection_attempts)
+      driver_path: (remote-out-path $builder.host $builder.key_path $builder_source_dir $driver_installable --connect-timeout $ssh_connect_timeout --connection-attempts $ssh_connection_attempts)
+      backend_path: (remote-out-path $builder.host $builder.key_path $builder_source_dir $backend_installable --connect-timeout $ssh_connect_timeout --connection-attempts $ssh_connection_attempts)
     }
 
     let build_elapsed = ((date now) - $build_started_at)
     print $"[(date now | format date "%+")] done build Nix closures on aarch64 builder \(($build_elapsed)\)"
-    parse-build-paths $build_result.stdout
+    $built_paths
   }
 
   let store_paths = [
