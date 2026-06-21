@@ -58,6 +58,24 @@ describe("CUPS filter output guard", () => {
     })
   })
 
+  it("rejects empty final output even when the driver reports a PAGE line", () => {
+    expect(
+      decideSplOutputGuard({
+        pdfPages: 1,
+        copies: "1",
+        splBytes: 0,
+        filterStderr: "PAGE: 1 1\n",
+        maxBytesPerPage: 64 * 1024 * 1024,
+        maxTotalBytes: 256 * 1024 * 1024,
+      }),
+    ).toMatchObject({
+      _tag: "Rejected",
+      reason: "empty-output",
+      expectedPages: 1,
+      observedPages: 1,
+    })
+  })
+
   it("rejects final driver page counts that do not match pdfinfo", () => {
     expect(
       decideSplOutputGuard({

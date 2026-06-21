@@ -1,11 +1,13 @@
 export type SplOutputGuardRejectionReason =
   | "invalid-copies"
+  | "empty-output"
   | "missing-page-log"
   | "unexpected-page-count"
   | "oversized-output"
 
 export const SplOutputGuardRejectionReasons = [
   "invalid-copies",
+  "empty-output",
   "missing-page-log",
   "unexpected-page-count",
   "oversized-output",
@@ -85,6 +87,17 @@ export const decideSplOutputGuard = (params: {
 
   const expectedPages = params.pdfPages
   const observedPages = countCupsPageLogEntries(params.filterStderr)
+
+  if (params.splBytes === 0) {
+    return {
+      _tag: "Rejected",
+      reason: "empty-output",
+      message:
+        "Final printer driver produced no printer bytes; refusing empty printer output",
+      expectedPages,
+      observedPages,
+    }
+  }
 
   if (observedPages === 0) {
     return {
