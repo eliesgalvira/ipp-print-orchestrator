@@ -1,5 +1,6 @@
 import { Schema } from "effect"
 
+import { SplOutputGuardRejectionReasons } from "./CupsFilterOutputGuard.js"
 import { PdfPreflightRejectionReason } from "./PdfPreflight.js"
 
 class ValidationError extends Schema.TaggedErrorClass<ValidationError>()(
@@ -55,6 +56,18 @@ class CupsCommandFailed extends Schema.TaggedErrorClass<CupsCommandFailed>()(
   "CupsCommandFailed",
   {
     message: Schema.String,
+  },
+) {}
+
+class OutputGuardRejected extends Schema.TaggedErrorClass<OutputGuardRejected>()(
+  "OutputGuardRejected",
+  {
+    reason: Schema.Literals([...SplOutputGuardRejectionReasons]),
+    message: Schema.String,
+    actualBytes: Schema.Number,
+    expectedPages: Schema.optional(Schema.Number),
+    observedPages: Schema.optional(Schema.Number),
+    maxBytes: Schema.optional(Schema.Number),
   },
 ) {}
 
@@ -156,6 +169,7 @@ export {
   EventSinkUnavailable,
   JobRepoUnavailable,
   NetworkOffline,
+  OutputGuardRejected,
   PdfPreflightRejected,
   PdfPreflightUnavailable,
   PrinterNotReady,
@@ -176,6 +190,7 @@ export const OperationalError = Schema.Union([
   CupsUnavailable,
   CupsRejectedJob,
   CupsCommandFailed,
+  OutputGuardRejected,
   CupsIppUnavailable,
   CupsIppProtocolError,
   CupsIppJobNotFound,

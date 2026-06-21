@@ -3,6 +3,9 @@
 use lib/remote.nu [run-sudo run-timed]
 use lib/repo.nu repo-root
 
+const SYSTEMD_UNIT_FILE_MODE = "0644" # root-owned unit files must be readable by systemd and operators.
+const SERVICE_ENV_FILE_MODE = "0644" # non-secret service defaults; real secrets belong outside this env file.
+
 def run-sudo-timed [phase: string, args: list<string>]: nothing -> any {
   run-timed $phase {
     run-sudo $args
@@ -25,7 +28,7 @@ def install-rendered-unit [source: path, destination: string, app_dir: path]: no
 
     try {
       $rendered | save --force $tmp_unit
-      run-sudo ["install" "-m" "0644" $tmp_unit $destination]
+      run-sudo ["install" "-m" $SYSTEMD_UNIT_FILE_MODE $tmp_unit $destination]
     } catch {|err|
       rm --force $tmp_unit
       error make $err
@@ -64,7 +67,7 @@ def install-default-service-env []: nothing -> nothing {
 
     try {
       default-service-env-content | save --force $tmp_env
-      run-sudo ["install" "-m" "0644" $tmp_env "/etc/ipp-print-orchestrator.env"]
+      run-sudo ["install" "-m" $SERVICE_ENV_FILE_MODE $tmp_env "/etc/ipp-print-orchestrator.env"]
     } catch {|err|
       rm --force $tmp_env
       error make $err
@@ -83,6 +86,10 @@ def ensure-systemd-enabled [unit: string]: nothing -> nothing {
   }
 }
 
+def restart-systemd-unit [unit: string]: nothing -> nothing {
+  run-sudo-timed $"systemctl restart ($unit)" ["systemctl" "restart" $unit]
+}
+
 def main []: nothing -> nothing {
   let root_dir = (repo-root)
   let systemd_dir = ($root_dir | path join "systemd")
@@ -91,12 +98,13 @@ def main []: nothing -> nothing {
   let app_service_changed = (install-rendered-unit ($systemd_dir | path join "ipp-print-orchestrator.service") "/etc/systemd/system/ipp-print-orchestrator.service" $root_dir)
   let heartbeat_service_changed = (install-rendered-unit ($systemd_dir | path join "ipp-print-orchestrator-heartbeat.service") "/etc/systemd/system/ipp-print-orchestrator-heartbeat.service" $root_dir)
   let heartbeat_timer_changed = (install-rendered-unit ($systemd_dir | path join "ipp-print-orchestrator-heartbeat.timer") "/etc/systemd/system/ipp-print-orchestrator-heartbeat.timer" $root_dir)
+  let cups_tls_watch_service_changed = (install-rendered-unit ($systemd_dir | path join "ipp-print-orchestrator-cups-tls-watch.service") "/etc/systemd/system/ipp-print-orchestrator-cups-tls-watch.service" $root_dir)
 
   if not ("/etc/ipp-print-orchestrator.env" | path exists) {
     install-default-service-env
   }
 
-  if $app_service_changed or $heartbeat_service_changed or $heartbeat_timer_changed {
+  if $app_service_changed or $heartbeat_service_changed or $heartbeat_timer_changed or $cups_tls_watch_service_changed {
     run-sudo-timed "systemctl daemon-reload" ["systemctl" "daemon-reload"]
   } else {
     print "systemd units unchanged; skipping daemon-reload"
@@ -104,6 +112,8 @@ def main []: nothing -> nothing {
 
   ensure-systemd-enabled "ipp-print-orchestrator.service"
   ensure-systemd-enabled "ipp-print-orchestrator-heartbeat.timer"
+  ensure-systemd-enabled "ipp-print-orchestrator-cups-tls-watch.service"
+  restart-systemd-unit "ipp-print-orchestrator-cups-tls-watch.service"
 
   print "systemd units installed"
 }

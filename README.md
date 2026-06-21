@@ -330,7 +330,21 @@ The setup script also installs the queue-specific CUPS filter
 this queue, so PDF safety has to live at the CUPS boundary. The filter rejects
 encrypted/protected PDFs and PDFs whose metadata cannot be read before invoking
 the HP driver pipeline. Accepted PDFs still render through
-`pdftopdf -> gstoraster -> rastertospl`.
+`pdftopdf -> gstoraster -> rastertospl`, but final SPL/QPDL output is staged
+first and only streamed to CUPS after the filter verifies a matching page count,
+single-copy output, and a bounded byte size. The filter also forces the known
+safe PDF options, including `print-scaling=none`, for direct Android jobs.
+
+The queue device URI uses the `ipp-orch-usb` backend wrapper. That wrapper
+stages the filter pipeline output before invoking the real CUPS `usb` backend
+with the original HP `usb://` URI. If the filter produces no printer bytes, the
+wrapper fails immediately without touching USB; if bytes are present, it feeds
+the staged payload to the real backend with a hard timeout and deauthorizes the
+HP USB device if the backend wedges after rendering. The wrapper is checked in
+at `scripts/cups/backend/ipp-orch-usb` and installed by the CUPS setup script
+with root-only execute permission, matching the real `usb` backend. That
+permission matters: CUPS otherwise runs the wrapper as `lp`, and delegation to
+`/usr/lib/cups/backend/usb` fails before bytes can reach the printer.
 
 Emergency stop from the development machine:
 
@@ -358,6 +372,23 @@ is known to have no buffered pages:
 nu scripts/setup-cups-live-to-pi.nu --enable-printing
 ```
 
+If Android reports that the printer has blocked encrypted jobs or that the
+printer no longer accepts encrypted jobs, repair the CUPS TLS identity without
+clearing the spool:
+
+```bash
+nu scripts/setup-cups-live-to-pi.nu --repair-tls-only
+```
+
+This refreshes the CUPS server certificate so its SANs match the currently
+advertised Avahi/mDNS hostname and local IP addresses, restarts CUPS if it was
+already running, and performs no physical print.
+
+The `ipp-print-orchestrator-cups-tls-watch.service` systemd unit keeps that
+invariant current after installation. It records Avahi's advertised FQDN under
+`/run/ipp-print-orchestrator/` and reruns the TLS repair path if Avahi changes
+the advertised host name.
+
 Do not validate this printer with ad hoc local `lp` commands that force
 `page-ranges` or `print-scaling=fit`. Android's working path submits a single
 IPP `Print-Job` with the PDF document attached to the request and uses
@@ -365,11 +396,17 @@ IPP `Print-Job` with the PDF document attached to the request and uses
 directly; local `lp` can create a different CUPS job path that this SPL printer
 may process incorrectly even when CUPS reports the job as completed.
 
-CUPS is configured with `ErrorPolicy=stop-printer`, `JobRetryLimit=0`,
-`MaxJobsPerPrinter=1`, and `MaxJobTime=300`. A failed job must stop rather than
-retry. CUPS also preserves job files and job history for 86400 seconds so a bad
-PDF can be inspected after an incident; do not treat the spool as permanent
-document storage.
+CUPS is configured with built-in DNS-SD browsing disabled. The setup script
+publishes one explicit Avahi service for `_ipps._tcp` only, so Android discovers
+the TLS endpoint instead of falling back to the unencrypted `ipp://` service.
+
+CUPS is configured with `ErrorPolicy=abort-job`, `JobRetryLimit=0`,
+`MaxJobsPerPrinter=1`, and `MaxJobTime=300`; the supervised USB backend adds a
+shorter device-phase timeout and deauthorizes the HP USB device if the backend
+wedges. A failed job must become a failed job, not an indefinitely processing
+job. CUPS also preserves job files and job history for 86400 seconds so a bad PDF
+can be inspected after an incident; do not treat the spool as permanent document
+storage.
 
 The deploy script:
 

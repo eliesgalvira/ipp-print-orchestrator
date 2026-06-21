@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process"
 // @effect-diagnostics-next-line effect/nodeBuiltinImport:off
 import {
   closeSync,
+  createReadStream,
   createWriteStream,
   mkdtempSync,
   openSync,
@@ -17,7 +18,12 @@ import { pipeline } from "node:stream/promises"
 import { Cause, Effect, Schema } from "effect"
 
 import {
+  decideCupsCopiesGuard,
+  decideSplOutputGuard,
+} from "../domain/CupsFilterOutputGuard.js"
+import {
   CupsCommandFailed,
+  OutputGuardRejected,
   PdfPreflightRejected,
   ValidationError,
 } from "../domain/Errors.js"
@@ -35,6 +41,13 @@ export interface CupsFilterInvocation {
   readonly filePath?: string
 }
 
+interface GuardedSplOutput {
+  readonly path: string
+  readonly bytes: number
+  readonly pages: number
+  readonly maxBytes: number
+}
+
 const pdfToPdfFilter =
   process.env.IPP_ORCH_CUPS_PDFTOPDF_FILTER ?? "/usr/lib/cups/filter/pdftopdf"
 const ghostscriptRasterFilter =
@@ -46,8 +59,29 @@ const splRasterFilter =
 const rawPdfContentType = "application/pdf"
 const cupsPdfContentType = "application/vnd.cups-pdf"
 const cupsRasterContentType = "application/vnd.cups-raster"
+const enforcedPdfFilterOptions = [
+  "print-scaling=none",
+  "print-color-mode=monochrome",
+  "sides=one-sided",
+  "ColorModel=Gray",
+  "PageSize=A4",
+  "media=A4",
+  "Quality=600dpi",
+  "Resolution=300dpi",
+] as const
 const defaultCupsSubfilterTimeoutMs = 285_000
 const defaultCupsSubfilterStderrMaxBufferBytes = 8 * 1024 * 1024
+const defaultCupsSplMaxBytesPerPage = 64 * 1024 * 1024
+const defaultCupsSplMaxTotalBytes = 256 * 1024 * 1024
+const privateTempFileMode = 0o600 // Owner read/write only for staged printer artifacts.
+const pdfPreflightRejectedStateReason =
+  "com.ipp-print-orchestrator-pdf-preflight-rejected"
+const outputGuardRejectedStateReason =
+  "com.ipp-print-orchestrator-output-guard-rejected"
+const transientCupsStateReasons = [
+  pdfPreflightRejectedStateReason,
+  outputGuardRejectedStateReason,
+] as const
 
 const parsePositiveIntegerEnv = (name: string, fallback: number): number => {
   const value = process.env[name]
@@ -66,6 +100,14 @@ const cupsSubfilterTimeoutMs = parsePositiveIntegerEnv(
 const cupsSubfilterStderrMaxBufferBytes = parsePositiveIntegerEnv(
   "IPP_ORCH_CUPS_SUBFILTER_STDERR_MAX_BUFFER_BYTES",
   defaultCupsSubfilterStderrMaxBufferBytes,
+)
+const cupsSplMaxBytesPerPage = parsePositiveIntegerEnv(
+  "IPP_ORCH_CUPS_SPL_MAX_BYTES_PER_PAGE",
+  defaultCupsSplMaxBytesPerPage,
+)
+const cupsSplMaxTotalBytes = parsePositiveIntegerEnv(
+  "IPP_ORCH_CUPS_SPL_MAX_TOTAL_BYTES",
+  defaultCupsSplMaxTotalBytes,
 )
 const tempDirPrefix = "ipp-cups-pdf-"
 const defaultTempDirRetentionMs = 60 * 60 * 1000
@@ -120,6 +162,30 @@ const writeCupsStderr = (level: "ERROR" | "INFO" | "STATE", message: string) =>
     }
   })
 
+const clearTransientCupsStateReasons = () =>
+  Effect.gen(function* () {
+    for (const reason of transientCupsStateReasons) {
+      yield* writeCupsStderr("STATE", `-${reason}`)
+    }
+  })
+
+const setTransientCupsStateReason = (
+  activeReason: (typeof transientCupsStateReasons)[number],
+) =>
+  Effect.gen(function* () {
+    for (const reason of transientCupsStateReasons) {
+      if (reason !== activeReason) {
+        yield* writeCupsStderr("STATE", `-${reason}`)
+      }
+    }
+    yield* writeCupsStderr("STATE", `+${activeReason}`)
+  })
+
+const safeOptionsFor = (options: string): string =>
+  [...options.trim().split(/\s+/).filter(Boolean), ...enforcedPdfFilterOptions]
+    .join(" ")
+    .trim()
+
 const cupsArgsFor = (
   invocation: CupsFilterInvocation,
   filePath: string,
@@ -128,7 +194,7 @@ const cupsArgsFor = (
   invocation.user,
   invocation.title,
   invocation.copies,
-  invocation.options,
+  safeOptionsFor(invocation.options),
   filePath,
 ]
 
@@ -190,23 +256,16 @@ const validatePdfForCups = (filePath: string) =>
     }
   })
 
-const runCupsFilter = (
-  params: {
-    readonly label: string
-    readonly command: string
-    readonly args: readonly string[]
-    readonly inputContentType: string
-    readonly output:
-      | { readonly _tag: "File"; readonly path: string }
-      | { readonly _tag: "Stdout" }
-  },
-) =>
+const runCupsFilter = (params: {
+  readonly label: string
+  readonly command: string
+  readonly args: readonly string[]
+  readonly inputContentType: string
+  readonly output: { readonly _tag: "File"; readonly path: string }
+}) =>
   Effect.try({
     try: () => {
-      const stdout =
-        params.output._tag === "Stdout"
-          ? "inherit"
-          : openSync(params.output.path, "w", 0o600)
+      const stdout = openSync(params.output.path, "w", privateTempFileMode)
 
       try {
         const result = spawnSync(params.command, params.args, {
@@ -233,6 +292,8 @@ const runCupsFilter = (
             `${params.label} exited with status ${result.status ?? "unknown"}`,
           )
         }
+
+        return { stderr }
       } finally {
         if (typeof stdout === "number") {
           closeSync(stdout)
@@ -252,6 +313,40 @@ const copyStdinToFile = (targetPath: string) =>
       new CupsCommandFailed({
         message: `failed to copy CUPS stdin to temp file: ${String(error)}`,
       }),
+  })
+
+const copyFileToStdout = (sourcePath: string) =>
+  Effect.tryPromise({
+    try: () => pipeline(createReadStream(sourcePath), process.stdout),
+    catch: (error) =>
+      new CupsCommandFailed({
+        message: `failed to copy guarded printer output to CUPS stdout: ${String(error)}`,
+      }),
+  })
+
+const copyGuardedOutputToStdout = (output: GuardedSplOutput) =>
+  copyFileToStdout(output.path)
+
+const readFileSize = (filePath: string) =>
+  Effect.try({
+    try: () => statSync(filePath).size,
+    catch: (error) =>
+      new CupsCommandFailed({
+        message: `failed to stat guarded printer output ${filePath}: ${String(error)}`,
+      }),
+  })
+
+const validateSingleCopyForCups = (invocation: CupsFilterInvocation) =>
+  Effect.gen(function* () {
+    const guardDecision = decideCupsCopiesGuard(invocation.copies)
+
+    if (guardDecision._tag === "Rejected") {
+      return yield* new OutputGuardRejected({
+        reason: guardDecision.reason,
+        message: guardDecision.message,
+        actualBytes: 0,
+      })
+    }
   })
 
 const cleanupStaleTempDirs = () =>
@@ -301,7 +396,9 @@ const withTempDir = <A, E, R>(
   Effect.acquireRelease(
     cleanupStaleTempDirs().pipe(
       Effect.asVoid,
-      Effect.andThen(Effect.sync(() => mkdtempSync(join(tmpdir(), tempDirPrefix)))),
+      Effect.andThen(
+        Effect.sync(() => mkdtempSync(join(tmpdir(), tempDirPrefix))),
+      ),
     ),
     removeTempDir,
   ).pipe(Effect.flatMap(use), Effect.scoped)
@@ -324,10 +421,12 @@ const renderPipeline = (
   invocation: CupsFilterInvocation,
   inputPath: string,
   tempDirectory: string,
+  pdfPages: number,
 ) =>
   Effect.gen(function* () {
     const normalizedPdfPath = join(tempDirectory, "normalized.pdf")
     const cupsRasterPath = join(tempDirectory, "document.cups-raster")
+    const splPath = join(tempDirectory, "document.spl")
 
     yield* runCupsFilter({
       label: "pdftopdf",
@@ -343,13 +442,51 @@ const renderPipeline = (
       inputContentType: cupsPdfContentType,
       output: { _tag: "File", path: cupsRasterPath },
     })
-    yield* runCupsFilter({
+    const rasterToSpl = yield* runCupsFilter({
       label: "rastertospl",
       command: splRasterFilter,
       args: cupsArgsFor(invocation, cupsRasterPath),
       inputContentType: cupsRasterContentType,
-      output: { _tag: "Stdout" },
+      output: { _tag: "File", path: splPath },
     })
+    const splBytes = yield* readFileSize(splPath)
+    const guardDecision = decideSplOutputGuard({
+      pdfPages,
+      copies: invocation.copies,
+      splBytes,
+      filterStderr: rasterToSpl.stderr,
+      maxBytesPerPage: cupsSplMaxBytesPerPage,
+      maxTotalBytes: cupsSplMaxTotalBytes,
+    })
+
+    if (guardDecision._tag === "Rejected") {
+      return yield* new OutputGuardRejected({
+        reason: guardDecision.reason,
+        message: guardDecision.message,
+        actualBytes: splBytes,
+        ...(guardDecision.expectedPages !== undefined
+          ? { expectedPages: guardDecision.expectedPages }
+          : {}),
+        ...(guardDecision.observedPages !== undefined
+          ? { observedPages: guardDecision.observedPages }
+          : {}),
+        ...(guardDecision.maxBytes !== undefined
+          ? { maxBytes: guardDecision.maxBytes }
+          : {}),
+      })
+    }
+
+    const guardedOutput: GuardedSplOutput = {
+      path: splPath,
+      bytes: splBytes,
+      pages: guardDecision.observedPages,
+      maxBytes: guardDecision.maxBytes,
+    }
+    yield* writeCupsStderr(
+      "INFO",
+      `Guarded printer output accepted job ${invocation.jobId}: pages=${guardedOutput.pages} bytes=${guardedOutput.bytes} maxBytes=${guardedOutput.maxBytes}`,
+    )
+    yield* copyGuardedOutputToStdout(guardedOutput)
   })
 
 const program = Effect.gen(function* () {
@@ -360,30 +497,38 @@ const program = Effect.gen(function* () {
         ? error
         : new ValidationError({ message: String(error) }),
   })
+  yield* clearTransientCupsStateReasons()
 
   return yield* withTempDir((tempDirectory) =>
     Effect.gen(function* () {
       const inputPath = yield* prepareInputFile(invocation, tempDirectory)
       const report = yield* validatePdfForCups(inputPath)
+      yield* validateSingleCopyForCups(invocation)
 
       yield* writeCupsStderr(
         "INFO",
         `PDF preflight accepted job ${invocation.jobId}: pages=${report.summary.pages}`,
       )
-      yield* renderPipeline(invocation, inputPath, tempDirectory)
+      yield* renderPipeline(
+        invocation,
+        inputPath,
+        tempDirectory,
+        report.summary.pages,
+      )
     }),
   )
 })
 
 const reportFailure = (
-  error: CupsCommandFailed | PdfPreflightRejected | ValidationError,
+  error:
+    | CupsCommandFailed
+    | OutputGuardRejected
+    | PdfPreflightRejected
+    | ValidationError,
 ) =>
   Effect.gen(function* () {
     if (error._tag === "PdfPreflightRejected") {
-      yield* writeCupsStderr(
-        "STATE",
-        "+com.ipp-print-orchestrator-pdf-preflight-rejected",
-      )
+      yield* setTransientCupsStateReason(pdfPreflightRejectedStateReason)
       yield* writeCupsStderr(
         "ERROR",
         `PDF preflight rejected job: ${error.reason}: ${error.message}`,
@@ -391,6 +536,12 @@ const reportFailure = (
       if (error.details !== undefined) {
         yield* writeCupsStderr("ERROR", error.details)
       }
+    } else if (error._tag === "OutputGuardRejected") {
+      yield* setTransientCupsStateReason(outputGuardRejectedStateReason)
+      yield* writeCupsStderr(
+        "ERROR",
+        `Printer output guard rejected job: ${error.reason}: ${error.message}`,
+      )
     } else {
       yield* writeCupsStderr("ERROR", `${error._tag}: ${error.message}`)
     }
@@ -410,6 +561,7 @@ const reportUnexpectedFailure = (cause: Cause.Cause<unknown>) =>
 const main = program.pipe(
   Effect.catchTags({
     CupsCommandFailed: reportFailure,
+    OutputGuardRejected: reportFailure,
     PdfPreflightRejected: reportFailure,
     ValidationError: reportFailure,
   }),

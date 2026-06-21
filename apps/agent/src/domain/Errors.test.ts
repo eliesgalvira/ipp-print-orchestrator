@@ -9,6 +9,7 @@ import {
   EventSinkUnavailable,
   JobRepoUnavailable,
   NetworkOffline,
+  OutputGuardRejected,
   PrinterNotReady,
   PrinterUsbDetached,
   StartupRecoveryFailed,
@@ -44,6 +45,13 @@ describe("Errors", () => {
     expect(new CupsCommandFailed({ message: "lp failed" })._tag).toBe(
       "CupsCommandFailed",
     )
+    expect(
+      new OutputGuardRejected({
+        reason: "oversized-output",
+        message: "too large",
+        actualBytes: 42,
+      })._tag,
+    ).toBe("OutputGuardRejected")
     expect(new PrinterUsbDetached({ message: "usb missing" })._tag).toBe(
       "PrinterUsbDetached",
     )

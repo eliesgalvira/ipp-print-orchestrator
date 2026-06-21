@@ -1,0 +1,81 @@
+#!/bin/sh
+set -u
+
+REAL_BACKEND=${IPP_ORCH_REAL_USB_BACKEND:-/usr/lib/cups/backend/usb}
+TIMEOUT_SECONDS=${IPP_ORCH_USB_BACKEND_TIMEOUT_SECONDS:-60}
+discovery_output=
+payload=
+
+cleanup_discovery_output() {
+  [ -n "${discovery_output:-}" ] && rm -f "$discovery_output"
+}
+
+cleanup_payload() {
+  [ -n "${payload:-}" ] && rm -f "$payload"
+}
+
+deauthorize_hp_usb() {
+  for device in /sys/bus/usb/devices/*; do
+    [ -r "$device/idVendor" ] || continue
+    [ -w "$device/authorized" ] || continue
+    vendor=$(cat "$device/idVendor" 2>/dev/null || true)
+    case "$vendor" in
+      03f0 | 03F0) echo 0 >"$device/authorized" 2>/dev/null || true ;;
+    esac
+  done
+}
+
+if [ "$#" -eq 0 ]; then
+  discovery_output=$(mktemp "${TMPDIR:-/tmp}/ipp-orch-usb-discovery.XXXXXX") || exit 1
+  trap cleanup_discovery_output 0 1 2 3 15
+  if "$REAL_BACKEND" >"$discovery_output"; then
+    sed 's# usb://# ipp-orch-usb://#' "$discovery_output"
+    status=$?
+  else
+    status=$?
+  fi
+  exit "$status"
+fi
+
+case "${DEVICE_URI:-}" in
+  ipp-orch-usb://*)
+    export DEVICE_URI="usb://${DEVICE_URI#ipp-orch-usb://}"
+    ;;
+  *)
+    echo "ERROR: ipp-orch-usb backend requires DEVICE_URI=ipp-orch-usb://..." >&2
+    exit 1
+    ;;
+esac
+
+payload=$(mktemp "${TMPDIR:-/tmp}/ipp-orch-usb-payload.XXXXXX") || exit 1
+trap cleanup_payload 0 1 2 3 15
+
+if ! cat >"$payload"; then
+  echo "ERROR: ipp-orch-usb backend could not stage printer bytes from the CUPS filter pipeline" >&2
+  exit 1
+fi
+
+payload_bytes=$(wc -c <"$payload" | tr -d '[:space:]')
+if [ "${payload_bytes:-0}" = "0" ]; then
+  echo "ERROR: ipp-orch-usb backend received no printer bytes from the CUPS filter pipeline" >&2
+  exit 1
+fi
+
+if ! timeout --foreground --kill-after=5s 1 true >/dev/null 2>&1; then
+  echo "ERROR: ipp-orch-usb backend requires GNU timeout with --foreground support" >&2
+  exit 1
+fi
+
+timeout --foreground --kill-after=5s "$TIMEOUT_SECONDS" "$REAL_BACKEND" "$@" <"$payload"
+status=$?
+
+case "$status" in
+  124 | 137)
+    echo "ERROR: ipp-orch-usb backend timed out after ${TIMEOUT_SECONDS}s; deauthorizing HP USB device" >&2
+    deauthorize_hp_usb
+    exit 1
+    ;;
+  *)
+    exit "$status"
+    ;;
+esac

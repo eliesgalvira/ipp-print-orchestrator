@@ -62,10 +62,25 @@ Patch the HP PPD conservatively:
   `ipp-pdf-preflight-to-spl`. It preflights the original PDF with `pdfinfo`,
   rejects encrypted/protected or unreadable PDFs, then invokes the existing
   `pdftopdf -> gstoraster -> rastertospl` pipeline for accepted PDFs.
+- Stage final SPL/QPDL output to a temporary file before handing bytes to the
+  backend. Validate that `rastertospl` reports exactly the expected page count,
+  reject multiple-copy jobs, force the known safe PDF options, and cap final
+  output size per page.
+- Route the queue through the `ipp-orch-usb` backend wrapper instead of the raw
+  CUPS `usb` backend. The wrapper stages filter output before touching USB,
+  rejects empty filter output immediately, delegates non-empty payloads to the
+  real USB backend with the original `usb://` URI, and deauthorizes the HP USB
+  device if that backend wedges. Keep the wrapper as a checked-in script at
+  `scripts/cups/backend/ipp-orch-usb`, not as generated shell embedded in Nu.
+  Install it with root-only execute permission, matching the real CUPS `usb`
+  backend, so CUPS runs it with enough privilege to delegate to that backend.
 
 Configure CUPS defensively:
 
-- `ErrorPolicy=stop-printer`
+- Disable CUPS' built-in DNS-SD browsing and install an explicit Avahi
+  `_ipps._tcp` service for the queue. Do not advertise the unencrypted `_ipp._tcp`
+  path to Android.
+- `ErrorPolicy=abort-job`
 - `JobRetryLimit=0`
 - `JobRetryInterval=0`
 - `MaxJobs=20`
@@ -75,6 +90,18 @@ Configure CUPS defensively:
 - `PreserveJobHistory=86400`
 - `AutoPurgeJobs=Yes`
 - `JobKillDelay=5`
+
+Own the TLS identity used by Android and other IPP clients:
+
+- Start Avahi before CUPS setup reads the advertised mDNS hostname.
+- Generate a CUPS self-signed server certificate whose SANs include the static
+  system hostname, the current Avahi hostname/FQDN, `localhost`, and local IP
+  addresses.
+- Verify every generated DNS/IP SAN after enabling the queue.
+- Provide a `--repair-tls-only` setup path that can refresh the certificate and
+  restart CUPS without clearing the spool or reconfiguring the queue.
+- Run a small systemd watcher that records Avahi's current advertised FQDN and
+  reruns `--repair-tls-only` whenever that FQDN changes.
 
 The setup script is responsible for installing the driver, patching the PPD,
 configuring the queue, and clearing the spool. By default it leaves CUPS stopped,
@@ -90,16 +117,23 @@ silently reinstall an old unsafe PPD.
 The live queue should render through:
 
 ```text
-PDF -> pdftopdf -> gstoraster -> CUPS raster, 300x300, 8-bit grayscale -> rastertospl -> SPL/QPDL -> USB printer
+PDF -> pdftopdf -> gstoraster -> CUPS raster, 300x300, 8-bit grayscale -> rastertospl -> guarded SPL/QPDL file -> supervised USB backend -> USB printer
 ```
 
 For PDF jobs, that pipeline is now enclosed by `ipp-pdf-preflight-to-spl`, so
 the HP/Samsung driver never receives PDFs that the local preflight cannot
-classify as readable and unencrypted.
+classify as readable and unencrypted. The filter also refuses to stream final
+printer bytes until it has a complete driver output file with a matching page
+count and bounded size.
 
 This reduces payload size for scanned/image-heavy pages while preserving the
 raster format expected by `rastertospl`. It also prevents CUPS from retrying a
 bad job repeatedly if the backend or printer errors.
+
+The USB backend wrapper exists because a valid one-page render can still leave
+the CUPS USB backend stuck in the device phase. In that state, stopping CUPS may
+wait for systemd's service timeout while the printer is physically misbehaving.
+The wrapper makes that failure bounded and detaches the HP USB device on timeout.
 
 Preserving job files for one day increases local forensic capability after a
 printer incident. The tradeoff is that recent documents may remain under the
@@ -117,9 +151,12 @@ Allowed safe checks:
 
 - `nu scripts/setup-cups-live-to-pi.nu --stop-only`
 - `nu scripts/setup-cups-live-to-pi.nu`
-- `nu scripts/setup-cups-live-to-pi.nu --enable-printing`
 - `cupsfilter` conversions redirected to a temporary file
 - `lpstat`, PPD inspection, CUPS config inspection, and spool inspection
+
+`nu scripts/setup-cups-live-to-pi.nu --enable-printing` exposes the queue to
+clients and must be treated as a live-operation step, not a passive check,
+especially when Android may still have a local queued job.
 
 Physical print tests require explicit confirmation of the exact sheet count.
 Use one sheet unless the user explicitly authorizes more.

@@ -151,6 +151,8 @@ def main []: nothing -> nothing {
 set -euo pipefail
 
 PI_HOST_LABEL="$1"
+APT_KEYRING_DIRECTORY_MODE=0755 # root can write; apt and operators can read/traverse keyring directory.
+APT_SOURCE_LIST_FILE_MODE=0644 # root can write; apt and operators can read the source list.
 
 run_sudo() {
   sudo "$@"
@@ -187,9 +189,9 @@ if ! command -v nu >/dev/null 2>&1; then
   tmp_list="$(mktemp)"
   curl -fsSL https://apt.fury.io/nushell/gpg.key -o "$tmp_key"
   printf "%s\n" "deb [signed-by=/etc/apt/keyrings/fury-nushell.gpg] https://apt.fury.io/nushell/ /" > "$tmp_list"
-  run_sudo install -d -m 0755 /etc/apt/keyrings
+  run_sudo install -d -m "$APT_KEYRING_DIRECTORY_MODE" /etc/apt/keyrings
   run_sudo gpg --dearmor --yes -o /etc/apt/keyrings/fury-nushell.gpg "$tmp_key"
-  run_sudo install -m 0644 "$tmp_list" /etc/apt/sources.list.d/fury-nushell.list
+  run_sudo install -m "$APT_SOURCE_LIST_FILE_MODE" "$tmp_list" /etc/apt/sources.list.d/fury-nushell.list
   rm -f "$tmp_key" "$tmp_list"
   run_sudo apt-get update
   if ! run_sudo apt-get install -y nushell; then
