@@ -73,6 +73,7 @@ const defaultCupsSubfilterTimeoutMs = 285_000
 const defaultCupsSubfilterStderrMaxBufferBytes = 8 * 1024 * 1024
 const defaultCupsSplMaxBytesPerPage = 64 * 1024 * 1024
 const defaultCupsSplMaxTotalBytes = 256 * 1024 * 1024
+const privateTempFileMode = 0o600 // Owner read/write only for staged printer artifacts.
 const pdfPreflightRejectedStateReason =
   "com.ipp-print-orchestrator-pdf-preflight-rejected"
 const outputGuardRejectedStateReason =
@@ -260,16 +261,11 @@ const runCupsFilter = (params: {
   readonly command: string
   readonly args: readonly string[]
   readonly inputContentType: string
-  readonly output:
-    | { readonly _tag: "File"; readonly path: string }
-    | { readonly _tag: "Stdout" }
+  readonly output: { readonly _tag: "File"; readonly path: string }
 }) =>
   Effect.try({
     try: () => {
-      const stdout =
-        params.output._tag === "Stdout"
-          ? "inherit"
-          : openSync(params.output.path, "w", 0o600)
+      const stdout = openSync(params.output.path, "w", privateTempFileMode)
 
       try {
         const result = spawnSync(params.command, params.args, {

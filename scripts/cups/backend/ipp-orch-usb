@@ -3,7 +3,12 @@ set -u
 
 REAL_BACKEND=${IPP_ORCH_REAL_USB_BACKEND:-/usr/lib/cups/backend/usb}
 TIMEOUT_SECONDS=${IPP_ORCH_USB_BACKEND_TIMEOUT_SECONDS:-60}
+discovery_output=
 payload=
+
+cleanup_discovery_output() {
+  [ -n "${discovery_output:-}" ] && rm -f "$discovery_output"
+}
 
 cleanup_payload() {
   [ -n "${payload:-}" ] && rm -f "$payload"
@@ -22,13 +27,13 @@ deauthorize_hp_usb() {
 
 if [ "$#" -eq 0 ]; then
   discovery_output=$(mktemp "${TMPDIR:-/tmp}/ipp-orch-usb-discovery.XXXXXX") || exit 1
+  trap cleanup_discovery_output 0 1 2 3 15
   if "$REAL_BACKEND" >"$discovery_output"; then
     sed 's# usb://# ipp-orch-usb://#' "$discovery_output"
     status=$?
   else
     status=$?
   fi
-  rm -f "$discovery_output"
   exit "$status"
 fi
 

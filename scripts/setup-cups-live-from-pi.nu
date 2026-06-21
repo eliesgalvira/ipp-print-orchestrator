@@ -652,6 +652,29 @@ def configure-queue [
   }
 }
 
+def cups-printer-block [printers_conf: string, printer_name: string]: nothing -> string {
+  let lines = ($printers_conf | lines)
+  mut in_printer = false
+  mut block = []
+
+  for line in $lines {
+    let trimmed = ($line | str trim)
+    if $trimmed == $"<Printer ($printer_name)>" {
+      $in_printer = true
+    }
+
+    if $in_printer {
+      $block = ($block | append $line)
+    }
+
+    if $in_printer and $trimmed == "</Printer>" {
+      return ($block | str join "\n")
+    }
+  }
+
+  ""
+}
+
 def force-queue-error-policy-abort-job [printer_name: string]: nothing -> nothing {
   run-best-effort ["sudo" "systemctl" "stop" "cups.service" "cups.socket" "cups.path"]
 
@@ -669,7 +692,8 @@ def force-queue-error-policy-abort-job [printer_name: string]: nothing -> nothin
   ] | ignore
 
   let printers_conf = (run-required "verify queue ErrorPolicy" ["sudo" "cat" "/etc/cups/printers.conf"])
-  if not ($printers_conf | str contains $"<Printer ($printer_name)>") or not ($printers_conf | str contains "ErrorPolicy abort-job") {
+  let printer_block = (cups-printer-block $printers_conf $printer_name)
+  if ($printer_block | str length) == 0 or not ($printer_block | str contains "ErrorPolicy abort-job") {
     error make {msg: $"failed to set ErrorPolicy abort-job for CUPS printer ($printer_name)"}
   }
 
@@ -678,21 +702,11 @@ def force-queue-error-policy-abort-job [printer_name: string]: nothing -> nothin
 
 def read-printer-uuid [printer_name: string]: nothing -> string {
   let printers_conf = (run-required "read CUPS printers.conf" ["sudo" "cat" "/etc/cups/printers.conf"])
-  let lines = ($printers_conf | lines)
-  mut in_printer = false
+  let printer_block = (cups-printer-block $printers_conf $printer_name)
 
-  for line in $lines {
+  for line in ($printer_block | lines) {
     let trimmed = ($line | str trim)
-    if $trimmed == $"<Printer ($printer_name)>" {
-      $in_printer = true
-      continue
-    }
-
-    if $in_printer and $trimmed == "</Printer>" {
-      break
-    }
-
-    if $in_printer and ($trimmed | str starts-with "UUID ") {
+    if ($trimmed | str starts-with "UUID ") {
       return (
         $trimmed
         | str replace --regex "^UUID\\s+" ""

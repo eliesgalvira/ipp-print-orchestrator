@@ -240,6 +240,23 @@ print (supervised-usb-device-uri "file:///tmp/output")
   assert equal ($lines | get 1) "file:///tmp/output"
 }
 
+def "test CUPS printer block extraction is scoped to target queue" []: nothing -> nothing {
+  let result = (
+    nu --no-config-file --commands '
+source scripts/setup-cups-live-from-pi.nu
+let printers_conf = "<Printer Other>\nUUID urn:uuid:other\nErrorPolicy abort-job\n</Printer>\n<Printer HP135a>\nUUID urn:uuid:target\nErrorPolicy stop-printer\n</Printer>\n"
+print (cups-printer-block $printers_conf "HP135a")
+'
+    | complete
+  )
+
+  assert equal $result.exit_code 0 $"expected CUPS printer block extraction to execute: ($result.stderr)"
+  assert ($result.stdout | str contains "<Printer HP135a>") "target printer block should be returned"
+  assert ($result.stdout | str contains "ErrorPolicy stop-printer") "target printer policy should be returned"
+  assert not ($result.stdout | str contains "<Printer Other>") "other printer block should not be returned"
+  assert not ($result.stdout | str contains "ErrorPolicy abort-job") "other printer policy should not satisfy target verification"
+}
+
 def "test supervised CUPS USB backend wrapper delegates through original URI" []: nothing -> nothing {
   let root = (repo-root)
   let backend = ($root | path join "scripts/cups/backend/ipp-orch-usb")
