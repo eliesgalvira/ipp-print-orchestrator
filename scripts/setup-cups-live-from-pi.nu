@@ -8,6 +8,7 @@ const HP_ULD_PPD_PATH = "/usr/share/ppd/uld-hp/HP_Laser_MFP_13x_Series.ppd"
 const CUPS_PDF_PREFLIGHT_FILTER_PATH = "/usr/lib/cups/filter/ipp-pdf-preflight-to-spl"
 const CUPS_USB_BACKEND_WRAPPER_PATH = "/usr/lib/cups/backend/ipp-orch-usb"
 const CUPS_FILTER_CACHE_DIR = "/var/cache/ipp-print-orchestrator"
+const CUPS_FONTCONFIG_CACHE_DIR = "/var/cache/fontconfig"
 const CUPS_SSL_DIR = "/etc/cups/ssl"
 const AVAHI_IPPS_SERVICE_PATH = "/etc/avahi/services/ipp-print-orchestrator-hp135a.service"
 const CUPS_TLS_CERT_DAYS = "3650"
@@ -16,6 +17,7 @@ const PUBLIC_DATA_FILE_MODE = "0644" # owner=rw, group/other=r.
 const PRIVATE_SECRET_FILE_MODE = "0600" # owner=rw, no group/other access.
 const ROOT_REPLACED_EXECUTABLE_FILE_MODE = "0555" # owner/group/other=rx; root replaces the file instead of editing it in place.
 const CUPS_FILTER_CACHE_DIRECTORY_MODE = "0750" # lp:lp can read/write/traverse; other users get no access.
+const CUPS_FONTCONFIG_CACHE_DIRECTORY_MODE = "2775" # root:lp with setgid; Ghostscript writes fontconfig caches as lp.
 const CUPS_ROOT_EXECUTED_BACKEND_MODE = "0744" # owner=rwx, group/other=read-only; CUPS runs backends with no group/other execute bit as root.
 const TEMP_QUEUES = [HP135a_PWG_Test HP135a_SPLIX_Test]
 const HP_ULD_GRAYSCALE_8BIT = '*ColorModel Gray/Grayscale: "<</cupsColorSpace 0 /cupsBitsPerColor 8>>setpagedevice"'
@@ -462,6 +464,7 @@ def install-pdf-preflight-filter [runtime_path: string]: nothing -> nothing {
   run-required "verify Nix PDF preflight CUPS filter" ["test" "-x" $store_filter] | ignore
   install-root-dir "/usr/lib/cups/filter"
   install-owned-dir $CUPS_FILTER_CACHE_DIRECTORY_MODE "lp" "lp" $CUPS_FILTER_CACHE_DIR
+  install-owned-dir $CUPS_FONTCONFIG_CACHE_DIRECTORY_MODE "root" "lp" $CUPS_FONTCONFIG_CACHE_DIR
   install-root-symlink $store_filter $CUPS_PDF_PREFLIGHT_FILTER_PATH
   run-required "verify installed PDF preflight CUPS filter" ["test" "-x" $CUPS_PDF_PREFLIGHT_FILTER_PATH] | ignore
 }

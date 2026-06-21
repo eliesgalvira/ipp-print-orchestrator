@@ -51,17 +51,6 @@ export const countCupsPageLogEntries = (stderr: string): number =>
   stderr.split(/\r?\n/).filter((line) => /^PAGE:\s+\d+\s+\d+\s*$/i.test(line))
     .length
 
-export const countGhostscriptProcessedPages = (stderr: string): number => {
-  const pages = stderr
-    .split(/\r?\n/)
-    .map((line) => line.match(/\bProcessing page\s+(\d+)\.\.\./i)?.[1])
-    .filter((page): page is string => page !== undefined)
-    .map((page) => Number.parseInt(page, 10))
-    .filter((page) => Number.isFinite(page) && page > 0)
-
-  return pages.length === 0 ? 0 : Math.max(...pages)
-}
-
 export const hasSplBlankPageSuppression = (printerLanguage: string): boolean =>
   /@PJL\s+SET\s+XIGNOREFF\s*=\s*ON/i.test(printerLanguage)
 

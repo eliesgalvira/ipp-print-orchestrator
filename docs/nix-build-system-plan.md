@@ -1577,3 +1577,46 @@ Verification:
 - CUPS was reconfigured from copied store paths, no test page was printed, the
   queue was idle/enabled/accepting, the app health endpoint returned OK, and the
   HP USB device was visible.
+
+## Completed Follow-Up: First-Print Latency
+
+Date: 2026-06-21
+
+After the first successful phone prints, the first one-page PDF felt slow enough
+to investigate with the preserved CUPS jobs instead of guessing. The replay loop
+was no-paper: copy the preserved `/var/spool/cups/d*` input on the Pi, run the
+same Nix-store CUPS filter chain, and write the generated SPL/QPDL to `/tmp`.
+
+Observed live CUPS windows:
+
+- Job 8 was a 986,713 byte PDF from the phone. CUPS started the filter/backend
+  at `2026-06-21 22:19:41 +0100` and marked it complete at `22:20:08`, so the
+  server-side filter/backend window was about 27 seconds.
+- Job 9 was a 233,016 byte PDF. CUPS started the filter/backend at `22:20:16`
+  and marked it complete at `22:20:29`, so the server-side window was about
+  13 seconds.
+
+Measured bottlenecks:
+
+- Before fixing fontconfig cache state, the larger PDF replay took about
+  10.8 seconds through the full preflight filter and Ghostscript emitted
+  44 `Fontconfig error: No writable cache directories` messages.
+- Splitting the pipeline showed the expensive conversion child was `gstoraster`.
+  For the larger PDF it took about 6.1 seconds with fontconfig errors, while
+  `pdftopdf` was about 0.6 seconds and `rastertospl` was about 1.6 seconds.
+- The Pi had no `/var/cache/fontconfig`, which is one of the cache directories
+  Ghostscript reported. Creating it as `root:lp` with setgid group-write
+  permissions removed the fontconfig errors and reduced the larger PDF's raster
+  stage to about 2.4-3.2 seconds in no-print replays.
+- With exact deployed filter options and writable fontconfig cache, the child
+  conversion stages measured about 4.1 seconds total for the larger PDF and
+  about 2.0 seconds total for the smaller PDF.
+- The bundled Node filter import/validation path costs about 1 second on the Pi;
+  plain Node startup costs about 0.2 seconds. That is visible but not the main
+  first-print delay.
+
+The setup script now creates both the app cache directory and
+`/var/cache/fontconfig` for the CUPS `lp` execution path. The remaining live
+delay is mostly outside pure PDF conversion: CUPS/backend/USB/printer
+consumption accounted for roughly 8-16 seconds in the two observed jobs, with
+some client upload/spooling time visible before the filter starts.
