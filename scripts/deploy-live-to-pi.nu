@@ -5,6 +5,8 @@ use lib/observability.nu [local-service-env-content]
 use lib/remote.nu *
 use lib/repo.nu *
 
+const SERVICE_ENV_FILE_MODE = "0644" # non-secret service config; readable by operators and systemd.
+
 def require-command [name: string]: nothing -> nothing {
   if (which $name | is-empty) {
     error make {msg: $"missing required command: ($name)"}
@@ -21,11 +23,12 @@ def sync-service-env [
 ]: nothing -> any {
   let remote_script_template = '
 let env_content = __ENV_CONTENT_NUON__
+let service_env_file_mode = "__SERVICE_ENV_FILE_MODE__"
 let tmp_env = (mktemp)
 
 try {
   ($env_content + "\n") | save --force $tmp_env
-  run-external "sudo" "install" "-m" "0644" $tmp_env "/etc/ipp-print-orchestrator.env"
+  run-external "sudo" "install" "-m" $service_env_file_mode $tmp_env "/etc/ipp-print-orchestrator.env"
 } catch {|err|
   rm --force $tmp_env
   error make $err
@@ -36,6 +39,7 @@ rm --force $tmp_env
   let remote_script = (
     $remote_script_template
     | str replace "__ENV_CONTENT_NUON__" ($env_content | to nuon)
+    | str replace "__SERVICE_ENV_FILE_MODE__" $SERVICE_ENV_FILE_MODE
   )
   run-remote-nu-source $host $remote_script --key-path $key_path --control-path $control_path --connect-timeout $connect_timeout --connection-attempts $connection_attempts --batch
 }

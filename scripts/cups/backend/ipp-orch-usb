@@ -56,13 +56,13 @@ if [ "${payload_bytes:-0}" = "0" ]; then
   exit 1
 fi
 
-if command -v timeout >/dev/null 2>&1; then
-  timeout --foreground --kill-after=5s "$TIMEOUT_SECONDS" "$REAL_BACKEND" "$@" <"$payload"
-  status=$?
-else
-  "$REAL_BACKEND" "$@" <"$payload"
-  status=$?
+if ! timeout --foreground --kill-after=5s 1 true >/dev/null 2>&1; then
+  echo "ERROR: ipp-orch-usb backend requires GNU timeout with --foreground support" >&2
+  exit 1
 fi
+
+timeout --foreground --kill-after=5s "$TIMEOUT_SECONDS" "$REAL_BACKEND" "$@" <"$payload"
+status=$?
 
 case "$status" in
   124 | 137)

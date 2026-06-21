@@ -3,6 +3,9 @@
 use lib/remote.nu [run-sudo run-timed]
 use lib/repo.nu repo-root
 
+const SYSTEMD_UNIT_FILE_MODE = "0644" # root-owned unit files must be readable by systemd and operators.
+const SERVICE_ENV_FILE_MODE = "0644" # non-secret service defaults; real secrets belong outside this env file.
+
 def run-sudo-timed [phase: string, args: list<string>]: nothing -> any {
   run-timed $phase {
     run-sudo $args
@@ -25,7 +28,7 @@ def install-rendered-unit [source: path, destination: string, app_dir: path]: no
 
     try {
       $rendered | save --force $tmp_unit
-      run-sudo ["install" "-m" "0644" $tmp_unit $destination]
+      run-sudo ["install" "-m" $SYSTEMD_UNIT_FILE_MODE $tmp_unit $destination]
     } catch {|err|
       rm --force $tmp_unit
       error make $err
@@ -64,7 +67,7 @@ def install-default-service-env []: nothing -> nothing {
 
     try {
       default-service-env-content | save --force $tmp_env
-      run-sudo ["install" "-m" "0644" $tmp_env "/etc/ipp-print-orchestrator.env"]
+      run-sudo ["install" "-m" $SERVICE_ENV_FILE_MODE $tmp_env "/etc/ipp-print-orchestrator.env"]
     } catch {|err|
       rm --force $tmp_env
       error make $err

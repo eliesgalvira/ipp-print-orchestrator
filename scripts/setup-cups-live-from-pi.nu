@@ -15,6 +15,13 @@ const CUPS_FILTER_CACHE_DIR = "/var/cache/ipp-print-orchestrator"
 const CUPS_SSL_DIR = "/etc/cups/ssl"
 const AVAHI_IPPS_SERVICE_PATH = "/etc/avahi/services/ipp-print-orchestrator-hp135a.service"
 const CUPS_TLS_CERT_DAYS = "3650"
+const PUBLIC_DIRECTORY_MODE = "0755" # owner=rwx, group/other=rx.
+const PUBLIC_DATA_FILE_MODE = "0644" # owner=rw, group/other=r.
+const PRIVATE_SECRET_FILE_MODE = "0600" # owner=rw, no group/other access.
+const PUBLIC_EXECUTABLE_FILE_MODE = "0755" # owner=rwx, group/other=rx.
+const ROOT_REPLACED_EXECUTABLE_FILE_MODE = "0555" # owner/group/other=rx; root replaces the file instead of editing it in place.
+const CUPS_FILTER_CACHE_DIRECTORY_MODE = "0750" # lp:lp can read/write/traverse; other users get no access.
+const CUPS_ROOT_EXECUTED_BACKEND_MODE = "0744" # owner=rwx, group/other=read-only; CUPS runs backends with no group/other execute bit as root.
 const TEMP_QUEUES = [HP135a_PWG_Test HP135a_SPLIX_Test]
 const HP_ULD_GRAYSCALE_8BIT = '*ColorModel Gray/Grayscale: "<</cupsColorSpace 0 /cupsBitsPerColor 8>>setpagedevice"'
 const HP_ULD_RASTER_FILTER = '*cupsFilter:  "application/vnd.cups-raster 0 rastertospl"'
@@ -215,7 +222,7 @@ def hp-uld-arch [debian_arch: string]: nothing -> string {
 }
 
 def install-root-dir [path: string]: nothing -> nothing {
-  run-required $"create root-owned directory ($path)" ["sudo" "install" "-d" "-m" "0755" $path] | ignore
+  run-required $"create root-owned directory ($path)" ["sudo" "install" "-d" "-m" $PUBLIC_DIRECTORY_MODE $path] | ignore
 }
 
 def install-root-file [mode: string, source: string, destination: string]: nothing -> nothing {
@@ -327,8 +334,8 @@ def install-cups-tls-certificate []: nothing -> record {
       "v3_req"
     ] | ignore
 
-    install-root-file "0644" $cert_path $target_cert_path
-    install-root-file "0600" $key_path $target_key_path
+    install-root-file $PUBLIC_DATA_FILE_MODE $cert_path $target_cert_path
+    install-root-file $PRIVATE_SECRET_FILE_MODE $key_path $target_key_path
   } catch {|err|
     rm -rf $tmp_dir
     error make {msg: (error-message $err)}
@@ -432,9 +439,9 @@ def install-pdf-preflight-filter [app_dir: string]: nothing -> nothing {
   try {
     install-root-dir $CUPS_PDF_PREFLIGHT_INSTALL_DIR
     ['{ "type": "module" }' ""] | str join "\n" | save --force $tmp_package_json
-    install-root-file "0644" $tmp_package_json $CUPS_PDF_PREFLIGHT_PACKAGE_JSON_PATH
-    install-root-file "0555" $filter_js $CUPS_PDF_PREFLIGHT_JS_PATH
-    install-owned-dir "0750" "lp" "lp" $CUPS_FILTER_CACHE_DIR
+    install-root-file $PUBLIC_DATA_FILE_MODE $tmp_package_json $CUPS_PDF_PREFLIGHT_PACKAGE_JSON_PATH
+    install-root-file $ROOT_REPLACED_EXECUTABLE_FILE_MODE $filter_js $CUPS_PDF_PREFLIGHT_JS_PATH
+    install-owned-dir $CUPS_FILTER_CACHE_DIRECTORY_MODE "lp" "lp" $CUPS_FILTER_CACHE_DIR
 
     let exec_line = (["exec" "/usr/bin/node" (shell-quote $CUPS_PDF_PREFLIGHT_JS_PATH) '"$@"'] | str join " ")
     [
@@ -443,7 +450,7 @@ def install-pdf-preflight-filter [app_dir: string]: nothing -> nothing {
       $exec_line
       ""
     ] | str join "\n" | save --force $tmp_filter
-    install-root-file "0555" $tmp_filter $CUPS_PDF_PREFLIGHT_FILTER_PATH
+    install-root-file $ROOT_REPLACED_EXECUTABLE_FILE_MODE $tmp_filter $CUPS_PDF_PREFLIGHT_FILTER_PATH
     run-required "verify installed PDF preflight CUPS filter" ["test" "-x" $CUPS_PDF_PREFLIGHT_FILTER_PATH] | ignore
   } catch {|err|
     rm --force $tmp_filter
@@ -468,10 +475,7 @@ def install-supervised-usb-backend []: nothing -> nothing {
 
   run-required "verify supervised USB backend source" ["test" "-r" $backend_script] | ignore
   run-required "verify supervised USB backend shell syntax" ["sh" "-n" $backend_script] | ignore
-  # Match CUPS' real usb backend permissions. If this wrapper is executable by
-  # unprivileged users, CUPS runs it as lp and delegation to the root-only usb
-  # backend fails with status 126.
-  install-root-file "0744" $backend_script $CUPS_USB_BACKEND_WRAPPER_PATH
+  install-root-file $CUPS_ROOT_EXECUTED_BACKEND_MODE $backend_script $CUPS_USB_BACKEND_WRAPPER_PATH
   run-required "verify supervised CUPS USB backend" ["test" "-x" $CUPS_USB_BACKEND_WRAPPER_PATH] | ignore
 }
 
@@ -511,10 +515,10 @@ def ensure-hp-uld-driver []: nothing -> string {
       /usr/share/ppd/uld-hp
     ] | each {|path| install-root-dir $path } | ignore
 
-    install-root-file "0755" ($arch_dir | path join "rastertospl") /opt/smfp-common/printer/bin/rastertospl
-    install-root-file "0755" ($arch_dir | path join "pstosecps") /opt/smfp-common/printer/bin/pstosecps
-    install-root-file "0644" ($arch_dir | path join "libscmssc.so") /opt/smfp-common/printer/lib/libscmssc.so
-    install-root-file "0644" $patched_ppd_path $HP_ULD_PPD_PATH
+    install-root-file $PUBLIC_EXECUTABLE_FILE_MODE ($arch_dir | path join "rastertospl") /opt/smfp-common/printer/bin/rastertospl
+    install-root-file $PUBLIC_EXECUTABLE_FILE_MODE ($arch_dir | path join "pstosecps") /opt/smfp-common/printer/bin/pstosecps
+    install-root-file $PUBLIC_DATA_FILE_MODE ($arch_dir | path join "libscmssc.so") /opt/smfp-common/printer/lib/libscmssc.so
+    install-root-file $PUBLIC_DATA_FILE_MODE $patched_ppd_path $HP_ULD_PPD_PATH
 
     install-root-symlink /opt/smfp-common/printer/bin/rastertospl /usr/lib/cups/filter/rastertospl
     install-root-symlink /opt/smfp-common/printer/bin/pstosecps /usr/lib/cups/filter/pstosecps
@@ -746,7 +750,7 @@ def install-avahi-ipps-service [printer_name: string, avahi_fqdn: string]: nothi
 
   try {
     $service_content | save --force $tmp_service
-    run-required "install Avahi IPPS-only printer service" ["sudo" "install" "-m" "0644" $tmp_service $AVAHI_IPPS_SERVICE_PATH] | ignore
+    run-required "install Avahi IPPS-only printer service" ["sudo" "install" "-m" $PUBLIC_DATA_FILE_MODE $tmp_service $AVAHI_IPPS_SERVICE_PATH] | ignore
     run-required "restart Avahi after IPPS service install" ["sudo" "systemctl" "restart" "avahi-daemon.service"] | ignore
   } catch {|err|
     rm --force $tmp_service

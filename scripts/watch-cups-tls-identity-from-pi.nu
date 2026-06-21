@@ -6,9 +6,11 @@ use lib/repo.nu repo-root
 const STATE_DIR = "/run/ipp-print-orchestrator"
 const STATE_FILE = "/run/ipp-print-orchestrator/cups-tls-avahi-fqdn"
 const REPAIR_LOCK = "/run/ipp-print-orchestrator/cups-tls-repair.lock"
+const RUNTIME_STATE_DIRECTORY_MODE = "0755" # owner can write; everyone can read/traverse runtime state paths.
+const RUNTIME_STATE_FILE_MODE = "0644" # owner can write; everyone can read the last observed Avahi hostname.
 
 def ensure-state-dir []: nothing -> nothing {
-  run-required "create CUPS TLS watcher state directory" ["sudo" "install" "-d" "-m" "0755" $STATE_DIR] | ignore
+  run-required "create CUPS TLS watcher state directory" ["sudo" "install" "-d" "-m" $RUNTIME_STATE_DIRECTORY_MODE $STATE_DIR] | ignore
 }
 
 def read-last-fqdn []: nothing -> string {
@@ -25,7 +27,7 @@ def write-last-fqdn [fqdn: string]: nothing -> nothing {
   let tmp_state = (mktemp)
   try {
     [$fqdn ""] | str join "\n" | save --force $tmp_state
-    run-required "write CUPS TLS watcher state" ["sudo" "install" "-m" "0644" $tmp_state $STATE_FILE] | ignore
+    run-required "write CUPS TLS watcher state" ["sudo" "install" "-m" $RUNTIME_STATE_FILE_MODE $tmp_state $STATE_FILE] | ignore
   } catch {|err|
     rm --force $tmp_state
     error make $err

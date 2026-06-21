@@ -8,6 +8,10 @@ def has-value [value: any]: nothing -> bool {
   }
 }
 
+const SERVICE_ENV_FILE_MODE = "0644" # non-secret service config; readable by operators and systemd.
+const SSH_DIRECTORY_PRIVATE_MODE = "700" # only the account owner can read/write/traverse ~/.ssh.
+const SSH_AUTHORIZED_KEYS_PRIVATE_MODE = "600" # only the account owner can read/write authorized_keys.
+
 def command-exists [name: string]: nothing -> bool {
   not (which $name | is-empty)
 }
@@ -107,7 +111,7 @@ def install-default-env [app_dir: string, printer_name: string]: nothing -> noth
 
   let tmp_env = (mktemp)
   default-env-content $app_dir $printer_name | save --force $tmp_env
-  run-sudo ["install" "-m" "0644" $tmp_env "/etc/ipp-print-orchestrator.env"]
+  run-sudo ["install" "-m" $SERVICE_ENV_FILE_MODE $tmp_env "/etc/ipp-print-orchestrator.env"]
   rm --force $tmp_env
 }
 
@@ -136,7 +140,7 @@ def install-authorized-key-content [content: string]: nothing -> nothing {
   let ssh_dir = ($nu.home-dir | path join ".ssh")
   let authorized_keys = ($ssh_dir | path join "authorized_keys")
   mkdir $ssh_dir
-  ^chmod 700 $ssh_dir
+  ^chmod $SSH_DIRECTORY_PRIVATE_MODE $ssh_dir
 
   let existing_keys = if ($authorized_keys | path exists) {
     open --raw $authorized_keys | lines
@@ -151,7 +155,7 @@ def install-authorized-key-content [content: string]: nothing -> nothing {
     print "installed SSH public key in authorized_keys"
   }
 
-  ^chmod 600 $authorized_keys
+  ^chmod $SSH_AUTHORIZED_KEYS_PRIVATE_MODE $authorized_keys
 }
 
 def configured-printer-name []: nothing -> any {

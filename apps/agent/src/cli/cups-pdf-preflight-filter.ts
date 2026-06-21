@@ -67,7 +67,7 @@ const enforcedPdfFilterOptions = [
   "PageSize=A4",
   "media=A4",
   "Quality=600dpi",
-  "Resolution=600dpi",
+  "Resolution=300dpi",
 ] as const
 const defaultCupsSubfilterTimeoutMs = 285_000
 const defaultCupsSubfilterStderrMaxBufferBytes = 8 * 1024 * 1024
