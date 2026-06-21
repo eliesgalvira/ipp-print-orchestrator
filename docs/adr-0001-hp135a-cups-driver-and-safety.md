@@ -156,6 +156,9 @@ The USB backend wrapper exists because a valid one-page render can still leave
 the CUPS USB backend stuck in the device phase. In that state, stopping CUPS may
 wait for systemd's service timeout while the printer is physically misbehaving.
 The wrapper makes that failure bounded and detaches the HP USB device on timeout.
+The timeout must be long enough to cover both printer backpressure and multi-page
+USB transfer time; the default is five minutes after an 11-page job showed the
+previous 60 second bound could kill a valid SPL stream mid-transfer.
 
 Preserving job files for one day increases local forensic capability after a
 printer incident. The tradeoff is that recent documents may remain under the

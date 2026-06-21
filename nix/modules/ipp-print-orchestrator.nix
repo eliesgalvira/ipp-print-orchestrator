@@ -163,7 +163,7 @@ in
 
       usbBackendTimeoutSeconds = mkOption {
         type = types.ints.positive;
-        default = 60;
+        default = 300;
         description = "Timeout for the supervised USB backend wrapper.";
       };
     };

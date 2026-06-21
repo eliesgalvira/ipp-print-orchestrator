@@ -978,7 +978,7 @@ Example shape:
       advertise = false;
       preserveJobFilesSeconds = 86400;
       maxJobTimeSeconds = 300;
-      usbBackendTimeoutSeconds = 60;
+      usbBackendTimeoutSeconds = 300;
     };
 
     observability = {

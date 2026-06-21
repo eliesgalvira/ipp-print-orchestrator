@@ -63,6 +63,10 @@ def main [
 
   cd $app_dir
 
+  run-timed "install CUPS artifacts" {
+    ^nu scripts/setup-cups-live-from-pi.nu --artifacts-only --runtime-path $runtime_path --driver-path $driver_path --backend-path $backend_path
+  }
+
   run-timed "install systemd units" {
     ^nu scripts/install-systemd-live-from-pi.nu --runtime-path $runtime_path
   }

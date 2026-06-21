@@ -526,6 +526,37 @@ def ensure-hp-uld-driver [driver_path: string]: nothing -> string {
   $HP_ULD_PPD_PATH
 }
 
+def install-queue-ppd-if-present [printer_name: string, ppd_path: string]: nothing -> nothing {
+  let queue_ppd_path = $"/etc/cups/ppd/($printer_name).ppd"
+  let queue_exists = (run-external "lpstat" "-p" $printer_name | complete)
+
+  if $queue_exists.exit_code != 0 {
+    print $"CUPS queue ($printer_name) is not present; installed driver PPD only."
+    return
+  }
+
+  install-root-dir "/etc/cups/ppd"
+  install-root-file $PUBLIC_DATA_FILE_MODE $ppd_path $queue_ppd_path
+  run-required $"verify queue PPD ($queue_ppd_path)" ["sudo" "test" "-r" $queue_ppd_path] | ignore
+  print $"Refreshed queue PPD for ($printer_name) without changing queue state."
+}
+
+def install-cups-artifacts [
+  printer_name: string
+  runtime_path: string
+  driver_path: string
+  backend_path: string
+]: nothing -> nothing {
+  require-store-path "runtime" $runtime_path
+  require-store-path "driver" $driver_path
+  require-store-path "backend" $backend_path
+
+  let ppd_path = (ensure-hp-uld-driver $driver_path)
+  install-pdf-preflight-filter $runtime_path
+  install-supervised-usb-backend $backend_path
+  install-queue-ppd-if-present $printer_name $ppd_path
+}
+
 def configure-cups-network [--enable-printing]: nothing -> nothing {
   for attempt in 1..10 {
     let result = (run-external "sudo" "cupsctl" | complete)
@@ -789,6 +820,7 @@ def main [
   --enable-printing
   --stop-only
   --repair-tls-only
+  --artifacts-only
 ]: nothing -> nothing {
   let root_dir = (repo-root)
   let repo_dotenv = (load-dotenv ($root_dir | path join ".env"))
@@ -806,6 +838,16 @@ def main [
 
   if $repair_tls_only and $enable_printing {
     error make {msg: "--repair-tls-only cannot be combined with --enable-printing"}
+  }
+
+  if $artifacts_only and ($repair_tls_only or $stop_only or $enable_printing) {
+    error make {msg: "--artifacts-only cannot be combined with --repair-tls-only, --stop-only, or --enable-printing"}
+  }
+
+  if $artifacts_only {
+    install-cups-artifacts $queue_name $runtime_path $driver_path $backend_path
+    print $"Installed CUPS artifacts for ($queue_name) without enabling printing or changing USB authorization."
+    return
   }
 
   if $repair_tls_only {
@@ -851,10 +893,6 @@ def main [
     coreutils
     avahi-daemon
   ]
-  require-store-path "runtime" $runtime_path
-  require-store-path "driver" $driver_path
-  require-store-path "backend" $backend_path
-
   run-best-effort ["sudo" "systemctl" "mask" "--now" "ipp-usb.service"]
   authorize-hp-usb
   let tls_identity = (install-cups-tls-certificate)
@@ -873,8 +911,7 @@ def main [
     {kind: ppd, value: (ensure-hp-uld-driver $driver_path)}
   }
 
-  install-pdf-preflight-filter $runtime_path
-  install-supervised-usb-backend $backend_path
+  install-cups-artifacts $queue_name $runtime_path $driver_path $backend_path
   configure-cups-network --enable-printing=$enable_printing
   configure-queue $queue_name (supervised-usb-device-uri $resolved_device_uri) $selected_driver.value --ppd=($selected_driver.kind == "ppd") --enable-printing=$enable_printing
   force-queue-error-policy-abort-job $queue_name
