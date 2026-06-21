@@ -3,10 +3,18 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
+    bun2nix = {
+      url = "github:nix-community/bun2nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
-    { self, nixpkgs }:
+    {
+      self,
+      nixpkgs,
+      bun2nix,
+    }:
     let
       lib = nixpkgs.lib;
 
@@ -19,29 +27,33 @@
         f:
         lib.genAttrs systems (
           system:
-          f (
-            import nixpkgs {
+          let
+            pkgs = import nixpkgs {
               inherit system;
               config.allowUnfreePredicate =
                 pkg:
                 builtins.elem (lib.getName pkg) [
                   "hp-uld-hp135a"
                 ];
-            }
-          )
+            };
+          in
+          f {
+            inherit pkgs system;
+            bun2nix = bun2nix.packages.${system}.default;
+          }
         );
     in
     {
       packages = forAllSystems (
-        pkgs:
+        { pkgs, bun2nix, ... }:
         import ./nix/packages {
-          inherit pkgs;
+          inherit pkgs bun2nix;
           src = self;
         }
       );
 
       checks = forAllSystems (
-        pkgs:
+        { pkgs, ... }:
         import ./nix/checks {
           inherit pkgs;
           src = self;
@@ -49,10 +61,12 @@
         }
       );
 
-      devShells = forAllSystems (pkgs: {
-        default = import ./nix/dev-shell.nix { inherit pkgs; };
-      });
+      devShells = forAllSystems (
+        { pkgs, ... }: {
+          default = import ./nix/dev-shell.nix { inherit pkgs; };
+        }
+      );
 
-      formatter = forAllSystems (pkgs: pkgs.nixfmt);
+      formatter = forAllSystems ({ pkgs, ... }: pkgs.nixfmt);
     };
 }

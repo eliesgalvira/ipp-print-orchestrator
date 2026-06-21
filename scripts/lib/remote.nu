@@ -11,6 +11,15 @@ export def remote-target [dotenv: record]: nothing -> record<host: string, key_p
   }
 }
 
+export def aarch64-builder-target [dotenv: record]: nothing -> record<host: string, key_path: string> {
+  let key_path = (get-config $dotenv AARCH64_BUILDER_SSH_KEY_PATH "")
+
+  {
+    host: (get-config $dotenv AARCH64_BUILDER_HOST "")
+    key_path: (if (has-value $key_path) { $key_path | path expand } else { "" })
+  }
+}
+
 export def ssh-options [
   --key-path: path
   --connect-timeout: int

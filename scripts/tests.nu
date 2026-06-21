@@ -4,7 +4,7 @@ use std/assert
 
 use lib/env.nu [get-config has-value load-dotenv]
 use lib/observability.nu [local-service-env-content otel-signal-config validate-observability-env]
-use lib/remote.nu [remote-target rsync-args ssh-args ssh-options ssh-rsh-command run-with-retries]
+use lib/remote.nu [aarch64-builder-target remote-target rsync-args ssh-args ssh-options ssh-rsh-command run-with-retries]
 use lib/repo.nu [deploy-excludes repo-root]
 
 def main []: nothing -> nothing {
@@ -98,6 +98,25 @@ def "test remote-target resolves typed defaults" []: nothing -> nothing {
 
   assert equal $target.host "pi@example.local"
   assert equal $target.key_path ("~/.ssh/example-key" | path expand)
+}
+
+def "test aarch64-builder-target resolves explicit builder config" []: nothing -> nothing {
+  let target = (aarch64-builder-target {
+    AARCH64_BUILDER_HOST: "builder@example.local"
+    AARCH64_BUILDER_SSH_KEY_PATH: "~/.ssh/example-builder-key"
+  })
+
+  assert equal $target.host "builder@example.local"
+  assert equal $target.key_path ("~/.ssh/example-builder-key" | path expand)
+}
+
+def "test aarch64-builder-target keeps missing key path empty" []: nothing -> nothing {
+  let target = (aarch64-builder-target {
+    AARCH64_BUILDER_HOST: "builder@example.local"
+  })
+
+  assert equal $target.host "builder@example.local"
+  assert equal $target.key_path ""
 }
 
 def "test ssh argument builders use typed optional flags" []: nothing -> nothing {
