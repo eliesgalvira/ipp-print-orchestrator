@@ -66,6 +66,15 @@ Patch the HP PPD conservatively:
   backend. Validate that `rastertospl` reports exactly the expected page count,
   reject multiple-copy jobs, force the known safe PDF options, and cap final
   output size per page.
+- Force the HP/Samsung blank-page/form-feed suppression path by setting
+  `JCLSkipBlankPages=True` in the CUPS filter options and patching the queue PPD
+  default to `*DefaultJCLSkipBlankPages: True`. Verify the staged SPL/QPDL
+  header contains `@PJL SET XIGNOREFF=ON` before bytes are accepted.
+- Treat the final `rastertospl` `PAGE:` lines as the page-count authority for
+  physical output. Ghostscript progress lines such as `Processing page 2...`
+  are diagnostic input, not a rejection criterion by themselves, because
+  Ghostscript can log an extra progress page while the CUPS raster stream and
+  final SPL output still contain exactly one driver-reported page.
 - Route the queue through the `ipp-orch-usb` backend wrapper instead of the raw
   CUPS `usb` backend. The wrapper stages filter output before touching USB,
   rejects empty filter output immediately, delegates non-empty payloads to the
@@ -123,12 +132,25 @@ PDF -> pdftopdf -> gstoraster -> CUPS raster, 300x300, 8-bit grayscale -> raster
 For PDF jobs, that pipeline is now enclosed by `ipp-pdf-preflight-to-spl`, so
 the HP/Samsung driver never receives PDFs that the local preflight cannot
 classify as readable and unencrypted. The filter also refuses to stream final
-printer bytes until it has a complete driver output file with a matching page
-count and bounded size.
+printer bytes until it has a complete driver output file with a matching final
+driver page count, bounded size, and the required SPL/QPDL
+`@PJL SET XIGNOREFF=ON` blank-page suppression command.
 
 This reduces payload size for scanned/image-heavy pages while preserving the
 raster format expected by `rastertospl`. It also prevents CUPS from retrying a
 bad job repeatedly if the backend or printer errors.
+
+On 2026-06-21, a one-page Microsoft Print To PDF document submitted from
+Android caused the printer to emit unexpected paper. CUPS showed one `Print-Job`
+request and no retry storm. The preserved spool file had `pdfinfo` `Pages: 1`;
+`pdftopdf` also produced a one-page normalized PDF; Ghostscript logged
+`Processing page 1...` and `Processing page 2...`; `rastertospl` reported only
+`PAGE: 1 1`. The old accepted SPL header contained `@PJL SET XIGNOREFF=OFF`.
+After the fix, a no-print replay of the same spool file produced one
+driver-reported page, `@PJL SET XIGNOREFF=ON`, and an accepted guarded SPL file.
+This is why the invariant is expressed as "final driver page count must match
+PDF metadata and SPL blank-page suppression must be enabled", rather than
+"Ghostscript must not log an extra processed page".
 
 The USB backend wrapper exists because a valid one-page render can still leave
 the CUPS USB backend stuck in the device phase. In that state, stopping CUPS may
@@ -173,12 +195,17 @@ After applying the accepted setup:
 - The live PPD contained `cupsBitsPerColor 8`.
 - The live PPD contained `HWResolution[300 300]` for the standard quality path.
 - The live PPD contained the `ipp-pdf-preflight-to-spl` PDF filter.
+- The live PPD contained `*DefaultJCLSkipBlankPages: True`.
 - The queue was idle, enabled, accepting, and shared.
 - The CUPS spool was empty before validation.
 - A no-print `cupsfilter` conversion using the installed PPD called Ghostscript
   with `-r300x300 -dcupsBitsPerColor=8`.
 - `rastertospl` exited cleanly during that no-print conversion.
 - `nu scripts/tests.nu` passed locally.
+- `nix flake check --print-build-logs` passed locally.
+- A no-print replay of the problematic 2026-06-21 Android PDF through the Nix
+  runtime filter returned status 0, emitted one final `PAGE: 1 1`, emitted
+  `@PJL SET XIGNOREFF=ON`, and logged `Guarded printer output accepted`.
 
 ## Rejected Alternatives
 

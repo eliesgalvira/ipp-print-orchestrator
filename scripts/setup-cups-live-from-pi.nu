@@ -175,6 +175,61 @@ def discover-hp-usb-device-uri []: nothing -> string {
   $line | split row " " | get 1
 }
 
+def printer-device-uri-from-config [printers_conf: string, printer_name: string]: nothing -> string {
+  let block = (cups-printer-block $printers_conf $printer_name)
+  let line = (
+    $block
+    | lines
+    | where {|line| ($line | str trim | str starts-with "DeviceURI ")}
+    | first
+  )
+
+  if ($line == null) {
+    ""
+  } else {
+    $line | str trim | str replace --regex "^DeviceURI\\s+" ""
+  }
+}
+
+def existing-printer-device-uri [printer_name: string]: nothing -> string {
+  let printers_conf = "/etc/cups/printers.conf"
+
+  if not ($printers_conf | path exists) {
+    return ""
+  }
+
+  printer-device-uri-from-config (sudo cat $printers_conf) $printer_name
+}
+
+def explicit-device-uri [device_uri: any]: nothing -> string {
+  if (has-value $device_uri) {
+    $device_uri | into string
+  } else {
+    ""
+  }
+}
+
+def resolve-hp-device-uri [printer_name: string, device_uri: any]: nothing -> string {
+  let explicit_uri = (explicit-device-uri $device_uri)
+
+  if (has-value $explicit_uri) {
+    return $explicit_uri
+  }
+
+  try {
+    discover-hp-usb-device-uri
+  } catch {|err|
+    let existing_device_uri = (existing-printer-device-uri $printer_name)
+
+    if (has-value $existing_device_uri) {
+      print $"CUPS USB discovery failed; reusing existing queue device URI for ($printer_name): ($existing_device_uri)"
+      return $existing_device_uri
+    }
+
+    error make $err
+  }
+}
+
 def driver-available [driver: string]: nothing -> bool {
   let models = (run-required "list CUPS printer models" ["/usr/sbin/lpinfo" "-m"])
   $models | lines | any {|line| $line == $driver or ($line | str starts-with $"($driver) ")}
@@ -801,11 +856,7 @@ def main [
   authorize-hp-usb
   let tls_identity = (install-cups-tls-certificate)
 
-  let resolved_device_uri = if (has-value $device_uri) {
-    $device_uri
-  } else {
-    discover-hp-usb-device-uri
-  }
+  let resolved_device_uri = (resolve-hp-device-uri $queue_name $device_uri)
 
   run-required "start CUPS for queue configuration" ["sudo" "systemctl" "start" "cups.service"] | ignore
 

@@ -276,6 +276,36 @@ print (cups-printer-block $printers_conf "HP135a")
   assert not ($result.stdout | str contains "ErrorPolicy abort-job") "other printer policy should not satisfy target verification"
 }
 
+def "test CUPS printer device URI extraction is scoped to target queue" []: nothing -> nothing {
+  let result = (
+    nu --no-config-file --commands '
+source scripts/setup-cups-live-from-pi.nu
+let printers_conf = "<Printer Other>\nDeviceURI ipp-orch-usb://Other/Printer\n</Printer>\n<Printer HP135a>\nUUID urn:uuid:target\nDeviceURI ipp-orch-usb://HP/Laser%20MFP?serial=123&interface=1\nErrorPolicy abort-job\n</Printer>\n"
+print (printer-device-uri-from-config $printers_conf "HP135a")
+'
+    | complete
+  )
+
+  assert equal $result.exit_code 0 $"expected CUPS printer URI extraction to execute: ($result.stderr)"
+  assert equal ($result.stdout | str trim) "ipp-orch-usb://HP/Laser%20MFP?serial=123&interface=1"
+}
+
+def "test explicit HP device URI normalization accepts absent option" []: nothing -> nothing {
+  let result = (
+    nu --no-config-file --commands '
+source scripts/setup-cups-live-from-pi.nu
+print $"empty=(explicit-device-uri null)"
+print $"value=(explicit-device-uri "ipp-orch-usb://HP/Laser%20MFP?serial=123&interface=1")"
+'
+    | complete
+  )
+
+  assert equal $result.exit_code 0 $"expected explicit HP device URI normalization to execute: ($result.stderr)"
+  let lines = ($result.stdout | lines)
+  assert equal ($lines | get 0) "empty="
+  assert equal ($lines | get 1) "value=ipp-orch-usb://HP/Laser%20MFP?serial=123&interface=1"
+}
+
 def "test supervised CUPS USB backend wrapper delegates through original URI" []: nothing -> nothing {
   let root = (repo-root)
   let backend = ($root | path join "scripts/cups/backend/ipp-orch-usb")

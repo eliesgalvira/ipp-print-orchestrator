@@ -4,6 +4,7 @@ export type SplOutputGuardRejectionReason =
   | "missing-page-log"
   | "unexpected-page-count"
   | "oversized-output"
+  | "unsafe-printer-language"
 
 export const SplOutputGuardRejectionReasons = [
   "invalid-copies",
@@ -11,6 +12,7 @@ export const SplOutputGuardRejectionReasons = [
   "missing-page-log",
   "unexpected-page-count",
   "oversized-output",
+  "unsafe-printer-language",
 ] as const
 
 export type SplOutputGuardDecision =
@@ -48,6 +50,20 @@ export const parseCupsCopies = (value: string): number | null => {
 export const countCupsPageLogEntries = (stderr: string): number =>
   stderr.split(/\r?\n/).filter((line) => /^PAGE:\s+\d+\s+\d+\s*$/i.test(line))
     .length
+
+export const countGhostscriptProcessedPages = (stderr: string): number => {
+  const pages = stderr
+    .split(/\r?\n/)
+    .map((line) => line.match(/\bProcessing page\s+(\d+)\.\.\./i)?.[1])
+    .filter((page): page is string => page !== undefined)
+    .map((page) => Number.parseInt(page, 10))
+    .filter((page) => Number.isFinite(page) && page > 0)
+
+  return pages.length === 0 ? 0 : Math.max(...pages)
+}
+
+export const hasSplBlankPageSuppression = (printerLanguage: string): boolean =>
+  /@PJL\s+SET\s+XIGNOREFF\s*=\s*ON/i.test(printerLanguage)
 
 export const decideCupsCopiesGuard = (
   value: string,
@@ -87,7 +103,6 @@ export const decideSplOutputGuard = (params: {
 
   const expectedPages = params.pdfPages
   const observedPages = countCupsPageLogEntries(params.filterStderr)
-
   if (params.splBytes === 0) {
     return {
       _tag: "Rejected",

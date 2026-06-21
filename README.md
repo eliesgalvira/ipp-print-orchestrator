@@ -359,6 +359,17 @@ first and only streamed to CUPS after the filter verifies a matching page count,
 single-copy output, and a bounded byte size. The filter also forces the known
 safe PDF options, including `print-scaling=none`, for direct Android jobs.
 
+The physical page-count authority is the final HP `rastertospl` `PAGE:` output,
+not Ghostscript's progress log. A malformed or unusual PDF can make Ghostscript
+log `Processing page 2...` even when the normalized PDF has one page and the
+final SPL/QPDL stream contains one driver-reported page. The safety filter
+therefore rejects when the final driver page count differs from `pdfinfo`, but
+does not reject solely because of an extra Ghostscript progress line. To guard
+against the blank/form-feed path that caused the 2026-06-21 paper incident, the
+filter also requires the staged SPL/QPDL header to contain
+`@PJL SET XIGNOREFF=ON`, and the Nix-patched HP PPD defaults
+`*DefaultJCLSkipBlankPages: True`.
+
 The queue device URI uses the `ipp-orch-usb` backend wrapper. That wrapper
 stages the filter pipeline output before invoking the real CUPS `usb` backend
 with the original HP `usb://` URI. If the filter produces no printer bytes, the

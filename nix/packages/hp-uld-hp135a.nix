@@ -13,6 +13,8 @@ let
   pdfPreflightFilterLine = ''*cupsFilter: "application/pdf 0 ipp-pdf-preflight-to-spl"'';
   standard600DpiLine = ''*Quality 600dpi/Standard: "<</HWResolution[600 600]>>setpagedevice"'';
   standardSafe300DpiLine = ''*Quality 600dpi/Standard: "<</HWResolution[300 300]>>setpagedevice"'';
+  skipBlankPagesDefaultLine = "*DefaultJCLSkipBlankPages: False";
+  safeSkipBlankPagesDefaultLine = "*DefaultJCLSkipBlankPages: True";
 
   cupsFilterReplacement = lib.escapeShellArg (
     lib.concatStringsSep "\n" [
@@ -74,13 +76,16 @@ stdenvNoCC.mkDerivation {
     grep -F '*ColorModel Gray/Grayscale: "<</cupsColorSpace 0 /cupsBitsPerColor 8>>setpagedevice"' "$ppd"
     grep -F ${lib.escapeShellArg hpRasterFilterLine} "$ppd"
     grep -F ${lib.escapeShellArg standard600DpiLine} "$ppd"
+    grep -F ${lib.escapeShellArg skipBlankPagesDefaultLine} "$ppd"
 
     substituteInPlace "$ppd" \
       --replace-fail ${lib.escapeShellArg hpRasterFilterLine} ${cupsFilterReplacement} \
-      --replace-fail ${lib.escapeShellArg standard600DpiLine} ${lib.escapeShellArg standardSafe300DpiLine}
+      --replace-fail ${lib.escapeShellArg standard600DpiLine} ${lib.escapeShellArg standardSafe300DpiLine} \
+      --replace-fail ${lib.escapeShellArg skipBlankPagesDefaultLine} ${lib.escapeShellArg safeSkipBlankPagesDefaultLine}
 
     grep -F ${lib.escapeShellArg pdfPreflightFilterLine} "$ppd"
     grep -F ${lib.escapeShellArg standardSafe300DpiLine} "$ppd"
+    grep -F ${lib.escapeShellArg safeSkipBlankPagesDefaultLine} "$ppd"
 
     makeWrapper "$out/libexec/hp-uld/rastertospl" "$out/lib/cups/filter/rastertospl" \
       --prefix LD_LIBRARY_PATH : "$out/lib/smfp:${libraryPath}"

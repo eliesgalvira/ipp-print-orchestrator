@@ -1533,3 +1533,47 @@ export by setting the production OTLP/Axiom configuration in local `.env` before
 deploy. The build-system refactor can now build, copy, deploy, and verify
 store-backed service/CUPS artifacts on the live Pi without using the Pi as the
 builder.
+
+## Completed Follow-Up: HP 135a PDF Guard Incident
+
+Date: 2026-06-21
+
+After the Nix-backed CUPS setup was live, a one-page Android-submitted PDF
+caused the printer to emit unexpected paper. The preserved CUPS spool and logs
+showed one IPP `Print-Job`, no CUPS retry storm, `pdfinfo` `Pages: 1`, and a
+final `rastertospl` `PAGE: 1 1`. Ghostscript still logged
+`Processing page 2...`.
+
+The first hardening pass rejected that Ghostscript progress line. That stopped
+unsafe output but overblocked the same document. The corrected invariant is:
+
+- final `rastertospl` `PAGE:` lines are the physical page-count authority;
+- the final driver page count must match `pdfinfo`;
+- final SPL/QPDL output must contain `@PJL SET XIGNOREFF=ON`;
+- HP PPD defaults must include `*DefaultJCLSkipBlankPages: True`;
+- Ghostscript `Processing page N...` lines are diagnostics unless the final
+  driver output also violates a safety invariant.
+
+Implemented code changes:
+
+- `CupsFilterOutputGuard` keeps final driver page-count checks and SPL
+  blank-page suppression detection.
+- `cups-pdf-preflight-filter` stages SPL/QPDL, reads the header, rejects missing
+  `XIGNOREFF=ON`, and then applies the final page-count/size guard.
+- `hp-uld-hp135a` patches the PPD default from
+  `*DefaultJCLSkipBlankPages: False` to `True`.
+- `hp-uld-hp135a-ppd` fails the flake check if the unsafe PPD default survives.
+
+Verification:
+
+- focused guard tests passed;
+- `nu scripts/tests.nu` passed;
+- `nix flake check --print-build-logs` passed;
+- the problematic preserved spool file replayed through the Nix runtime filter
+  with status 0, one final `PAGE: 1 1`, `@PJL SET XIGNOREFF=ON`, and
+  `Guarded printer output accepted`;
+- the live Pi was deployed with runtime
+  `/nix/store/sjyrin4vvbr684jw6ji2b33qh5zdhkcm-ipp-print-orchestrator-0.1.0`;
+- CUPS was reconfigured from copied store paths, no test page was printed, the
+  queue was idle/enabled/accepting, the app health endpoint returned OK, and the
+  HP USB device was visible.
