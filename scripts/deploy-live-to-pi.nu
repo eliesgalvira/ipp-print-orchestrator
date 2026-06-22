@@ -55,12 +55,14 @@ def local-deploy []: nothing -> nothing {
   let ssh_connect_timeout = 3
   let ssh_connection_attempts = 5
 
-  [nu bun rsync ssh] | each {|command| require-command $command} | ignore
+  [nu nix rsync ssh] | each {|command| require-command $command} | ignore
 
-  run-timed "local typescript build" {
-    cd $root_dir
-    ^bun run build
-  }
+  print $"[(date now | format date "%+")] start build, copy, and verify Nix closures"
+  let closure_started_at = (date now)
+  cd $root_dir
+  let nix_paths = (build-and-copy-nix-closures)
+  let closure_elapsed = ((date now) - $closure_started_at)
+  print $"[(date now | format date "%+")] done build, copy, and verify Nix closures \(($closure_elapsed)\)"
 
   let control_dir = (mktemp --directory)
   let control_path = ($control_dir | path join "ssh-control")
@@ -101,7 +103,19 @@ def local-deploy []: nothing -> nothing {
     run-timed "remote install/build/restart" {
       let remote_script = ($app_dir | path join "scripts/deploy-live-from-pi.nu")
       run-with-retries "remote install/build/restart" {
-        run-ssh $pi_host ["nu" "--no-config-file" $remote_script "--app-dir" $app_dir] --key-path $ssh_key_path --control-path $control_path --connect-timeout $ssh_connect_timeout --connection-attempts $ssh_connection_attempts --batch --tty
+        run-ssh $pi_host [
+          "nu"
+          "--no-config-file"
+          $remote_script
+          "--app-dir"
+          $app_dir
+          "--runtime-path"
+          $nix_paths.runtime_path
+          "--driver-path"
+          $nix_paths.driver_path
+          "--backend-path"
+          $nix_paths.backend_path
+        ] --key-path $ssh_key_path --control-path $control_path --connect-timeout $ssh_connect_timeout --connection-attempts $ssh_connection_attempts --batch --tty
       } --attempts 5 --delay 2sec
     }
   } finally {

@@ -8,6 +8,7 @@ import {
   mkdtempSync,
   openSync,
   readdirSync,
+  readSync,
   rmSync,
   statSync,
 } from "node:fs"
@@ -20,6 +21,7 @@ import { Cause, Effect, Schema } from "effect"
 import {
   decideCupsCopiesGuard,
   decideSplOutputGuard,
+  hasSplBlankPageSuppression,
 } from "../domain/CupsFilterOutputGuard.js"
 import {
   CupsCommandFailed,
@@ -68,6 +70,7 @@ const enforcedPdfFilterOptions = [
   "media=A4",
   "Quality=600dpi",
   "Resolution=300dpi",
+  "JCLSkipBlankPages=True",
 ] as const
 const defaultCupsSubfilterTimeoutMs = 285_000
 const defaultCupsSubfilterStderrMaxBufferBytes = 8 * 1024 * 1024
@@ -336,6 +339,38 @@ const readFileSize = (filePath: string) =>
       }),
   })
 
+const readFilePrefix = (filePath: string, bytes: number) =>
+  Effect.try({
+    try: () => {
+      const fd = openSync(filePath, "r")
+      try {
+        const buffer = Buffer.alloc(bytes)
+        const bytesRead = readSync(fd, buffer, 0, bytes, 0)
+        return buffer.subarray(0, bytesRead).toString("latin1")
+      } finally {
+        closeSync(fd)
+      }
+    },
+    catch: (error) =>
+      new CupsCommandFailed({
+        message: `failed to read guarded printer output header ${filePath}: ${String(error)}`,
+      }),
+  })
+
+const validateSplBlankPageSuppression = (filePath: string, splBytes: number) =>
+  Effect.gen(function* () {
+    const header = yield* readFilePrefix(filePath, Math.min(splBytes, 4096))
+
+    if (!hasSplBlankPageSuppression(header)) {
+      return yield* new OutputGuardRejected({
+        reason: "unsafe-printer-language",
+        message:
+          "Final printer output did not enable blank-page/form-feed suppression",
+        actualBytes: splBytes,
+      })
+    }
+  })
+
 const validateSingleCopyForCups = (invocation: CupsFilterInvocation) =>
   Effect.gen(function* () {
     const guardDecision = decideCupsCopiesGuard(invocation.copies)
@@ -475,6 +510,8 @@ const renderPipeline = (
           : {}),
       })
     }
+
+    yield* validateSplBlankPageSuppression(splPath, splBytes)
 
     const guardedOutput: GuardedSplOutput = {
       path: splPath,

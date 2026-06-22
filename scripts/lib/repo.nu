@@ -7,6 +7,8 @@ export def repo-root []: nothing -> string {
 export def deploy-excludes []: nothing -> list<string> {
   [
     "node_modules"
+    "result"
+    "result-*"
     ".git"
     ".env"
     "coverage"

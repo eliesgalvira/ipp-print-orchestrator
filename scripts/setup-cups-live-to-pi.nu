@@ -1,7 +1,7 @@
 #!/usr/bin/env nu
 
 use lib/env.nu *
-use lib/remote.nu [remote-target rsync-args run-ssh run-timed ssh-args]
+use lib/remote.nu [build-and-copy-nix-closures remote-target rsync-args run-ssh run-timed ssh-args]
 use lib/repo.nu repo-root
 
 def run-required [label: string, command: list<string>]: nothing -> nothing {
@@ -27,8 +27,6 @@ def main [
   let ssh_key_path = $target.key_path
   let app_dir = (get-config $dotenv APP_DIR "/home/pi/apps/ipp-print-orchestrator")
   let remote_script = ($app_dir | path join "scripts/setup-cups-live-from-pi.nu")
-  let local_filter_bundle = ($root_dir | path join "apps/agent/dist-cups-filter/cups-pdf-preflight-filter.js")
-  let remote_filter_bundle_dir = ($app_dir | path join "apps/agent/dist-cups-filter")
 
   if $repair_tls_only and $stop_only {
     error make {msg: "--repair-tls-only cannot be combined with --stop-only"}
@@ -38,22 +36,30 @@ def main [
     error make {msg: "--repair-tls-only cannot be combined with --enable-printing"}
   }
 
+  let nix_paths = if not $stop_only and not $repair_tls_only {
+    print $"[(date now | format date "%+")] start build, copy, and verify Nix closures for CUPS setup"
+    let started_at = (date now)
+    let paths = (build-and-copy-nix-closures)
+    print $"[(date now | format date "%+")] done build, copy, and verify Nix closures for CUPS setup \(((date now) - $started_at)\)"
+    $paths
+  } else {
+    {runtime_path: "", driver_path: "", backend_path: ""}
+  }
+
   let forwarded_args = (
     []
     | append (if (has-value $printer_name) { ["--printer-name" $printer_name] } else { [] })
     | append (if (has-value $driver) { ["--driver" $driver] } else { [] })
     | append (if (has-value $device_uri) { ["--device-uri" $device_uri] } else { [] })
+    | append (if (has-value $nix_paths.runtime_path) { ["--runtime-path" $nix_paths.runtime_path] } else { [] })
+    | append (if (has-value $nix_paths.driver_path) { ["--driver-path" $nix_paths.driver_path] } else { [] })
+    | append (if (has-value $nix_paths.backend_path) { ["--backend-path" $nix_paths.backend_path] } else { [] })
     | append (if $enable_printing { ["--enable-printing"] } else { [] })
     | append (if $stop_only { ["--stop-only"] } else { [] })
     | append (if $repair_tls_only { ["--repair-tls-only"] } else { [] })
   )
 
   run-timed $"setup CUPS on ($pi_host)" {
-    if not $stop_only and not $repair_tls_only {
-      cd $root_dir
-      run-required "build CUPS PDF preflight filter bundle" ["bun" "run" "build:cups-filter"]
-    }
-
     run-required "create remote script directory" (
       (ssh-args $pi_host --key-path $ssh_key_path --batch) ++ [
         "mkdir"
@@ -84,32 +90,6 @@ def main [
       ]
     )
     run-required "sync target CUPS setup libraries" $rsync_lib_command
-
-    let rsync_backend_command = (
-      (rsync-args --key-path $ssh_key_path --batch)
-      ++ [
-        "-az"
-        ($root_dir | path join "scripts/cups/backend/ipp-orch-usb")
-        $"($pi_host):($app_dir)/scripts/cups/backend/"
-      ]
-    )
-    run-required "sync supervised CUPS USB backend" $rsync_backend_command
-
-    if not $stop_only and not $repair_tls_only {
-      run-required "create remote CUPS filter bundle directory" (
-        (ssh-args $pi_host --key-path $ssh_key_path --batch) ++ ["mkdir" "-p" $remote_filter_bundle_dir]
-      )
-
-      let rsync_filter_bundle_command = (
-        (rsync-args --key-path $ssh_key_path --batch)
-        ++ [
-          "-az"
-          $local_filter_bundle
-          $"($pi_host):($remote_filter_bundle_dir)/"
-        ]
-      )
-      run-required "sync CUPS PDF preflight filter bundle" $rsync_filter_bundle_command
-    }
 
     run-ssh $pi_host (["nu" "--no-config-file" $remote_script] ++ $forwarded_args) --key-path $ssh_key_path --batch
   }

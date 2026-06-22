@@ -4,6 +4,7 @@ import {
   countCupsPageLogEntries,
   decideCupsCopiesGuard,
   decideSplOutputGuard,
+  hasSplBlankPageSuppression,
   parseCupsCopies,
 } from "./CupsFilterOutputGuard.js"
 
@@ -94,6 +95,24 @@ describe("CUPS filter output guard", () => {
     })
   })
 
+  it("accepts upstream Ghostscript extra progress when the final driver reports the expected page count", () => {
+    expect(
+      decideSplOutputGuard({
+        pdfPages: 1,
+        copies: "1",
+        splBytes: 196_606,
+        filterStderr:
+          "INFO: cfFilterGhostscript: Processing page 1...\nINFO: cfFilterGhostscript: Processing page 2...\nPAGE: 1 1\n",
+        maxBytesPerPage: 64 * 1024 * 1024,
+        maxTotalBytes: 256 * 1024 * 1024,
+      }),
+    ).toMatchObject({
+      _tag: "Accepted",
+      expectedPages: 1,
+      observedPages: 1,
+    })
+  })
+
   it("rejects final output above the page byte budget", () => {
     expect(
       decideSplOutputGuard({
@@ -117,6 +136,11 @@ describe("CUPS filter output guard", () => {
         "ATTR: job-media-progress=50\npage: 1 1\nPAGE: 2 1\n",
       ),
     ).toBe(2)
+  })
+
+  it("detects SPL blank-page suppression in the PJL header", () => {
+    expect(hasSplBlankPageSuppression("@PJL SET XIGNOREFF=ON\n")).toBe(true)
+    expect(hasSplBlankPageSuppression("@PJL SET XIGNOREFF=OFF\n")).toBe(false)
   })
 
   it("parses positive integer copy counts", () => {

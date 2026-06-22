@@ -11,6 +11,15 @@ export def remote-target [dotenv: record]: nothing -> record<host: string, key_p
   }
 }
 
+export def aarch64-builder-target [dotenv: record]: nothing -> record<host: string, key_path: string> {
+  let key_path = (get-config $dotenv AARCH64_BUILDER_SSH_KEY_PATH "")
+
+  {
+    host: (get-config $dotenv AARCH64_BUILDER_HOST "")
+    key_path: (if (has-value $key_path) { $key_path | path expand } else { "" })
+  }
+}
+
 export def ssh-options [
   --key-path: path
   --connect-timeout: int
@@ -71,16 +80,28 @@ export def ssh-args [
 ] : nothing -> list<string> {
   let tty_options = if $tty { ["-t"] } else { [] }
   let control_options = if (has-value $control_path) { ["-S" $control_path] } else { [] }
+  let ssh_options = (
+    if $batch {
+      (ssh-options
+        --key-path $key_path
+        --batch
+        --connect-timeout $connect_timeout
+        --connection-attempts $connection_attempts
+        --server-alive-interval $server_alive_interval
+        --server-alive-count-max $server_alive_count_max
+      )
+    } else {
+      (ssh-options
+        --key-path $key_path
+        --connect-timeout $connect_timeout
+        --connection-attempts $connection_attempts
+        --server-alive-interval $server_alive_interval
+        --server-alive-count-max $server_alive_count_max
+      )
+    }
+  )
   ["ssh"]
-  | append (
-      ssh-options
-        --key-path=$key_path
-        --connect-timeout=$connect_timeout
-        --connection-attempts=$connection_attempts
-        --server-alive-interval=$server_alive_interval
-        --server-alive-count-max=$server_alive_count_max
-        --batch=$batch
-    )
+  | append $ssh_options
   | append $tty_options
   | append $control_options
   | append [$host]
@@ -100,17 +121,26 @@ export def ssh-rsh-command [
   --batch
 ] : nothing -> string {
   let control_options = if (has-value $control_path) { ["-S" $control_path] } else { [] }
-
-  ["ssh"]
-  | append (
-      ssh-options
-        --key-path=$key_path
-        --connect-timeout=$connect_timeout
-        --connection-attempts=$connection_attempts
-        --server-alive-interval=$server_alive_interval
-        --server-alive-count-max=$server_alive_count_max
-        --batch=$batch
+  let ssh_options = if $batch {
+    (ssh-options
+      --key-path $key_path
+      --batch
+      --connect-timeout $connect_timeout
+      --connection-attempts $connection_attempts
+      --server-alive-interval $server_alive_interval
+      --server-alive-count-max $server_alive_count_max
     )
+  } else {
+    (ssh-options
+      --key-path $key_path
+      --connect-timeout $connect_timeout
+      --connection-attempts $connection_attempts
+      --server-alive-interval $server_alive_interval
+      --server-alive-count-max $server_alive_count_max
+    )
+  }
+  ["ssh"]
+  | append $ssh_options
   | append $control_options
   | each {|part| shell-quote $part}
   | str join " "
@@ -135,20 +165,32 @@ export def rsync-args [
     or (has-value $server_alive_count_max)
   )
 
+  let ssh_rsh_command = if $batch {
+    (ssh-rsh-command
+      --key-path $key_path
+      --control-path $control_path
+      --connect-timeout $connect_timeout
+      --connection-attempts $connection_attempts
+      --server-alive-interval $server_alive_interval
+      --server-alive-count-max $server_alive_count_max
+      --batch
+    )
+  } else {
+    (ssh-rsh-command
+      --key-path $key_path
+      --control-path $control_path
+      --connect-timeout $connect_timeout
+      --connection-attempts $connection_attempts
+      --server-alive-interval $server_alive_interval
+      --server-alive-count-max $server_alive_count_max
+    )
+  }
+
   if $has_ssh_options {
     [
       "rsync"
       "-e"
-      (
-        ssh-rsh-command
-          --key-path=$key_path
-          --control-path=$control_path
-          --connect-timeout=$connect_timeout
-          --connection-attempts=$connection_attempts
-          --server-alive-interval=$server_alive_interval
-          --server-alive-count-max=$server_alive_count_max
-          --batch=$batch
-      )
+      $ssh_rsh_command
     ]
   } else {
     ["rsync"]
@@ -168,15 +210,24 @@ export def start-ssh-master [
 ] : nothing -> nothing {
   let command = (
     ["ssh" "-M" "-N" "-f" "-S" $control_path]
-    | append (
-        ssh-options
-          --key-path=$key_path
-          --connect-timeout=$connect_timeout
-          --connection-attempts=$connection_attempts
-          --server-alive-interval=$server_alive_interval
-          --server-alive-count-max=$server_alive_count_max
-          --batch=$batch
+    | append (if $batch {
+      (ssh-options
+        --key-path $key_path
+        --batch
+        --connect-timeout $connect_timeout
+        --connection-attempts $connection_attempts
+        --server-alive-interval $server_alive_interval
+        --server-alive-count-max $server_alive_count_max
       )
+    } else {
+      (ssh-options
+        --key-path $key_path
+        --connect-timeout $connect_timeout
+        --connection-attempts $connection_attempts
+        --server-alive-interval $server_alive_interval
+        --server-alive-count-max $server_alive_count_max
+      )
+    })
     | append ["-o" "ControlMaster=yes" "-o" $"ControlPersist=($control_persist)" $host]
   )
   let result = (run-external ...$command | complete)
@@ -238,6 +289,43 @@ export def --env ensure-user-bun-on-path []: nothing -> nothing {
   }
 }
 
+export def parse-nix-paths [stdout: string]: nothing -> record<runtime_path: string, driver_path: string, backend_path: string> {
+  let marker = "IPP_ORCH_NIX_PATHS\t"
+  let lines = (
+    $stdout
+    | lines
+    | where {|line| $line | str starts-with $marker}
+  )
+
+  if (($lines | length) != 1) {
+    error make {msg: $"expected exactly one ($marker) line from Nix closure build, got ($lines | length)"}
+  }
+
+  let fields = (($lines | first) | split row "\t")
+
+  if (($fields | length) != 4) {
+    error make {msg: $"expected closure path marker to contain 3 store paths, got ($fields | length) fields"}
+  }
+
+  {
+    runtime_path: ($fields | get 1)
+    driver_path: ($fields | get 2)
+    backend_path: ($fields | get 3)
+  }
+}
+
+export def build-and-copy-nix-closures []: nothing -> record<runtime_path: string, driver_path: string, backend_path: string> {
+  let result = (^nu scripts/build-nix-closures-live-to-pi.nu | complete)
+
+  print --raw $result.stdout
+
+  if $result.exit_code != 0 {
+    error make {msg: $"Nix closure build/copy failed: ($result.stderr | str trim)"}
+  }
+
+  parse-nix-paths $result.stdout
+}
+
 export def run-ssh [
   host: string
   remote_args: list<string>
@@ -251,17 +339,51 @@ export def run-ssh [
   --tty
 ] : nothing -> any {
   let remote_command = ($remote_args | each {|part| shell-quote $part} | str join " ")
-  let command = ((
-    ssh-args $host
-      --key-path=$key_path
-      --control-path=$control_path
-      --connect-timeout=$connect_timeout
-      --connection-attempts=$connection_attempts
-      --server-alive-interval=$server_alive_interval
-      --server-alive-count-max=$server_alive_count_max
-      --batch=$batch
-      --tty=$tty
-  ) ++ [$remote_command])
+  let command = if $batch and $tty {
+    (ssh-args
+      $host
+      --key-path $key_path
+      --control-path $control_path
+      --connect-timeout $connect_timeout
+      --connection-attempts $connection_attempts
+      --server-alive-interval $server_alive_interval
+      --server-alive-count-max $server_alive_count_max
+      --batch
+      --tty
+    ) ++ [$remote_command]
+  } else if $batch {
+    (ssh-args
+      $host
+      --key-path $key_path
+      --control-path $control_path
+      --connect-timeout $connect_timeout
+      --connection-attempts $connection_attempts
+      --server-alive-interval $server_alive_interval
+      --server-alive-count-max $server_alive_count_max
+      --batch
+    ) ++ [$remote_command]
+  } else if $tty {
+    (ssh-args
+      $host
+      --key-path $key_path
+      --control-path $control_path
+      --connect-timeout $connect_timeout
+      --connection-attempts $connection_attempts
+      --server-alive-interval $server_alive_interval
+      --server-alive-count-max $server_alive_count_max
+      --tty
+    ) ++ [$remote_command]
+  } else {
+    (ssh-args
+      $host
+      --key-path $key_path
+      --control-path $control_path
+      --connect-timeout $connect_timeout
+      --connection-attempts $connection_attempts
+      --server-alive-interval $server_alive_interval
+      --server-alive-count-max $server_alive_count_max
+    ) ++ [$remote_command]
+  }
   run-external ...$command
 }
 
@@ -279,17 +401,51 @@ export def run-ssh-with-input [
   --tty
 ] : nothing -> any {
   let remote_command = ($remote_args | each {|part| shell-quote $part} | str join " ")
-  let command = ((
-    ssh-args $host
-      --key-path=$key_path
-      --control-path=$control_path
-      --connect-timeout=$connect_timeout
-      --connection-attempts=$connection_attempts
-      --server-alive-interval=$server_alive_interval
-      --server-alive-count-max=$server_alive_count_max
-      --batch=$batch
-      --tty=$tty
-  ) ++ [$remote_command])
+  let command = if $batch and $tty {
+    (ssh-args
+      $host
+      --key-path $key_path
+      --control-path $control_path
+      --connect-timeout $connect_timeout
+      --connection-attempts $connection_attempts
+      --server-alive-interval $server_alive_interval
+      --server-alive-count-max $server_alive_count_max
+      --batch
+      --tty
+    ) ++ [$remote_command]
+  } else if $batch {
+    (ssh-args
+      $host
+      --key-path $key_path
+      --control-path $control_path
+      --connect-timeout $connect_timeout
+      --connection-attempts $connection_attempts
+      --server-alive-interval $server_alive_interval
+      --server-alive-count-max $server_alive_count_max
+      --batch
+    ) ++ [$remote_command]
+  } else if $tty {
+    (ssh-args
+      $host
+      --key-path $key_path
+      --control-path $control_path
+      --connect-timeout $connect_timeout
+      --connection-attempts $connection_attempts
+      --server-alive-interval $server_alive_interval
+      --server-alive-count-max $server_alive_count_max
+      --tty
+    ) ++ [$remote_command]
+  } else {
+    (ssh-args
+      $host
+      --key-path $key_path
+      --control-path $control_path
+      --connect-timeout $connect_timeout
+      --connection-attempts $connection_attempts
+      --server-alive-interval $server_alive_interval
+      --server-alive-count-max $server_alive_count_max
+    ) ++ [$remote_command]
+  }
   $input | run-external ...$command
 }
 
@@ -305,7 +461,15 @@ export def run-remote-nu-command [
   --batch
   --tty
 ] : nothing -> any {
-  run-ssh $host ["nu" "-c" $command] --key-path=$key_path --control-path=$control_path --connect-timeout=$connect_timeout --connection-attempts=$connection_attempts --server-alive-interval=$server_alive_interval --server-alive-count-max=$server_alive_count_max --batch=$batch --tty=$tty
+  if $batch and $tty {
+    run-ssh $host ["nu" "-c" $command] --key-path $key_path --control-path $control_path --connect-timeout $connect_timeout --connection-attempts $connection_attempts --server-alive-interval $server_alive_interval --server-alive-count-max $server_alive_count_max --batch --tty
+  } else if $batch {
+    run-ssh $host ["nu" "-c" $command] --key-path $key_path --control-path $control_path --connect-timeout $connect_timeout --connection-attempts $connection_attempts --server-alive-interval $server_alive_interval --server-alive-count-max $server_alive_count_max --batch
+  } else if $tty {
+    run-ssh $host ["nu" "-c" $command] --key-path $key_path --control-path $control_path --connect-timeout $connect_timeout --connection-attempts $connection_attempts --server-alive-interval $server_alive_interval --server-alive-count-max $server_alive_count_max --tty
+  } else {
+    run-ssh $host ["nu" "-c" $command] --key-path $key_path --control-path $control_path --connect-timeout $connect_timeout --connection-attempts $connection_attempts --server-alive-interval $server_alive_interval --server-alive-count-max $server_alive_count_max
+  }
 }
 
 export def run-remote-nu-source [
@@ -320,7 +484,15 @@ export def run-remote-nu-source [
   --batch
   --tty
 ] : nothing -> any {
-  run-ssh-with-input $host $script ["nu" "--no-config-file" "-c" "source /dev/stdin"] --key-path=$key_path --control-path=$control_path --connect-timeout=$connect_timeout --connection-attempts=$connection_attempts --server-alive-interval=$server_alive_interval --server-alive-count-max=$server_alive_count_max --batch=$batch --tty=$tty
+  if $batch and $tty {
+    run-ssh-with-input $host $script ["nu" "--no-config-file" "-c" "source /dev/stdin"] --key-path $key_path --control-path $control_path --connect-timeout $connect_timeout --connection-attempts $connection_attempts --server-alive-interval $server_alive_interval --server-alive-count-max $server_alive_count_max --batch --tty
+  } else if $batch {
+    run-ssh-with-input $host $script ["nu" "--no-config-file" "-c" "source /dev/stdin"] --key-path $key_path --control-path $control_path --connect-timeout $connect_timeout --connection-attempts $connection_attempts --server-alive-interval $server_alive_interval --server-alive-count-max $server_alive_count_max --batch
+  } else if $tty {
+    run-ssh-with-input $host $script ["nu" "--no-config-file" "-c" "source /dev/stdin"] --key-path $key_path --control-path $control_path --connect-timeout $connect_timeout --connection-attempts $connection_attempts --server-alive-interval $server_alive_interval --server-alive-count-max $server_alive_count_max --tty
+  } else {
+    run-ssh-with-input $host $script ["nu" "--no-config-file" "-c" "source /dev/stdin"] --key-path $key_path --control-path $control_path --connect-timeout $connect_timeout --connection-attempts $connection_attempts --server-alive-interval $server_alive_interval --server-alive-count-max $server_alive_count_max
+  }
 }
 
 export def run-timed [phase: string, action: closure]: nothing -> nothing {

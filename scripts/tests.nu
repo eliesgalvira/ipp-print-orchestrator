@@ -4,7 +4,7 @@ use std/assert
 
 use lib/env.nu [get-config has-value load-dotenv]
 use lib/observability.nu [local-service-env-content otel-signal-config validate-observability-env]
-use lib/remote.nu [remote-target rsync-args ssh-args ssh-options ssh-rsh-command run-with-retries]
+use lib/remote.nu [aarch64-builder-target parse-nix-paths remote-target rsync-args ssh-args ssh-options ssh-rsh-command run-with-retries]
 use lib/repo.nu [deploy-excludes repo-root]
 
 def main []: nothing -> nothing {
@@ -98,6 +98,25 @@ def "test remote-target resolves typed defaults" []: nothing -> nothing {
 
   assert equal $target.host "pi@example.local"
   assert equal $target.key_path ("~/.ssh/example-key" | path expand)
+}
+
+def "test aarch64-builder-target resolves explicit builder config" []: nothing -> nothing {
+  let target = (aarch64-builder-target {
+    AARCH64_BUILDER_HOST: "builder@example.local"
+    AARCH64_BUILDER_SSH_KEY_PATH: "~/.ssh/example-builder-key"
+  })
+
+  assert equal $target.host "builder@example.local"
+  assert equal $target.key_path ("~/.ssh/example-builder-key" | path expand)
+}
+
+def "test aarch64-builder-target keeps missing key path empty" []: nothing -> nothing {
+  let target = (aarch64-builder-target {
+    AARCH64_BUILDER_HOST: "builder@example.local"
+  })
+
+  assert equal $target.host "builder@example.local"
+  assert equal $target.key_path ""
 }
 
 def "test ssh argument builders use typed optional flags" []: nothing -> nothing {
@@ -257,6 +276,36 @@ print (cups-printer-block $printers_conf "HP135a")
   assert not ($result.stdout | str contains "ErrorPolicy abort-job") "other printer policy should not satisfy target verification"
 }
 
+def "test CUPS printer device URI extraction is scoped to target queue" []: nothing -> nothing {
+  let result = (
+    nu --no-config-file --commands '
+source scripts/setup-cups-live-from-pi.nu
+let printers_conf = "<Printer Other>\nDeviceURI ipp-orch-usb://Other/Printer\n</Printer>\n<Printer HP135a>\nUUID urn:uuid:target\nDeviceURI ipp-orch-usb://HP/Laser%20MFP?serial=123&interface=1\nErrorPolicy abort-job\n</Printer>\n"
+print (printer-device-uri-from-config $printers_conf "HP135a")
+'
+    | complete
+  )
+
+  assert equal $result.exit_code 0 $"expected CUPS printer URI extraction to execute: ($result.stderr)"
+  assert equal ($result.stdout | str trim) "ipp-orch-usb://HP/Laser%20MFP?serial=123&interface=1"
+}
+
+def "test explicit HP device URI normalization accepts absent option" []: nothing -> nothing {
+  let result = (
+    nu --no-config-file --commands '
+source scripts/setup-cups-live-from-pi.nu
+print $"empty=(explicit-device-uri null)"
+print $"value=(explicit-device-uri "ipp-orch-usb://HP/Laser%20MFP?serial=123&interface=1")"
+'
+    | complete
+  )
+
+  assert equal $result.exit_code 0 $"expected explicit HP device URI normalization to execute: ($result.stderr)"
+  let lines = ($result.stdout | lines)
+  assert equal ($lines | get 0) "empty="
+  assert equal ($lines | get 1) "value=ipp-orch-usb://HP/Laser%20MFP?serial=123&interface=1"
+}
+
 def "test supervised CUPS USB backend wrapper delegates through original URI" []: nothing -> nothing {
   let root = (repo-root)
   let backend = ($root | path join "scripts/cups/backend/ipp-orch-usb")
@@ -349,6 +398,8 @@ def "test supervised CUPS USB backend wrapper delegates through original URI" []
 def "test repo helpers expose stable strings" []: nothing -> nothing {
   assert equal (repo-root | path expand) (pwd | path expand)
   assert ("node_modules" in (deploy-excludes)) "deploy excludes should include node_modules"
+  assert ("result" in (deploy-excludes)) "deploy excludes should include Nix result symlink"
+  assert ("result-*" in (deploy-excludes)) "deploy excludes should include numbered Nix result symlinks"
   assert (".git" in (deploy-excludes)) "deploy excludes should include .git"
 }
 
@@ -367,6 +418,27 @@ local-service-env-content {
   assert ($result.stdout | str contains "IPP_ORCH_BIND_PORT=9999") "expected deploy env to include overridden bind port"
   assert not ($result.stdout | str contains "PI_HOST=") "deploy env should not include deploy-only PI_HOST"
   assert not ($result.stdout | str contains "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=") ".env.example values should not be rendered by deploy"
+}
+
+def "test deploy parses nix closure path marker" []: nothing -> nothing {
+  let paths = (parse-nix-paths "noise\nIPP_ORCH_NIX_PATHS\t/nix/store/runtime\t/nix/store/driver\t/nix/store/backend\n")
+
+  assert equal $paths.runtime_path "/nix/store/runtime"
+  assert equal $paths.driver_path "/nix/store/driver"
+  assert equal $paths.backend_path "/nix/store/backend"
+}
+
+def "test systemd renderer points app service at nix runtime wrapper" []: nothing -> nothing {
+  let command = '
+source scripts/install-systemd-live-from-pi.nu
+print (render-unit systemd/ipp-print-orchestrator.service /srv/ipp --runtime-path /nix/store/runtime)
+'
+  let result = (nu --no-config-file --commands $command | complete)
+
+  assert equal $result.exit_code 0 $"systemd unit rendering should execute: ($result.stderr)"
+  assert ($result.stdout | str contains "WorkingDirectory=/srv/ipp") "renderer should preserve configured app working directory"
+  assert ($result.stdout | str contains "ExecStart=/nix/store/runtime/bin/ipp-print-orchestrator-agent") "renderer should point ExecStart at Nix runtime wrapper"
+  assert not ($result.stdout | str contains "/usr/bin/node") "renderer should remove mutable node ExecStart"
 }
 
 def "test observability validation rejects enabled blank otlp config" []: nothing -> nothing {

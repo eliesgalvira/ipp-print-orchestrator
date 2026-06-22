@@ -179,6 +179,19 @@ bun run lint
 bun run format
 ```
 
+Nix build-system checks:
+
+```bash
+nix flake check
+nix build .#packages.x86_64-linux.ipp-print-orchestrator
+nix build .#checks.x86_64-linux.nixos-module
+```
+
+The flake exposes `nixosModules.ipp-print-orchestrator` for the long-term NixOS
+target. The current live Pi deploy still uses the transitional non-NixOS path:
+it builds aarch64 closures locally or on a configured builder, copies those
+closures to the Pi, and activates systemd/CUPS from copied store paths.
+
 Agent package commands:
 
 ```bash
@@ -267,15 +280,21 @@ Deploy to the live Pi from the development machine:
 nu scripts/deploy-live-to-pi.nu
 ```
 
-Local deploy requirements:
+Nix-closure deploy requirements:
 
 - `nu`
-- `bun`
+- `nix`
 - `ssh`
-- `ssh-keygen`
 - `rsync`
-- ability to password-login once with `ssh pi@print-server.local` for first-time bootstrap
-- passwordless `sudo` for the Pi user
+- `AARCH64_BUILDER_HOST=local` requires `qemu-aarch64` in `binfmt_misc` and `aarch64-linux` in `nix config show extra-platforms`
+
+If you are using local emulation, run once:
+
+```bash
+nu scripts/prepare-aarch64-builder.nu
+```
+
+If `AARCH64_BUILDER_HOST` points to a remote host, that host must be configured as an aarch64 builder and must not be `PI_HOST`.
 
 Deployment target and auth can be configured in the ignored local `.env` file:
 
@@ -283,6 +302,9 @@ Deployment target and auth can be configured in the ignored local `.env` file:
 PI_HOST=pi@print-server.local
 APP_DIR=/home/pi/apps/ipp-print-orchestrator
 ```
+`APP_DIR` is the deployment destination on the Pi (for example, where scripts install
+systemd units and where `install-systemd` renders unit paths). The local checkout
+still runs from this machine; it is synchronized into this remote directory during deploy.
 
 Optionally set `PI_SSH_KEY_PATH` in local `.env` if you want to override the default key location of `~/.ssh/ipp-print-orchestrator-pi`.
 
@@ -299,7 +321,7 @@ The scripts do not use `sshpass`, `PI_PASSWORD`, or `PI_SUDO_PASSWORD`. They ass
 
 Your local `.env` is the source of truth for the Pi service environment. `.env.example` is only a template for humans; deploy does not read it as runtime configuration. Each deploy filters the service runtime keys from local `.env` and installs them to `/etc/ipp-print-orchestrator.env` on the Pi before restarting services. For example, if local `.env` sets `IPP_ORCH_ENABLE_OTLP=true` with valid `OTEL_*` Axiom endpoint/header values, deploy writes those enabled observability settings over the bootstrap placeholder. Deploy-only keys such as `PI_HOST`, `APP_DIR`, and `PI_SSH_KEY_PATH` are not written to the Pi service env, and `.env` is excluded from the rsync copy.
 
-Directory-valued runtime settings such as `IPP_ORCH_DATA_DIR=data` are relative to the systemd service `WorkingDirectory`. During deploy, `scripts/install-systemd-live-from-pi.nu` renders the installed service unit so `WorkingDirectory` and `ExecStart` point at the configured `APP_DIR`. Use an absolute path for a runtime directory only if you intentionally want it outside `APP_DIR`.
+Directory-valued runtime settings such as `IPP_ORCH_DATA_DIR=data` are relative to the systemd service `WorkingDirectory`. During deploy, `scripts/install-systemd-live-from-pi.nu` renders the installed service unit so `WorkingDirectory` points at the configured `APP_DIR`, while `ExecStart` points at the copied Nix store wrapper. Use an absolute path for a runtime directory only if you intentionally want it outside `APP_DIR`.
 
 To reinstall only the systemd units from the development machine after the app has already been deployed to the Pi:
 
@@ -314,8 +336,9 @@ The local wrapper uses the same `PI_HOST`, `APP_DIR`, and `PI_SSH_KEY_PATH` sett
 The HP Laser MFP 135a is a Samsung-derived SPL printer. Do not configure it with
 generic PCL/PCL XL drivers; they can appear to work for simple text while
 producing corrupted output for images, logos, and filled vector graphics. The
-live setup script installs HP's Unified Linux Driver `rastertospl` filter and
-uses the matching `HP_Laser_MFP_13x_Series.ppd`.
+live setup script builds and copies the Nix HP driver closure, then installs the
+store-backed `rastertospl` filter and matching
+`HP_Laser_MFP_13x_Series.ppd` integration points into CUPS.
 
 The setup script keeps HP's 8-bit grayscale raster mode intact. Do not force the
 PPD to 1-bit grayscale: `rastertospl` does not handle that stream correctly for
@@ -326,8 +349,9 @@ driver's advertised `600dpi` option name, which reduces scanned-PDF SPL payloads
 without changing the raster bit depth.
 
 The setup script also installs the queue-specific CUPS filter
-`ipp-pdf-preflight-to-spl`. Android and the orchestrator both submit PDFs into
-this queue, so PDF safety has to live at the CUPS boundary. The filter rejects
+`ipp-pdf-preflight-to-spl` from the copied Nix runtime closure. Android and the
+orchestrator both submit PDFs into this queue, so PDF safety has to live at the
+CUPS boundary. The filter rejects
 encrypted/protected PDFs and PDFs whose metadata cannot be read before invoking
 the HP driver pipeline. Accepted PDFs still render through
 `pdftopdf -> gstoraster -> rastertospl`, but final SPL/QPDL output is staged
@@ -335,16 +359,28 @@ first and only streamed to CUPS after the filter verifies a matching page count,
 single-copy output, and a bounded byte size. The filter also forces the known
 safe PDF options, including `print-scaling=none`, for direct Android jobs.
 
+The physical page-count authority is the final HP `rastertospl` `PAGE:` output,
+not Ghostscript's progress log. A malformed or unusual PDF can make Ghostscript
+log `Processing page 2...` even when the normalized PDF has one page and the
+final SPL/QPDL stream contains one driver-reported page. The safety filter
+therefore rejects when the final driver page count differs from `pdfinfo`, but
+does not reject solely because of an extra Ghostscript progress line. To guard
+against the blank/form-feed path that caused the 2026-06-21 paper incident, the
+filter also requires the staged SPL/QPDL header to contain
+`@PJL SET XIGNOREFF=ON`, and the Nix-patched HP PPD defaults
+`*DefaultJCLSkipBlankPages: True`.
+
 The queue device URI uses the `ipp-orch-usb` backend wrapper. That wrapper
 stages the filter pipeline output before invoking the real CUPS `usb` backend
 with the original HP `usb://` URI. If the filter produces no printer bytes, the
 wrapper fails immediately without touching USB; if bytes are present, it feeds
 the staged payload to the real backend with a hard timeout and deauthorizes the
-HP USB device if the backend wedges after rendering. The wrapper is checked in
-at `scripts/cups/backend/ipp-orch-usb` and installed by the CUPS setup script
-with root-only execute permission, matching the real `usb` backend. That
-permission matters: CUPS otherwise runs the wrapper as `lp`, and delegation to
-`/usr/lib/cups/backend/usb` fails before bytes can reach the printer.
+HP USB device if the backend wedges after rendering. The backend implementation
+is packaged as a Nix output. The CUPS setup script installs a tiny root-owned
+launcher at `/usr/lib/cups/backend/ipp-orch-usb` that execs the copied store
+backend. That permission matters: CUPS otherwise runs the backend as `lp`, and
+delegation to `/usr/lib/cups/backend/usb` fails before bytes can reach the
+printer.
 
 Emergency stop from the development machine:
 
@@ -361,9 +397,9 @@ Safe configuration command:
 nu scripts/setup-cups-live-to-pi.nu
 ```
 
-By default this installs the HP SPL driver, configures the queue, then leaves
-CUPS stopped, disabled, unshared, and rejecting jobs. It does not print a test
-page.
+By default this builds/copies the required Nix closures, installs the CUPS
+integration points from those store paths, configures the queue, then leaves CUPS
+stopped, disabled, unshared, and rejecting jobs. It does not print a test page.
 
 Only expose the queue again when paper is intentionally loaded and the printer
 is known to have no buffered pages:
@@ -410,41 +446,27 @@ storage.
 
 The deploy script:
 
-- runs the local `bun run build`
-- builds a bundled service entry for faster Pi cold starts
+- builds the aarch64 Nix runtime, HP ULD driver, and supervised USB backend closures
+- copies those closures to the Pi Nix store
+- verifies the copied store paths on the Pi before activation
 - rsyncs the repository to the Pi with generated/runtime directories excluded
 - validates enabled OTLP/Axiom settings before writing the service environment
 - syncs the filtered local service environment to `/etc/ipp-print-orchestrator.env`
-- checks the production dependency stamp and only runs `bun install --frozen-lockfile --ignore-scripts --production` on the Pi when dependency manifests changed
-- installs systemd units
+- installs systemd units with `ipp-print-orchestrator.service` executing the Nix store wrapper
 - restarts the service and heartbeat timer
 - verifies `/v1/health`
-- prints phase timings for the local build/rsync steps and each remote deployment step
+- prints phase timings and the exact store paths deployed
 
-To intentionally update already-installed Pi packages and production dependencies:
+To intentionally update already-installed Pi packages:
 
 ```bash
 bun run update:live-to-pi
 ```
 
-The update script upgrades only related apt packages that are already installed, skips missing packages, upgrades Bun only when Bun is present, refreshes production dependencies, and prints `timeit` timings for each update phase.
-
-The deploy install step skips lifecycle scripts on the Pi. This is intentional:
-
-- the root `prepare` hook only patches the local TypeScript install for the Effect editor language service
-- that patch is not needed to build or run the service on the Pi
-- on low-memory Raspberry Pi targets, the patch step can abort with a Node heap OOM during `bun install`
-
-If a deploy already failed on the Pi with an OOM in `effect-language-service patch`, rerun the install manually and continue:
-
-```bash
-ssh pi@print-server.local
-cd /home/pi/apps/ipp-print-orchestrator
-bun install --frozen-lockfile --ignore-scripts
-nu scripts/install-systemd-live-from-pi.nu
-sudo systemctl restart ipp-print-orchestrator
-sudo systemctl restart ipp-print-orchestrator-heartbeat.timer
-```
+The update script upgrades only related apt packages that are already installed,
+skips missing packages, upgrades Bun only when Bun is present, and prints
+`timeit` timings for each update phase. Deploy no longer runs `bun install` on
+the Pi; the service process comes from the copied Nix store closure.
 
 If `/v1/status` shows `cupsReachable: false` and `printerAttached: false` even though `lpstat -p` works on the Pi, verify the configured queue name:
 
