@@ -463,14 +463,14 @@ const renderPipeline = (
     const cupsRasterPath = join(tempDirectory, "document.cups-raster")
     const splPath = join(tempDirectory, "document.spl")
 
-    const pdfToPdf = yield* runCupsFilter({
+    yield* runCupsFilter({
       label: "pdftopdf",
       command: pdfToPdfFilter,
       args: cupsArgsFor(invocation, inputPath),
       inputContentType: rawPdfContentType,
       output: { _tag: "File", path: normalizedPdfPath },
     })
-    const gstoraster = yield* runCupsFilter({
+    yield* runCupsFilter({
       label: "gstoraster",
       command: ghostscriptRasterFilter,
       args: cupsArgsFor(invocation, normalizedPdfPath),
@@ -485,16 +485,11 @@ const renderPipeline = (
       output: { _tag: "File", path: splPath },
     })
     const splBytes = yield* readFileSize(splPath)
-    yield* validateSplBlankPageSuppression(splPath, splBytes)
     const guardDecision = decideSplOutputGuard({
       pdfPages,
       copies: invocation.copies,
       splBytes,
-      filterStderr: [
-        pdfToPdf.stderr,
-        gstoraster.stderr,
-        rasterToSpl.stderr,
-      ].join("\n"),
+      filterStderr: rasterToSpl.stderr,
       maxBytesPerPage: cupsSplMaxBytesPerPage,
       maxTotalBytes: cupsSplMaxTotalBytes,
     })
@@ -515,6 +510,8 @@ const renderPipeline = (
           : {}),
       })
     }
+
+    yield* validateSplBlankPageSuppression(splPath, splBytes)
 
     const guardedOutput: GuardedSplOutput = {
       path: splPath,
