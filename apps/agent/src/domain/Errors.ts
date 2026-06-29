@@ -59,6 +59,13 @@ class CupsCommandFailed extends Schema.TaggedErrorClass<CupsCommandFailed>()(
   },
 ) {}
 
+class CupsTmpDirFull extends Schema.TaggedErrorClass<CupsTmpDirFull>()(
+  "CupsTmpDirFull",
+  {
+    message: Schema.String,
+  },
+) {}
+
 class OutputGuardRejected extends Schema.TaggedErrorClass<OutputGuardRejected>()(
   "OutputGuardRejected",
   {
@@ -161,6 +168,7 @@ export {
   BlobStoreDiskFull,
   BlobStoreUnavailable,
   CupsCommandFailed,
+  CupsTmpDirFull,
   CupsIppJobNotFound,
   CupsIppProtocolError,
   CupsIppUnavailable,
@@ -190,6 +198,7 @@ export const OperationalError = Schema.Union([
   CupsUnavailable,
   CupsRejectedJob,
   CupsCommandFailed,
+  CupsTmpDirFull,
   OutputGuardRejected,
   CupsIppUnavailable,
   CupsIppProtocolError,

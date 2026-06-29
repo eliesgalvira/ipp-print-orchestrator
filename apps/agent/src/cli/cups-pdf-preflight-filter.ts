@@ -10,6 +10,7 @@ import {
   readdirSync,
   readSync,
   rmSync,
+  statfsSync,
   statSync,
 } from "node:fs"
 import { tmpdir } from "node:os"
@@ -21,10 +22,13 @@ import { Cause, Effect, Schema } from "effect"
 import {
   decideCupsCopiesGuard,
   decideSplOutputGuard,
+  countCupsPageLogEntries,
+  countGhostscriptProcessedPages,
   hasSplBlankPageSuppression,
 } from "../domain/CupsFilterOutputGuard.js"
 import {
   CupsCommandFailed,
+  CupsTmpDirFull,
   OutputGuardRejected,
   PdfPreflightRejected,
   ValidationError,
@@ -76,6 +80,7 @@ const defaultCupsSubfilterTimeoutMs = 285_000
 const defaultCupsSubfilterStderrMaxBufferBytes = 8 * 1024 * 1024
 const defaultCupsSplMaxBytesPerPage = 64 * 1024 * 1024
 const defaultCupsSplMaxTotalBytes = 256 * 1024 * 1024
+const defaultCupsTmpDirMinFreeBytes = 16 * 1024 * 1024
 const privateTempFileMode = 0o600 // Owner read/write only for staged printer artifacts.
 const pdfPreflightRejectedStateReason =
   "com.ipp-print-orchestrator-pdf-preflight-rejected"
@@ -121,6 +126,19 @@ const tempDirRetentionMs = Math.max(
   ),
   cupsSubfilterTimeoutMs + 60_000,
 )
+const cupsTmpDirMinFreeBytes = parsePositiveIntegerEnv(
+  "IPP_ORCH_CUPS_TMP_DIR_MIN_FREE_BYTES",
+  defaultCupsTmpDirMinFreeBytes,
+)
+
+const bytesFromNumberOrBigInt = (value: number | bigint): number =>
+  typeof value === "bigint" ? Number(value) : value
+
+const formatBytesForDebug = (bytes: number): string =>
+  `${Math.max(0, bytes)} bytes (${(
+    Math.max(0, bytes) /
+    (1024 * 1024)
+  ).toFixed(1)} MiB)`
 
 class TempDirCleanupFailed extends Schema.TaggedErrorClass<TempDirCleanupFailed>()(
   "TempDirCleanupFailed",
@@ -384,9 +402,8 @@ const validateSingleCopyForCups = (invocation: CupsFilterInvocation) =>
     }
   })
 
-const cleanupStaleTempDirs = () =>
+const cleanupStaleTempDirs = (tempRoot: string) =>
   Effect.sync(() => {
-    const tempRoot = tmpdir()
     const now = Date.now()
     let entries: ReadonlyArray<{
       readonly isDirectory: () => boolean
@@ -416,6 +433,34 @@ const cleanupStaleTempDirs = () =>
     }
   })
 
+const getTmpDirAvailableBytes = (tempRoot: string): number => {
+  const stats = statfsSync(tempRoot)
+  const availableBlocks = stats.bavail ?? stats.bfree
+  return bytesFromNumberOrBigInt(stats.bsize) * bytesFromNumberOrBigInt(availableBlocks)
+}
+
+const ensureTmpDirCapacity = (tempRoot: string) =>
+  Effect.gen(function* () {
+    let availableBytes: number
+
+    try {
+      availableBytes = getTmpDirAvailableBytes(tempRoot)
+    } catch (error) {
+      return yield* new CupsCommandFailed({
+        message: `failed to read temporary-directory stats for ${tempRoot}: ${String(error)}`,
+      })
+    }
+
+    if (availableBytes >= cupsTmpDirMinFreeBytes) {
+      return
+    }
+
+    return yield* new CupsTmpDirFull({
+      message:
+        `Insufficient temporary space at ${tempRoot}: available ${formatBytesForDebug(availableBytes)}, minimum ${formatBytesForDebug(cupsTmpDirMinFreeBytes)} required before running preflight filters`,
+    })
+  })
+
 const removeTempDir = (directory: string) =>
   Effect.try({
     try: () => rmSync(directory, { force: true, recursive: true }),
@@ -429,12 +474,19 @@ const withTempDir = <A, E, R>(
   use: (directory: string) => Effect.Effect<A, E, R>,
 ) =>
   Effect.acquireRelease(
-    cleanupStaleTempDirs().pipe(
-      Effect.asVoid,
-      Effect.andThen(
-        Effect.sync(() => mkdtempSync(join(tmpdir(), tempDirPrefix))),
-      ),
-    ),
+    Effect.gen(function* () {
+      const tempRoot = tmpdir()
+      yield* cleanupStaleTempDirs(tempRoot)
+      yield* ensureTmpDirCapacity(tempRoot)
+
+      return yield* Effect.try({
+        try: () => mkdtempSync(join(tempRoot, tempDirPrefix)),
+        catch: (error) =>
+          new CupsCommandFailed({
+            message: `failed to allocate preflight temp directory: ${String(error)}`,
+          }),
+      })
+    }),
     removeTempDir,
   ).pipe(Effect.flatMap(use), Effect.scoped)
 
@@ -463,20 +515,43 @@ const renderPipeline = (
     const cupsRasterPath = join(tempDirectory, "document.cups-raster")
     const splPath = join(tempDirectory, "document.spl")
 
-    yield* runCupsFilter({
+    const pdftopdf = yield* runCupsFilter({
       label: "pdftopdf",
       command: pdfToPdfFilter,
       args: cupsArgsFor(invocation, inputPath),
       inputContentType: rawPdfContentType,
       output: { _tag: "File", path: normalizedPdfPath },
     })
-    yield* runCupsFilter({
+    const gstoraster = yield* runCupsFilter({
       label: "gstoraster",
       command: ghostscriptRasterFilter,
       args: cupsArgsFor(invocation, normalizedPdfPath),
       inputContentType: cupsPdfContentType,
       output: { _tag: "File", path: cupsRasterPath },
     })
+    const subfilterStderr = `${pdftopdf.stderr}\n${gstoraster.stderr}`
+    const observedPagesFromSubfilters =
+      countCupsPageLogEntries(subfilterStderr) ||
+      countGhostscriptProcessedPages(subfilterStderr)
+
+    if (observedPagesFromSubfilters > pdfPages + 1) {
+      return yield* new OutputGuardRejected({
+        reason: "unexpected-page-count",
+        message:
+          `Subfilter PDF pipeline reported ${observedPagesFromSubfilters} pages for a ${pdfPages}-page PDF; rejecting before raster-to-SPL`,
+        actualBytes: 0,
+        expectedPages: pdfPages,
+        observedPages: observedPagesFromSubfilters,
+      })
+    }
+
+    if (observedPagesFromSubfilters > 0 && observedPagesFromSubfilters !== pdfPages) {
+      yield* writeCupsStderr(
+        "INFO",
+        `Subfilter PDF pipeline reported ${observedPagesFromSubfilters} pages for a ${pdfPages}-page PDF; continuing to raster-to-SPL for final page count verification`,
+      )
+    }
+
     const rasterToSpl = yield* runCupsFilter({
       label: "rastertospl",
       command: splRasterFilter,
@@ -561,6 +636,7 @@ const reportFailure = (
     | CupsCommandFailed
     | OutputGuardRejected
     | PdfPreflightRejected
+    | CupsTmpDirFull
     | ValidationError,
 ) =>
   Effect.gen(function* () {
@@ -598,6 +674,7 @@ const reportUnexpectedFailure = (cause: Cause.Cause<unknown>) =>
 const main = program.pipe(
   Effect.catchTags({
     CupsCommandFailed: reportFailure,
+    CupsTmpDirFull: reportFailure,
     OutputGuardRejected: reportFailure,
     PdfPreflightRejected: reportFailure,
     ValidationError: reportFailure,

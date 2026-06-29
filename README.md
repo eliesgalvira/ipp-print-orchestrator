@@ -114,6 +114,9 @@ Deprecated compatibility setting:
 - `IPP_ORCH_STATUS_OBSERVATION_INTERVAL_MS`
   - ignored by the current runtime
   - older installs may still have it in `/etc/ipp-print-orchestrator.env` from the previous polling-based design
+- `IPP_ORCH_CUPS_TMP_DIR_MIN_FREE_BYTES`
+  - minimum free space required in the temp partition before running the preflight CUPS chain
+  - default: `16777216` (16 MiB)
 
 For local USB printers, the runtime checks both the configured CUPS queue and Linux USB presence under sysfs. USB hotplug events trigger a sysfs-backed attachment refresh, and cold-start status hydrates the same state without running `lpinfo -v` on the request path.
 
@@ -358,6 +361,18 @@ the HP driver pipeline. Accepted PDFs still render through
 first and only streamed to CUPS after the filter verifies a matching page count,
 single-copy output, and a bounded byte size. The filter also forces the known
 safe PDF options, including `print-scaling=none`, for direct Android jobs.
+
+Troubleshooting preflight failures:
+
+- `CupsTmpDirFull` / `/tmp` exhaustion:
+  - Symptom: filter exits with `ERROR: CupsTmpDirFull: Insufficient temporary space...`
+  - Cause: temporary partition is below `IPP_ORCH_CUPS_TMP_DIR_MIN_FREE_BYTES` and
+    stale artifacts block the CUPS preflight chain.
+  - What to do now:
+    - `df -h /tmp` to confirm free space.
+    - `rm -rf /tmp/raststrace* /tmp/rastertospl*.err /tmp/rastertospl.log` on the Pi (for legacy debug artifacts).
+    - retry the print job.
+  - Why this is safe: the guard fails before `pdftopdf`/`gstoraster` writes files, and CUPS still gets an explicit, typed failure.
 
 The physical page-count authority is the final HP `rastertospl` `PAGE:` output,
 not Ghostscript's progress log. A malformed or unusual PDF can make Ghostscript

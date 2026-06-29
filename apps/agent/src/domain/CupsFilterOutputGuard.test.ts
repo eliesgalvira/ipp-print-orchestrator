@@ -2,6 +2,7 @@ import { describe, expect, it } from "@effect/vitest"
 
 import {
   countCupsPageLogEntries,
+  countGhostscriptProcessedPages,
   decideCupsCopiesGuard,
   decideSplOutputGuard,
   hasSplBlankPageSuppression,
@@ -95,21 +96,20 @@ describe("CUPS filter output guard", () => {
     })
   })
 
-  it("accepts upstream Ghostscript extra progress when the final driver reports the expected page count", () => {
+  it("rejects final output without PAGE logs even when upstream Ghostscript logs are present", () => {
     expect(
       decideSplOutputGuard({
         pdfPages: 1,
         copies: "1",
         splBytes: 196_606,
         filterStderr:
-          "INFO: cfFilterGhostscript: Processing page 1...\nINFO: cfFilterGhostscript: Processing page 2...\nPAGE: 1 1\n",
+          "INFO: cfFilterGhostscript: Processing page 1...\nINFO: cfFilterGhostscript: Processing page 2...\n",
         maxBytesPerPage: 64 * 1024 * 1024,
         maxTotalBytes: 256 * 1024 * 1024,
       }),
     ).toMatchObject({
-      _tag: "Accepted",
-      expectedPages: 1,
-      observedPages: 1,
+      _tag: "Rejected",
+      reason: "missing-page-log",
     })
   })
 
@@ -134,6 +134,22 @@ describe("CUPS filter output guard", () => {
     expect(
       countCupsPageLogEntries(
         "ATTR: job-media-progress=50\npage: 1 1\nPAGE: 2 1\n",
+      ),
+    ).toBe(2)
+  })
+
+  it("counts Ghostscript processing lines from cupsFilter stderr", () => {
+    expect(
+      countGhostscriptProcessedPages(
+        "INFO: cfFilterGhostscript: Processing page 1...\nINFO: cfFilterGhostscript: Processing page 2...\n",
+      ),
+    ).toBe(2)
+  })
+
+  it("counts Ghostscript processing lines without cfFilterGhostscript prefix", () => {
+    expect(
+      countGhostscriptProcessedPages(
+        "INFO: Processing page 1...\nINFO: Processing page 2...\n",
       ),
     ).toBe(2)
   })

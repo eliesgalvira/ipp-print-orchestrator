@@ -4,6 +4,7 @@ import {
   BlobStoreDiskFull,
   BlobStoreUnavailable,
   CupsCommandFailed,
+  CupsTmpDirFull,
   CupsRejectedJob,
   CupsUnavailable,
   EventSinkUnavailable,
@@ -44,6 +45,9 @@ describe("Errors", () => {
     )
     expect(new CupsCommandFailed({ message: "lp failed" })._tag).toBe(
       "CupsCommandFailed",
+    )
+    expect(new CupsTmpDirFull({ message: "no tmp space" })._tag).toBe(
+      "CupsTmpDirFull",
     )
     expect(
       new OutputGuardRejected({

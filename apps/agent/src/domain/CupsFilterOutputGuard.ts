@@ -51,6 +51,16 @@ export const countCupsPageLogEntries = (stderr: string): number =>
   stderr.split(/\r?\n/).filter((line) => /^PAGE:\s+\d+\s+\d+\s*$/i.test(line))
     .length
 
+export const countGhostscriptProcessedPages = (stderr: string): number =>
+  stderr
+    .split(/\r?\n/)
+    .filter((line) =>
+      /^\s*(?:INFO:\s*)?(?:cfFilterGhostscript:\s*)?Processing\s+page\s+\d+\s*\.\.\.?/i.test(
+        line,
+      ),
+    )
+    .length
+
 export const hasSplBlankPageSuppression = (printerLanguage: string): boolean =>
   /@PJL\s+SET\s+XIGNOREFF\s*=\s*ON/i.test(printerLanguage)
 
