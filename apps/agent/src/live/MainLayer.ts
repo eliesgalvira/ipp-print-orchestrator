@@ -4,6 +4,7 @@ import { Layer } from "effect"
 import { AppConfig } from "../config/AppConfig.js"
 import { CupsObserverIppLive } from "../cups-observation/CupsObserverIppLive.js"
 import { Orchestrator } from "../services/Orchestrator.js"
+import { PrintSubmission } from "../services/PrintSubmission.js"
 import { BlobStoreLive } from "./BlobStoreLive.js"
 import { CupsClientCliLive } from "./CupsClientCliLive.js"
 import { CupsEventStreamIppLive } from "./CupsEventStreamIppLive.js"
@@ -77,17 +78,26 @@ const queueLayer = QueueRuntimeLive.pipe(Layer.provide(eventRuntimeLayer))
 
 const queueRuntimeLayer = Layer.merge(eventRuntimeLayer, queueLayer)
 
-const statusRuntimeLayer = StatusRuntimeLive.pipe(
+const printSubmissionLayer = PrintSubmission.fromCupsClientLayer.pipe(
   Layer.provide(queueRuntimeLayer),
 )
 
-const statusAwareRuntimeLayer = Layer.merge(
+const submissionRuntimeLayer = Layer.merge(
   queueRuntimeLayer,
+  printSubmissionLayer,
+)
+
+const statusRuntimeLayer = StatusRuntimeLive.pipe(
+  Layer.provide(submissionRuntimeLayer),
+)
+
+const statusAwareRuntimeLayer = Layer.merge(
+  submissionRuntimeLayer,
   statusRuntimeLayer,
 )
 
 const orchestratorLayer = Orchestrator.layer.pipe(
-  Layer.provide(queueRuntimeLayer),
+  Layer.provide(submissionRuntimeLayer),
 )
 
 const reconcilerLayer = ReconcilerLive.pipe(Layer.provide(queueRuntimeLayer))

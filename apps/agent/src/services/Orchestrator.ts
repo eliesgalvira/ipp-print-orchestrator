@@ -1,20 +1,20 @@
-import { Clock, Effect, Layer, Match, Context } from "effect"
+import { Clock, Context, Effect, Layer, Match } from "effect"
 
 import { AppConfig } from "../config/AppConfig.js"
 import { type OperationalError, UnsupportedFileType } from "../domain/Errors.js"
 import type { Job } from "../domain/Job.js"
 import type { JobId } from "../domain/JobId.js"
-import { createJob, transitionJob } from "../domain/StateMachine.js"
+import { derivePrinterReadiness } from "../domain/PrinterReadiness.js"
+import { createJob } from "../domain/StateMachine.js"
 import { WideEvent } from "../domain/WideEvent.js"
-import {
-  makeJobOutcomeEvent,
-  WideEventPublisher,
-} from "../observability/WideEventPublisher.js"
+import { WideEventPublisher } from "../observability/WideEventPublisher.js"
 import { BlobStore } from "./BlobStore.js"
-import { CupsClient, type SubmitResult } from "./CupsClient.js"
+import type { SubmitResult } from "./CupsClient.js"
 import { JobRepo } from "./JobRepo.js"
+import { applyJobTransition, recordInitialJob } from "./JobTransitionJournal.js"
 import { NetworkProbe } from "./NetworkProbe.js"
 import { PrinterProbe } from "./PrinterProbe.js"
+import { PrintSubmission } from "./PrintSubmission.js"
 import { QueueRuntime } from "./QueueRuntime.js"
 
 export interface SubmitJobInput {
@@ -41,49 +41,27 @@ export class Orchestrator extends Context.Service<
       const blobStore = yield* BlobStore
       const jobRepo = yield* JobRepo
       const wideEventPublisher = yield* WideEventPublisher
-      const cupsClient = yield* CupsClient
+      const printSubmission = yield* PrintSubmission
       const printerProbe = yield* PrinterProbe
       const networkProbe = yield* NetworkProbe
       const queueRuntime = yield* QueueRuntime
-
-      const persistEvent = (event: WideEvent) => wideEventPublisher.emit(event)
 
       const nowIso = Effect.map(Clock.currentTimeMillis, (millis) =>
         new Date(millis).toISOString(),
       )
 
-      const persistTransition = (job: Job, event: WideEvent) =>
-        Effect.gen(function* () {
-          yield* jobRepo.save(job)
-          yield* jobRepo.appendTransition(job.id, event)
-          yield* persistEvent(event)
-
-          const outcomeEvent = makeJobOutcomeEvent({
-            timestamp: event.timestamp,
-            job,
-            finalState: job.state,
-            errorTag: event.errorTag,
-            errorMessage: event.errorMessage,
-          })
-
-          if (outcomeEvent !== null) {
-            yield* persistEvent(outcomeEvent)
-          }
-
-          return job
-        })
-
       const applyTransition = (
         job: Job,
-        action: Parameters<typeof transitionJob>[1],
+        action: Parameters<typeof applyJobTransition>[0]["action"],
         occurredAt: string,
-      ) => {
-        const result = transitionJob(job, action, occurredAt)
-        if (result._tag === "InvalidTransition") {
-          return Effect.die(new Error(result.reason))
-        }
-        return persistTransition(result.job, result.event)
-      }
+      ) =>
+        applyJobTransition({
+          jobRepo,
+          wideEventPublisher,
+          job,
+          action,
+          occurredAt,
+        })
 
       const buildReceivedEvent = (job: Job, occurredAt: string) =>
         new WideEvent({
@@ -133,10 +111,13 @@ export class Orchestrator extends Context.Service<
         })
 
         yield* blobStore.putOriginal(input.id, input.fileName, input.bytes)
-        yield* jobRepo.create(initialJob)
         const receivedEvent = buildReceivedEvent(initialJob, occurredAt)
-        yield* jobRepo.appendTransition(initialJob.id, receivedEvent)
-        yield* persistEvent(receivedEvent)
+        yield* recordInitialJob({
+          jobRepo,
+          wideEventPublisher,
+          job: initialJob,
+          receivedEvent,
+        })
 
         const storedJob = yield* applyTransition(
           initialJob,
@@ -179,11 +160,15 @@ export class Orchestrator extends Context.Service<
 
           const printer = yield* printerProbe.status()
           const occurredAt = yield* nowIso
+          const printerReadiness = derivePrinterReadiness(printer)
 
-          if (!printer.attached || !printer.queueAvailable) {
+          if (printerReadiness._tag === "Unavailable") {
             return yield* applyTransition(
               currentJob,
-              { _tag: "PrinterUnavailable", reason: "printer unavailable" },
+              {
+                _tag: "PrinterUnavailable",
+                reason: printerReadiness.reason,
+              },
               occurredAt,
             )
           }
@@ -199,7 +184,7 @@ export class Orchestrator extends Context.Service<
 
           const bytes = yield* blobStore.getOriginal(jobId)
 
-          const submitResult: SubmitResult | Job = yield* cupsClient
+          const submitResult: SubmitResult | Job = yield* printSubmission
             .submitFile(submittingJob, bytes)
             .pipe(
               Effect.catch((error) =>

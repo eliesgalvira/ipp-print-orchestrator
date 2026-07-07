@@ -8,6 +8,7 @@ import {
   WideEventPublisher,
 } from "../../../apps/agent/src/observability/WideEventPublisher.js"
 import { Orchestrator } from "../../../apps/agent/src/services/Orchestrator.js"
+import { PrintSubmission } from "../../../apps/agent/src/services/PrintSubmission.js"
 import { QueueRuntime } from "../../../apps/agent/src/services/QueueRuntime.js"
 import { layer as blobStoreLayer } from "./InMemoryBlobStore.js"
 import { layer as eventSinkLayer } from "./InMemoryEventSink.js"
@@ -125,9 +126,13 @@ export const makeTestLayer = (options: TestLayerOptions) => {
 
   const baseLayer = Layer.mergeAll(supportLayer, eventLayer, runtimeLayer)
 
-  const orchestratorLayer = Orchestrator.layer.pipe(
+  const printSubmissionLayer = PrintSubmission.fromCupsClientLayer.pipe(
     Layer.provideMerge(baseLayer),
   )
 
-  return Layer.mergeAll(baseLayer, orchestratorLayer)
+  const orchestratorLayer = Orchestrator.layer.pipe(
+    Layer.provideMerge(Layer.merge(baseLayer, printSubmissionLayer)),
+  )
+
+  return Layer.mergeAll(baseLayer, printSubmissionLayer, orchestratorLayer)
 }

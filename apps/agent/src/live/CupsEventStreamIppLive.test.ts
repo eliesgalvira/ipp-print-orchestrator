@@ -12,7 +12,7 @@ import {
 import {
   notificationsIncludeJobEvent,
   notificationsIncludePrinterEvent,
-} from "./CupsEventStreamIppLive.js"
+} from "../cups-observation/CupsNotificationPolicy.js"
 
 describe("CupsEventStreamIppLive", () => {
   it("extracts subscription ids from IPP subscription responses", () => {

@@ -10,12 +10,11 @@ import {
   type IppMessage,
   type IppRequestMessage,
   makePrinter,
-  maxNotificationSequenceNumber,
-  notificationIncludesEvent,
   notificationRecords,
 } from "@ipp/ipp"
 import { Effect, Layer, Schedule } from "effect"
 import { AppConfig } from "../config/AppConfig.js"
+import { decideCupsNotification } from "../cups-observation/CupsNotificationPolicy.js"
 import {
   type IppFailureResponse,
   ippFailureMessage,
@@ -75,27 +74,6 @@ const ensureSuccessfulResponse = <A extends IppResponse>(
     }),
   )
 }
-
-const jobNotificationEvents = new Set([
-  "job-completed",
-  "job-created",
-  "job-progress",
-  "job-stopped",
-])
-
-const printerNotificationEvents = new Set([
-  "printer-modified",
-  "printer-state-changed",
-])
-
-export const notificationsIncludeJobEvent = (
-  notifications: readonly IppAttributeGroup[],
-): boolean => notificationIncludesEvent(notifications, jobNotificationEvents)
-
-export const notificationsIncludePrinterEvent = (
-  notifications: readonly IppAttributeGroup[],
-): boolean =>
-  notificationIncludesEvent(notifications, printerNotificationEvents)
 
 const subscriptionTemplate = {
   "notify-pull-method": "ippget",
@@ -225,23 +203,21 @@ export const CupsEventStreamIppLive = Layer.effect(
           nextSequenceNumber,
         )
         const notifications = notificationRecords(response)
-        const maxSeen = maxNotificationSequenceNumber(notifications)
         const notifyGetIntervalSeconds =
           extractNotifyGetIntervalSeconds(response)
-        const hasJobEvent = notificationsIncludeJobEvent(notifications)
-        const hasPrinterEvent = notificationsIncludePrinterEvent(notifications)
+        const decision = decideCupsNotification({
+          notifications,
+          nextSequenceNumber,
+        })
+        nextSequenceNumber = decision.nextSequenceNumber
 
-        if (maxSeen >= nextSequenceNumber) {
-          nextSequenceNumber = maxSeen + 1
-        }
-
-        if (hasPrinterEvent) {
+        if (decision.observePrinterStatus) {
           yield* statusRuntime
             .observeNow("cups-notification")
             .pipe(Effect.catch(() => Effect.void))
         }
 
-        if (hasJobEvent) {
+        if (decision.repairCupsTrackedJobs) {
           yield* reconciler
             .repairCupsTrackedJobs()
             .pipe(Effect.catch(() => Effect.void))
