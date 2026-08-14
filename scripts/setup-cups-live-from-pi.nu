@@ -25,12 +25,19 @@ const HP_ULD_RASTER_FILTER = '*cupsFilter:  "application/vnd.cups-raster 0 raste
 const HP_ULD_PDF_PREFLIGHT_FILTER = '*cupsFilter: "application/pdf 0 ipp-pdf-preflight-to-spl"'
 const HP_ULD_STANDARD_600DPI = '*Quality 600dpi/Standard: "<</HWResolution[600 600]>>setpagedevice"'
 const HP_ULD_STANDARD_SAFE_300DPI = '*Quality 600dpi/Standard: "<</HWResolution[300 300]>>setpagedevice"'
+const LEGACY_PAGE_DEFAULT_RESET_ARGS = ["-R" "media-default" "-R" "PageSize-default"]
 
 def run-required [label: string, command: list<string>]: nothing -> string {
   let result = (run-external ...$command | complete)
 
   if $result.exit_code != 0 {
-    error make {msg: $"($label) failed: ($result.stderr | str trim)"}
+    let output = (
+      [$result.stderr $result.stdout]
+      | each {|value| $value | str trim}
+      | where {|value| ($value | str length) > 0}
+      | str join "\n"
+    )
+    error make {msg: $"($label) failed: ($output)"}
   }
 
   $result.stdout
@@ -643,13 +650,11 @@ def configure-queue [
     "-E"
     "-v"
     $device_uri
-  ] ++ $driver_args ++ [
+  ] ++ $driver_args ++ $LEGACY_PAGE_DEFAULT_RESET_ARGS ++ [
     "-D"
     "HP Laser MFP 135a"
     "-L"
     "Home"
-    "-o"
-    "PageSize=A4"
     "-o"
     "Quality-default=600dpi"
     "-o"
