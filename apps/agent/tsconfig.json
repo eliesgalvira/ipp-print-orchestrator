@@ -9,9 +9,6 @@
   "exclude": ["src/**/*.test.ts"],
   "references": [
     {
-      "path": "../../packages/shared"
-    },
-    {
       "path": "../../packages/ipp"
     }
   ]

@@ -22,7 +22,6 @@
     "composite": true,
     "types": ["node"],
     "paths": {
-      "@ipp/shared": ["packages/shared/src/index.ts"],
       "@ipp/ipp": ["packages/ipp/src/index.ts"]
     },
     "plugins": [

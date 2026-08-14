@@ -1,52 +1,17 @@
 import type {
   IppAttributeGroup,
+  IppAttributeMap,
   IppMessage,
   IppRequestMessage,
 } from "./model.js"
+import { attributeGroups, attributeValues } from "./model.js"
 
-export type IppSubscriptionResponse = IppMessage & {
-  readonly "subscription-attributes-tag"?:
-    | IppAttributeGroup
-    | readonly IppAttributeGroup[]
-}
-
-export type IppNotificationsResponse = IppMessage & {
-  readonly "event-notification-attributes-tag"?:
-    | IppAttributeGroup
-    | readonly IppAttributeGroup[]
-}
-
-const asSingleGroup = (
-  value: IppAttributeGroup | readonly IppAttributeGroup[] | undefined,
-): IppAttributeGroup | null => {
-  if (value === undefined) {
-    return null
-  }
-
-  if (Array.isArray(value)) {
-    return value[0] ?? null
-  }
-
-  return value as IppAttributeGroup
-}
-
-const asGroupList = (
-  value: IppAttributeGroup | readonly IppAttributeGroup[] | undefined,
-): readonly IppAttributeGroup[] => {
-  if (value === undefined) {
-    return []
-  }
-
-  return Array.isArray(value) ? value : [value as IppAttributeGroup]
-}
-
-const singleRecord = (
-  value: IppSubscriptionResponse["subscription-attributes-tag"],
-): IppAttributeGroup | null => asSingleGroup(value)
+export type IppSubscriptionResponse = IppMessage
+export type IppNotificationsResponse = IppMessage
 
 const requestMessage = (
-  operationAttributes: IppAttributeGroup,
-  subscriptionAttributes?: IppAttributeGroup,
+  operationAttributes: IppAttributeMap,
+  subscriptionAttributes?: IppAttributeMap,
 ): IppRequestMessage => ({
   "operation-attributes-tag": operationAttributes,
   ...(subscriptionAttributes === undefined
@@ -57,7 +22,7 @@ const requestMessage = (
 export const createPrinterSubscriptionRequest = (
   printerUri: string,
   requestingUserName: string,
-  subscriptionAttributes: IppAttributeGroup,
+  subscriptionAttributes: IppAttributeMap,
 ): IppRequestMessage =>
   requestMessage(
     {
@@ -98,28 +63,42 @@ export const getNotificationsRequest = (
 
 export const extractSubscriptionId = (
   response: IppSubscriptionResponse,
-): number => {
-  const attrs = singleRecord(response["subscription-attributes-tag"])
-  const id = attrs?.["notify-subscription-id"]
-  if (typeof id !== "number" || !Number.isInteger(id) || id <= 0) {
-    throw new Error("IPP subscription response missing notify-subscription-id")
-  }
-  return id
+): number | null => {
+  const groups = attributeGroups(response, "subscription-attributes-tag")
+  const ids = groups.flatMap((group) =>
+    attributeValues(group, "notify-subscription-id"),
+  )
+  const id = ids[0]
+  return ids.length === 1 &&
+    typeof id === "number" &&
+    Number.isInteger(id) &&
+    id > 0
+    ? id
+    : null
 }
 
 export const notificationRecords = (
   response: IppNotificationsResponse,
 ): readonly IppAttributeGroup[] =>
-  asGroupList(response["event-notification-attributes-tag"])
+  attributeGroups(response, "event-notification-attributes-tag")
 
 export const maxNotificationSequenceNumber = (
   notifications: readonly IppAttributeGroup[],
 ): number =>
   notifications.reduce((max, notification) => {
-    const value = notification["notify-sequence-number"]
-    return typeof value === "number" && Number.isInteger(value) && value > max
-      ? value
-      : max
+    const sequenceNumbers = attributeValues(
+      notification,
+      "notify-sequence-number",
+    )
+    return sequenceNumbers.reduce<number>(
+      (currentMax, value) =>
+        typeof value === "number" &&
+        Number.isInteger(value) &&
+        value > currentMax
+          ? value
+          : currentMax,
+      max,
+    )
   }, 0)
 
 export const notificationIncludesEvent = (
@@ -127,21 +106,26 @@ export const notificationIncludesEvent = (
   eventNames: ReadonlySet<string>,
 ): boolean =>
   notifications.some((notification) => {
-    const eventName = notification["notify-subscribed-event"]
-    return typeof eventName === "string" && eventNames.has(eventName)
+    const eventNamesInGroup = attributeValues(
+      notification,
+      "notify-subscribed-event",
+    )
+    return eventNamesInGroup.some(
+      (eventName) => typeof eventName === "string" && eventNames.has(eventName),
+    )
   })
 
 export const extractNotifyGetIntervalSeconds = (
   response: IppMessage,
 ): number | null => {
-  const attrs = response["operation-attributes-tag"]
-  const operationAttributes = asSingleGroup(attrs)
-  if (operationAttributes === null) {
-    return null
-  }
-
-  const value = operationAttributes["notify-get-interval"]
-  return typeof value === "number" && Number.isInteger(value) && value >= 0
+  const values = attributeGroups(response, "operation-attributes-tag").flatMap(
+    (group) => attributeValues(group, "notify-get-interval"),
+  )
+  const value = values[0]
+  return values.length === 1 &&
+    typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= 0
     ? value
     : null
 }

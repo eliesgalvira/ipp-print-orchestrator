@@ -35,8 +35,6 @@ export const HeartbeatLive = Layer.effect(
         printerState: status.printerState,
         printerReasons: [...status.printerReasons],
         printerMessage: status.printerMessage,
-        queueDepth: status.queueDepth,
-        nonterminalJobCount: status.nonterminalJobCount,
         lastSuccessfulHeartbeatAt: now,
       })
 
@@ -55,8 +53,6 @@ export const HeartbeatLive = Layer.effect(
         printerState: status.printerState,
         printerReasons: status.printerReasons,
         printerMessage: status.printerMessage,
-        queueDepth: status.queueDepth,
-        nonterminalJobCount: status.nonterminalJobCount,
         lastSuccessfulHeartbeatAt: now,
       } satisfies HeartbeatSnapshot
     })

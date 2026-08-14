@@ -12,6 +12,15 @@ import {
 } from "./subscriptions.js"
 
 describe("IPP subscriptions helpers", () => {
+  const response = (
+    groups: Parameters<typeof notificationRecords>[0]["groups"],
+  ) => ({
+    version: "2.0",
+    statusCode: "successful-ok",
+    id: 1,
+    groups,
+  })
+
   it("builds create-printer-subscriptions requests", () => {
     expect(
       createPrinterSubscriptionRequest(
@@ -74,24 +83,37 @@ describe("IPP subscriptions helpers", () => {
   it("normalizes subscription responses and notifications", () => {
     expect(
       extractSubscriptionId({
-        "subscription-attributes-tag": {
-          "notify-subscription-id": 42,
-        },
+        ...response([]),
+        groups: [
+          {
+            tag: "subscription-attributes-tag",
+            attributes: [{ name: "notify-subscription-id", value: 42 }],
+          },
+        ],
       }),
     ).toBe(42)
 
-    const notifications = notificationRecords({
-      "event-notification-attributes-tag": [
+    const notifications = notificationRecords(
+      response([
         {
-          "notify-sequence-number": 2,
-          "notify-subscribed-event": "job-progress",
+          tag: "event-notification-attributes-tag",
+          attributes: [
+            { name: "notify-sequence-number", value: 2 },
+            { name: "notify-subscribed-event", value: "job-progress" },
+          ],
         },
         {
-          "notify-sequence-number": 7,
-          "notify-subscribed-event": "printer-state-changed",
+          tag: "event-notification-attributes-tag",
+          attributes: [
+            { name: "notify-sequence-number", value: 7 },
+            {
+              name: "notify-subscribed-event",
+              value: "printer-state-changed",
+            },
+          ],
         },
-      ],
-    })
+      ]),
+    )
 
     expect(maxNotificationSequenceNumber(notifications)).toBe(7)
     expect(
@@ -105,15 +127,20 @@ describe("IPP subscriptions helpers", () => {
   it("extracts notify-get-interval when present", () => {
     expect(
       extractNotifyGetIntervalSeconds({
-        "operation-attributes-tag": {
-          "notify-get-interval": 12,
-        },
+        ...response([]),
+        groups: [
+          {
+            tag: "operation-attributes-tag",
+            attributes: [{ name: "notify-get-interval", value: 12 }],
+          },
+        ],
       }),
     ).toBe(12)
 
     expect(
       extractNotifyGetIntervalSeconds({
-        "operation-attributes-tag": {},
+        ...response([]),
+        groups: [{ tag: "operation-attributes-tag", attributes: [] }],
       }),
     ).toBeNull()
   })

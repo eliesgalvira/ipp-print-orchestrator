@@ -4,7 +4,7 @@ import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http"
 import { BatchLogRecordProcessor } from "@opentelemetry/sdk-logs"
 import { NodeSDK, tracing } from "@opentelemetry/sdk-node"
 import type { Tracer as EffectTracer } from "effect"
-import { Effect, Match } from "effect"
+import { Effect } from "effect"
 
 import type { WideEvent } from "../domain/WideEvent.js"
 import { type OtelConfig, readOtelConfig } from "./OtelConfig.js"
@@ -17,11 +17,8 @@ let sdk: NodeSDK | null = null
 let effectTracer: EffectTracer.Tracer | null = null
 let shutdownRegistered = false
 
-const severityForEvent = (event: WideEvent): SeverityNumber =>
-  Match.value(event.eventName).pipe(
-    Match.when("print.job.failed", () => SeverityNumber.ERROR),
-    Match.orElse(() => SeverityNumber.INFO),
-  )
+const severityForEvent = (_event: WideEvent): SeverityNumber =>
+  SeverityNumber.INFO
 
 const logAttributesForEvent = (
   event: WideEvent,

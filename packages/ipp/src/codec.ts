@@ -1,8 +1,14 @@
 import { Match } from "effect"
 
-import { IppParseError, IppSerializationError } from "./errors.js"
+import {
+  IppDuplicateAttributeError,
+  IppParseError,
+  IppSerializationError,
+} from "./errors.js"
 import type {
+  IppAttribute,
   IppAttributeGroup,
+  IppAttributeMap,
   IppAttributeValue,
   IppCollection,
   IppMessage,
@@ -544,7 +550,7 @@ export const serializeIppRequest = (
     "attributes-natural-language": request.language,
     "printer-uri": request.printerUri,
     ...(request.message?.["operation-attributes-tag"] ?? {}),
-  } satisfies IppAttributeGroup
+  } satisfies IppAttributeMap
 
   return serializeIppMessage({
     operation: request.operation,
@@ -607,7 +613,7 @@ const readDateTime = (cursor: BufferCursor): Date => {
 }
 
 const readCollection = (cursor: BufferCursor): IppCollection => {
-  const collection: Record<string, IppAttributeValue> = {}
+  const members: IppAttribute[] = []
 
   while (cursor.readUInt8() !== ippTags.endCollection) {
     cursor.readUInt16BE()
@@ -618,7 +624,7 @@ const readCollection = (cursor: BufferCursor): IppCollection => {
 
     const valueTag = cursor.readUInt8()
     cursor.readUInt16BE()
-    collection[name] = readValues(cursor, valueTag, name)
+    members.push({ name, value: readValues(cursor, valueTag, name) })
   }
 
   cursor.readUInt16BE()
@@ -627,7 +633,7 @@ const readCollection = (cursor: BufferCursor): IppCollection => {
     cursor.readBuffer(length)
   }
 
-  return collection
+  return { members }
 }
 
 const readValue = (
@@ -718,33 +724,23 @@ const readValues = (
   return values
 }
 
-const appendGroup = (
-  message: Record<string, unknown>,
-  groupName: string,
-  group: IppAttributeGroup,
-) => {
-  const existing = message[groupName]
-  if (existing === undefined) {
-    message[groupName] = group
-    return
-  }
-
-  if (Array.isArray(existing)) {
-    message[groupName] = [...existing, group]
-    return
-  }
-
-  message[groupName] = [existing, group]
-}
-
 export const parseIppMessage = (buffer: Buffer): IppMessage => {
   try {
     const cursor = new BufferCursor(buffer)
     const major = cursor.readUInt8()
     const minor = cursor.readUInt8()
     const versionCode = (major << 8) | minor
-    const message: Record<string, unknown> = {
+    const message: {
+      version: string
+      operation?: string
+      statusCode?: string
+      id: number
+      groups: IppAttributeGroup[]
+      data?: Buffer
+    } = {
       version: ippVersionsByCode[versionCode] ?? `${major}.${minor}`,
+      id: 0,
+      groups: [],
     }
 
     const code = cursor.readUInt16BE()
@@ -768,20 +764,39 @@ export const parseIppMessage = (buffer: Buffer): IppMessage => {
       }
 
       const groupName = ippTagsByCode[groupTag] ?? `unknown-group-${groupTag}`
-      const group: Record<string, IppAttributeValue> = {}
-      appendGroup(message, groupName, group)
+      const attributes: IppAttribute[] = []
+      message.groups.push({ tag: groupName, attributes })
 
       while (cursor.position < cursor.length && cursor.peekUInt8() >= 0x0f) {
         const valueTag = cursor.readUInt8()
         const name = cursor.readString(cursor.readUInt16BE())
-        group[name] = readValues(cursor, valueTag, name)
+        attributes.push({ name, value: readValues(cursor, valueTag, name) })
       }
     }
 
-    return message as IppMessage
+    return message
   } catch (error) {
     throw new IppParseError({
       message: String(error),
     })
   }
+}
+
+export const validateIppMessage = (message: IppMessage): IppMessage => {
+  for (const group of message.groups) {
+    const counts = new Map<string, number>()
+    for (const attribute of group.attributes) {
+      counts.set(attribute.name, (counts.get(attribute.name) ?? 0) + 1)
+    }
+    for (const [name, occurrences] of counts) {
+      if (occurrences > 1) {
+        throw new IppDuplicateAttributeError({
+          group: group.tag,
+          name,
+          occurrences,
+        })
+      }
+    }
+  }
+  return message
 }

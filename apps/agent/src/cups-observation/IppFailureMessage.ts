@@ -1,49 +1,43 @@
-export interface IppFailureResponse {
-  readonly statusCode?: string
-  readonly "operation-attributes-tag"?: Record<string, unknown>
-  readonly "unsupported-attributes-tag"?:
-    | Record<string, unknown>
-    | readonly Record<string, unknown>[]
-}
+import {
+  attributeGroups,
+  attributeValues,
+  type IppAttributeGroup,
+  type IppMessage,
+} from "@ipp/ipp"
+
+export type IppFailureResponse = IppMessage
 
 export interface IppFailureContext {
   readonly operation?: string
 }
 
-const summarizeRecord = (value: Record<string, unknown>): string =>
-  Object.entries(value)
-    .map(([key, item]) => `${key}=${JSON.stringify(item)}`)
+const summarizeGroup = (group: IppAttributeGroup): string =>
+  group.attributes
+    .map((attribute) => `${attribute.name}=${JSON.stringify(attribute.value)}`)
     .join(", ")
-
-const summarizeUnsupportedAttributes = (
-  value: IppFailureResponse["unsupported-attributes-tag"],
-): string | null => {
-  if (value === undefined) {
-    return null
-  }
-
-  const records = Array.isArray(value) ? value : [value]
-  const summary = records.map(summarizeRecord).filter((item) => item.length > 0)
-  return summary.length === 0 ? null : summary.join("; ")
-}
 
 export const ippFailureMessage = (
   response: IppFailureResponse,
   context: IppFailureContext = {},
 ): string => {
   const statusCode = response.statusCode ?? "unknown"
-  const statusMessage = response["operation-attributes-tag"]?.["status-message"]
-  const unsupportedAttributes = summarizeUnsupportedAttributes(
-    response["unsupported-attributes-tag"],
+  const operationGroups = attributeGroups(response, "operation-attributes-tag")
+  const statusMessages = operationGroups.flatMap((group) =>
+    attributeValues(group, "status-message"),
   )
+  const unsupported = attributeGroups(response, "unsupported-attributes-tag")
+    .map(summarizeGroup)
+    .filter((summary) => summary.length > 0)
   const details = [
-    typeof statusMessage === "string" && statusMessage.length > 0
-      ? `status-message=${JSON.stringify(statusMessage)}`
-      : null,
-    unsupportedAttributes === null
-      ? null
-      : `unsupported-attributes=${unsupportedAttributes}`,
-  ].flatMap((item) => (item === null ? [] : [item]))
+    ...statusMessages.flatMap((message) =>
+      typeof message === "string" && message.length > 0
+        ? [`status-message=${JSON.stringify(message)}`]
+        : [],
+    ),
+    ...(unsupported.length === 0
+      ? []
+      : [`unsupported-attributes=${unsupported.join("; ")}`]),
+  ]
   const prefix =
     context.operation === undefined
       ? "IPP request failed"

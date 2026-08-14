@@ -13,12 +13,12 @@ import {
 } from "@opentelemetry/api"
 import {
   Cause,
+  type Context,
   Tracer as EffectTracer,
   Exit,
   type Fiber,
   Match,
   Option,
-  type Context,
 } from "effect"
 
 class OtelEffectSpan implements EffectTracer.Span {

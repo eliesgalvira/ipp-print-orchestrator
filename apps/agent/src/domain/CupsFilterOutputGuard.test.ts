@@ -7,6 +7,7 @@ import {
   decideSplOutputGuard,
   hasSplBlankPageSuppression,
   parseCupsCopies,
+  sanitizeCupsFilterStderrForCups,
 } from "./CupsFilterOutputGuard.js"
 
 describe("CUPS filter output guard", () => {
@@ -152,6 +153,20 @@ describe("CUPS filter output guard", () => {
         "INFO: Processing page 1...\nINFO: Processing page 2...\n",
       ),
     ).toBe(2)
+  })
+
+  it("passes only CUPS page-accounting stderr back to CUPS", () => {
+    expect(
+      sanitizeCupsFilterStderrForCups(
+        [
+          "INFO: cfFilterGhostscript: Processing page 1...",
+          "ppdFilterLoadPPD: Last filter could not get determined, page logging by the PDF filter turned off.",
+          "ATTR: job-media-progress=100",
+          "PAGE: 1 1",
+          "",
+        ].join("\n"),
+      ),
+    ).toBe("ATTR: job-media-progress=100\nPAGE: 1 1\n")
   })
 
   it("detects SPL blank-page suppression in the PJL header", () => {

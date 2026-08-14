@@ -62,14 +62,11 @@ def install-rendered-unit [
 
 def default-service-env-content []: nothing -> string {
   [
-    "IPP_ORCH_DATA_DIR=data"
     "IPP_ORCH_PRINTER_NAME=printer"
     "IPP_ORCH_BIND_HOST=127.0.0.1"
     "IPP_ORCH_BIND_PORT=4310"
     "IPP_ORCH_USB_SYSFS_ROOT=/sys/bus/usb/devices"
-    "IPP_ORCH_STATUS_OBSERVATION_INTERVAL_MS=10000"
     "IPP_ORCH_HEARTBEAT_INTERVAL_MS=60000"
-    "IPP_ORCH_RECONCILE_INTERVAL_MS=30000"
     "IPP_ORCH_LOG_PRETTY=false"
     "IPP_ORCH_ENABLE_OTLP=false"
     "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT="

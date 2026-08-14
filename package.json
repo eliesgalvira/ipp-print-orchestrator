@@ -14,7 +14,7 @@
     "build:cups-filter": "rm -rf apps/agent/dist-cups-filter && bun build apps/agent/src/cli/cups-pdf-preflight-filter.ts --target=node --format=esm --outfile apps/agent/dist-cups-filter/cups-pdf-preflight-filter.js",
     "effect:diagnostics": "effect-language-service diagnostics --project tsconfig.json",
     "effect:quickfixes": "effect-language-service quickfixes --project tsconfig.json",
-    "typecheck": "bun run effect:diagnostics && tsc -p packages/shared/tsconfig.json --pretty false --noEmit && tsc -p packages/ipp/tsconfig.json --pretty false --noEmit && tsc -p packages/testkit/tsconfig.json --pretty false --noEmit && tsc -p apps/agent/tsconfig.json --pretty false --noEmit",
+    "typecheck": "bun run effect:diagnostics && tsc -p packages/ipp/tsconfig.json --pretty false --noEmit && tsc -p apps/agent/tsconfig.json --pretty false --noEmit",
     "test": "vitest run && bun run test:nu",
     "test:nu": "nu scripts/tests.nu",
     "test:watch": "vitest",
@@ -27,10 +27,8 @@
     "nix:check-closures-live-to-pi": "nu scripts/check-nix-closures-live-to-pi.nu",
     "nix:prepare-aarch64-builder": "nu scripts/prepare-aarch64-builder.nu",
     "check-observability:live-to-pi": "nu scripts/check-observability-live-to-pi.nu",
-    "debug-ipp-printer-attributes:live-to-pi": "nu scripts/debug-ipp-printer-attributes-live-to-pi.nu",
     "diagnose-usb-hotplug:live-to-pi": "nu scripts/diagnose-usb-hotplug-live-to-pi.nu",
-    "install-systemd:live-to-pi": "nu scripts/install-systemd-live-to-pi.nu",
-    "update:live-to-pi": "nu scripts/update-packages-live-to-pi.nu"
+    "install-systemd:live-to-pi": "nu scripts/install-systemd-live-to-pi.nu"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.6",

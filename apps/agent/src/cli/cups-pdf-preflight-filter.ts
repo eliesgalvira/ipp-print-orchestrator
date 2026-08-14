@@ -20,11 +20,12 @@ import { pipeline } from "node:stream/promises"
 import { Cause, Effect, Schema } from "effect"
 
 import {
-  decideCupsCopiesGuard,
-  decideSplOutputGuard,
   countCupsPageLogEntries,
   countGhostscriptProcessedPages,
+  decideCupsCopiesGuard,
+  decideSplOutputGuard,
   hasSplBlankPageSuppression,
+  sanitizeCupsFilterStderrForCups,
 } from "../domain/CupsFilterOutputGuard.js"
 import {
   CupsCommandFailed,
@@ -135,10 +136,9 @@ const bytesFromNumberOrBigInt = (value: number | bigint): number =>
   typeof value === "bigint" ? Number(value) : value
 
 const formatBytesForDebug = (bytes: number): string =>
-  `${Math.max(0, bytes)} bytes (${(
-    Math.max(0, bytes) /
-    (1024 * 1024)
-  ).toFixed(1)} MiB)`
+  `${Math.max(0, bytes)} bytes (${(Math.max(0, bytes) / (1024 * 1024)).toFixed(
+    1,
+  )} MiB)`
 
 class TempDirCleanupFailed extends Schema.TaggedErrorClass<TempDirCleanupFailed>()(
   "TempDirCleanupFailed",
@@ -299,9 +299,10 @@ const runCupsFilter = (params: {
           stdio: ["ignore", stdout, "pipe"],
         })
         const stderr = commandOutputToString(result.stderr)
+        const cupsVisibleStderr = sanitizeCupsFilterStderrForCups(stderr)
 
-        if (stderr.length > 0) {
-          process.stderr.write(stderr.endsWith("\n") ? stderr : `${stderr}\n`)
+        if (cupsVisibleStderr.length > 0) {
+          process.stderr.write(cupsVisibleStderr)
         }
 
         if (result.error !== undefined) {
@@ -436,28 +437,28 @@ const cleanupStaleTempDirs = (tempRoot: string) =>
 const getTmpDirAvailableBytes = (tempRoot: string): number => {
   const stats = statfsSync(tempRoot)
   const availableBlocks = stats.bavail ?? stats.bfree
-  return bytesFromNumberOrBigInt(stats.bsize) * bytesFromNumberOrBigInt(availableBlocks)
+  return (
+    bytesFromNumberOrBigInt(stats.bsize) *
+    bytesFromNumberOrBigInt(availableBlocks)
+  )
 }
 
 const ensureTmpDirCapacity = (tempRoot: string) =>
   Effect.gen(function* () {
-    let availableBytes: number
-
-    try {
-      availableBytes = getTmpDirAvailableBytes(tempRoot)
-    } catch (error) {
-      return yield* new CupsCommandFailed({
-        message: `failed to read temporary-directory stats for ${tempRoot}: ${String(error)}`,
-      })
-    }
+    const availableBytes = yield* Effect.try({
+      try: () => getTmpDirAvailableBytes(tempRoot),
+      catch: (error) =>
+        new CupsCommandFailed({
+          message: `failed to read temporary-directory stats for ${tempRoot}: ${String(error)}`,
+        }),
+    })
 
     if (availableBytes >= cupsTmpDirMinFreeBytes) {
       return
     }
 
     return yield* new CupsTmpDirFull({
-      message:
-        `Insufficient temporary space at ${tempRoot}: available ${formatBytesForDebug(availableBytes)}, minimum ${formatBytesForDebug(cupsTmpDirMinFreeBytes)} required before running preflight filters`,
+      message: `Insufficient temporary space at ${tempRoot}: available ${formatBytesForDebug(availableBytes)}, minimum ${formatBytesForDebug(cupsTmpDirMinFreeBytes)} required before running preflight filters`,
     })
   })
 
@@ -537,15 +538,17 @@ const renderPipeline = (
     if (observedPagesFromSubfilters > pdfPages + 1) {
       return yield* new OutputGuardRejected({
         reason: "unexpected-page-count",
-        message:
-          `Subfilter PDF pipeline reported ${observedPagesFromSubfilters} pages for a ${pdfPages}-page PDF; rejecting before raster-to-SPL`,
+        message: `Subfilter PDF pipeline reported ${observedPagesFromSubfilters} pages for a ${pdfPages}-page PDF; rejecting before raster-to-SPL`,
         actualBytes: 0,
         expectedPages: pdfPages,
         observedPages: observedPagesFromSubfilters,
       })
     }
 
-    if (observedPagesFromSubfilters > 0 && observedPagesFromSubfilters !== pdfPages) {
+    if (
+      observedPagesFromSubfilters > 0 &&
+      observedPagesFromSubfilters !== pdfPages
+    ) {
       yield* writeCupsStderr(
         "INFO",
         `Subfilter PDF pipeline reported ${observedPagesFromSubfilters} pages for a ${pdfPages}-page PDF; continuing to raster-to-SPL for final page count verification`,

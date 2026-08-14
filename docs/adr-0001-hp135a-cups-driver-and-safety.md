@@ -10,8 +10,8 @@ Accepted.
 
 The live printer is an HP Laser MFP 135a attached by USB to a Raspberry Pi Zero
 2 W print server. Family phones discover the queue over mDNS/IPP and submit
-print jobs through Android's print flow. The orchestrator also submits PDF jobs
-to the same CUPS queue.
+print jobs through Android's print flow. CUPS owns every accepted job and its
+lifecycle.
 
 The printer itself was not the root problem: photocopying worked. The failures
 were in the CUPS driver/filter path for documents containing images, logos,
@@ -31,7 +31,7 @@ Observed failures during diagnosis:
   caused scanned pages to compress horizontally because the raster row layout no
   longer matched what `rastertospl` expects.
 - Ad hoc `lp` test commands caused dangerous behavior because they did not
-  match the phone/orchestrator IPP shape and could trigger repeated or malformed
+  match Android's IPP shape and could trigger repeated or malformed
   output.
 - On 2026-06-19, Android submitted multiple direct IPP `Print-Job` requests for
   PDFs after warning that an encrypted/protected file could not be printed. CUPS
@@ -39,6 +39,37 @@ Observed failures during diagnosis:
   USB printer interface repeatedly detached/reappeared while the printer emitted
   bad pages. The default no-retention CUPS configuration removed the job files
   before forensic inspection.
+- On 2026-06-30, Android printed a job successfully but still showed a printer
+  error notification. CUPS reported the job as `completed` with
+  `job-completed-successfully`, but `Get-Printer-Attributes` exposed stale and
+  contradictory metadata:
+  `printer-state-message = "Sending data to printer."` while
+  `printer-state = idle`, and two `media-default` attributes in the same
+  response: `A4` from queue options and `na_letter_8.5x11in` from the HP vendor
+  PPD's internal defaults. `ipptool` flagged the response as a duplicate
+  attribute failure. The successful job also preserved a benign CUPS filter
+  warning in `job-printer-state-message`:
+  `ppdFilterLoadPPD: Last filter could not get determined, page logging by the
+  PDF filter turned off.` Android/Mopria can surface that kind of status message
+  as a user-visible error even when the backend finished and the paper output was
+  correct.
+- During the same 2026-06-30 investigation, the Pi and local mDNS browse only
+  showed the explicit Avahi service as `HP Laser MFP 135a @ print-server` with
+  hostname `print-server.local`. No live `print-server-2.local` advertisement
+  was observed. The CUPS certificate SAN matched `print-server.local` and the
+  current IP addresses, but not `print-server-2.local`; a client using a cached
+  or conflict-renamed `print-server-2.local` endpoint would therefore see a TLS
+  hostname mismatch. Treat `print-server-2` reports as a discovery/cache/TLS
+  identity symptom unless a live Avahi collision is observed.
+
+The 2026-06-30 metadata failure was not primarily a CUPS source-code bug. CUPS
+was permissive enough to expose the inconsistent state it was given: a queue
+configured for A4 over a vendor PPD whose defaults still said Letter, plus
+subfilter stderr that the wrapper forwarded back to CUPS. That behavior is
+unpleasant for Android clients, and CUPS arguably could canonicalize or suppress
+some of it better, but the actionable root cause is under this repository's
+control: our setup and filter boundaries allowed operationally misleading
+metadata to leak into the public IPP surface.
 
 ## Decision
 
@@ -56,6 +87,14 @@ Patch the HP PPD conservatively:
 - Do not force 1-bit grayscale.
 - Replace the standard option's effective hardware resolution from
   `HWResolution[600 600]` to `HWResolution[300 300]`.
+- Normalize the HP vendor PPD's default paper declarations to A4 before
+  installing either the driver PPD or the queue PPD:
+  `*DefaultPageSize`, `*DefaultPageRegion`, `*DefaultImageableArea`, and
+  `*DefaultPaperDimension`. Do not rely only on queue-level `PageSize=A4` or
+  `media-default=A4`, because CUPS can expose both queue options and PPD defaults
+  through IPP, producing contradictory metadata for Android clients.
+- Perform that normalization in the Nix derivation. Activation copies the
+  immutable PPD and does not maintain a second rewrite implementation.
 - Keep the driver's existing `Quality 600dpi` option name for compatibility with
   CUPS defaults, but render that default at 300x300.
 - Add a queue-specific `application/pdf` CUPS filter named
@@ -75,6 +114,13 @@ Patch the HP PPD conservatively:
   are diagnostic input, not a rejection criterion by themselves, because
   Ghostscript can log an extra progress page while the CUPS raster stream and
   final SPL output still contain exactly one driver-reported page.
+- Do not forward raw subfilter stderr to CUPS. The wrapper may use subfilter
+  stderr internally for guard decisions and diagnostics, but the public stderr
+  stream returned to CUPS must be curated. Pass through only page-accounting
+  lines such as `PAGE:` and `ATTR: job-media-progress`; emit wrapper-owned
+  `INFO`, `ERROR`, and `STATE` lines for real accepted/rejected decisions. This
+  prevents benign implementation warnings from becoming `printer-state-message`
+  or `job-printer-state-message` values that Android displays as printer errors.
 - Route the queue through the `ipp-orch-usb` backend wrapper instead of the raw
   CUPS `usb` backend. The wrapper stages filter output before touching USB,
   rejects empty filter output immediately, delegates non-empty payloads to the
@@ -89,6 +135,9 @@ Configure CUPS defensively:
 - Disable CUPS' built-in DNS-SD browsing and install an explicit Avahi
   `_ipps._tcp` service for the queue. Do not advertise the unencrypted `_ipp._tcp`
   path to Android.
+- When enabling the queue, set a neutral queue reason such as `Ready.` so stale
+  transient messages like `Sending data to printer.` are not left attached to an
+  idle printer and exposed through IPP.
 - `ErrorPolicy=abort-job`
 - `JobRetryLimit=0`
 - `JobRetryInterval=0`
@@ -120,6 +169,22 @@ when run with `--enable-printing`.
 The local wrapper must sync the target-side setup script and its Nu library
 dependencies to the Pi before executing it. Running a stale script on the Pi can
 silently reinstall an old unsafe PPD.
+
+The public IPP surface is treated as part of the product contract with Android,
+not as incidental CUPS internals. Any CUPS/PPD/filter state visible through
+`Get-Printer-Attributes`, `Get-Job-Attributes`, or DNS-SD TXT records must be
+boring, internally consistent, and client-safe. A job can physically print while
+the Android UX still reports failure if this metadata is misleading.
+
+CUPS is the sole job ingress, spool, and lifecycle authority. The observer has
+no HTTP job routes, local blob store, job repository, retry queue, or mirrored
+event outbox. Its health and telemetry failures must not gate CUPS printing.
+
+The local IPP decoder preserves ordered groups and ordered attributes, including
+repeated complete attributes. Network responses containing a repeated attribute
+within one group fail with a typed error. Queue activation also runs CUPS'
+official `get-printer-attributes.test` through `ipptool` against the advertised
+IPPS endpoint; a failure leaves activation unsuccessful.
 
 ## Consequences
 
@@ -168,6 +233,12 @@ Image quality may be lower than true 600x600 grayscale, but the priority for
 this printer is reliable monochrome document output without runaway pages or
 garbled SPL streams.
 
+The A4 normalization and stderr-curation rules are defensive compatibility
+layers around CUPS. They do not fork or patch CUPS itself. CUPS remains the IPP
+scheduler and queue owner, but this repository owns the correctness of the
+metadata and filter messages it feeds into CUPS. This keeps the fix small,
+deployable, and testable without depending on upstream CUPS behavior changes.
+
 ## Operational Rules
 
 Do not run physical print tests casually.
@@ -189,7 +260,7 @@ Use one sheet unless the user explicitly authorizes more.
 Avoid local `lp` for validation. The working shape is a single IPP `Print-Job`
 with the PDF attached to the request, `copies=1`, `print-scaling=none`,
 `orientation-requested=portrait`, `sides=one-sided`, and monochrome output. The
-orchestrator path follows this shape directly.
+guarded CUPS path must accept or reject that shape directly.
 
 ## Verification Performed
 
@@ -231,4 +302,4 @@ of scanned PDF output.
 Ad hoc `lp` physical tests:
 
 Rejected for this printer because they can exercise a different job submission
-shape from Android/orchestrator printing and previously caused runaway output.
+shape from Android printing and previously caused runaway output.

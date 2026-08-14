@@ -58,8 +58,19 @@ export const countGhostscriptProcessedPages = (stderr: string): number =>
       /^\s*(?:INFO:\s*)?(?:cfFilterGhostscript:\s*)?Processing\s+page\s+\d+\s*\.\.\.?/i.test(
         line,
       ),
+    ).length
+
+export const sanitizeCupsFilterStderrForCups = (stderr: string): string => {
+  const lines = stderr.split(/\r?\n/).filter((line) => {
+    const trimmed = line.trim()
+    return (
+      /^PAGE:\s+\d+\s+\d+\s*$/i.test(trimmed) ||
+      /^ATTR:\s+job-media-progress=\d+\s*$/i.test(trimmed)
     )
-    .length
+  })
+
+  return lines.length === 0 ? "" : `${lines.join("\n")}\n`
+}
 
 export const hasSplBlankPageSuppression = (printerLanguage: string): boolean =>
   /@PJL\s+SET\s+XIGNOREFF\s*=\s*ON/i.test(printerLanguage)

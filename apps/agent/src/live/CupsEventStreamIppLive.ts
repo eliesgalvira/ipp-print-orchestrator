@@ -5,7 +5,6 @@ import {
   extractNotifyGetIntervalSeconds,
   extractSubscriptionId,
   getNotificationsRequest,
-  type IppAttributeGroup,
   IppClient,
   type IppMessage,
   type IppRequestMessage,
@@ -15,24 +14,10 @@ import {
 import { Effect, Layer, Schedule } from "effect"
 import { AppConfig } from "../config/AppConfig.js"
 import { decideCupsNotification } from "../cups-observation/CupsNotificationPolicy.js"
-import {
-  type IppFailureResponse,
-  ippFailureMessage,
-} from "../cups-observation/IppFailureMessage.js"
+import { ippFailureMessage } from "../cups-observation/IppFailureMessage.js"
 import { CupsIppProtocolError, CupsIppUnavailable } from "../domain/Errors.js"
 import { CupsEventStream } from "../services/CupsEventStream.js"
-import { Reconciler } from "../services/Reconciler.js"
 import { StatusRuntime } from "../services/StatusRuntime.js"
-
-type IppResponse = IppMessage &
-  IppFailureResponse & {
-    readonly "subscription-attributes-tag"?:
-      | IppAttributeGroup
-      | readonly IppAttributeGroup[]
-    readonly "event-notification-attributes-tag"?:
-      | IppAttributeGroup
-      | readonly IppAttributeGroup[]
-  }
 
 type IppClientService = Parameters<typeof IppClient.of>[0]
 
@@ -47,10 +32,9 @@ const executeIpp = (
   printer: ReturnType<typeof makePrinter>,
   operation: string,
   message: IppRequestMessage | null,
-): Effect.Effect<IppResponse, CupsIppUnavailable> =>
+): Effect.Effect<IppMessage, CupsIppUnavailable> =>
   printer.execute(operation, message).pipe(
     Effect.provideService(IppClient, ippClient),
-    Effect.map((response) => response as IppResponse),
     Effect.mapError(
       (error) =>
         new CupsIppUnavailable({
@@ -59,10 +43,10 @@ const executeIpp = (
     ),
   )
 
-const ensureSuccessfulResponse = <A extends IppResponse>(
+const ensureSuccessfulResponse = (
   operation: string,
-  response: A,
-): Effect.Effect<A, CupsIppProtocolError> => {
+  response: IppMessage,
+): Effect.Effect<IppMessage, CupsIppProtocolError> => {
   const statusCode = response.statusCode
   if (statusCode === undefined || statusCode.startsWith("successful-ok")) {
     return Effect.succeed(response)
@@ -77,14 +61,7 @@ const ensureSuccessfulResponse = <A extends IppResponse>(
 
 const subscriptionTemplate = {
   "notify-pull-method": "ippget",
-  "notify-events": [
-    "printer-state-changed",
-    "printer-modified",
-    "job-completed",
-    "job-created",
-    "job-progress",
-    "job-stopped",
-  ],
+  "notify-events": ["printer-state-changed", "printer-modified"],
   "notify-lease-duration": 0,
 } as const
 
@@ -97,7 +74,6 @@ export const CupsEventStreamIppLive = Layer.effect(
   Effect.gen(function* () {
     const appConfig = yield* AppConfig
     const ippClient = yield* IppClient
-    const reconciler = yield* Reconciler
     const statusRuntime = yield* StatusRuntime
     const printerUri = printerUriForName(appConfig.printerName)
     const printerHttpUrl = printerHttpUrlForName(appConfig.printerName)
@@ -108,18 +84,16 @@ export const CupsEventStreamIppLive = Layer.effect(
     })
 
     const recordCupsDisconnected = (message: string, errorTag: string) =>
-      statusRuntime
-        .recordObservedStatus({
-          timestamp: new Date().toISOString(),
-          hostname: hostname(),
-          observationReason: "cups-stream-disconnect",
-          cupsReachable: false,
-          printerQueueAvailable: false,
-          printerState: null,
-          printerReasons: [errorTag],
-          printerMessage: message,
-        })
-        .pipe(Effect.catch(() => Effect.void))
+      statusRuntime.recordObservedStatus({
+        timestamp: new Date().toISOString(),
+        hostname: hostname(),
+        observationReason: "cups-stream-disconnect",
+        cupsReachable: false,
+        printerQueueAvailable: false,
+        printerState: null,
+        printerReasons: [errorTag],
+        printerMessage: message,
+      })
 
     const createPrinterSubscription = () =>
       executeIpp(
@@ -135,7 +109,17 @@ export const CupsEventStreamIppLive = Layer.effect(
         Effect.flatMap((response) =>
           ensureSuccessfulResponse("Create-Printer-Subscriptions", response),
         ),
-        Effect.map((response) => extractSubscriptionId(response)),
+        Effect.flatMap((response) => {
+          const subscriptionId = extractSubscriptionId(response)
+          return subscriptionId === null
+            ? Effect.fail(
+                new CupsIppProtocolError({
+                  message:
+                    "IPP subscription response missing one valid notify-subscription-id",
+                }),
+              )
+            : Effect.succeed(subscriptionId)
+        }),
       )
 
     const cancelSubscription = (subscriptionId: number) =>
@@ -181,20 +165,7 @@ export const CupsEventStreamIppLive = Layer.effect(
         (id) => cancelSubscription(id),
       )
 
-      yield* statusRuntime.observeNow("cups-stream-reconnect").pipe(
-        Effect.catch(() =>
-          statusRuntime.recordObservedStatus({
-            timestamp: new Date().toISOString(),
-            hostname: hostname(),
-            observationReason: "cups-stream-reconnect",
-            cupsReachable: true,
-          }),
-        ),
-      )
-      yield* reconciler
-        .repairCupsTrackedJobs()
-        .pipe(Effect.catch(() => Effect.void))
-
+      yield* statusRuntime.observeNow("cups-stream-reconnect")
       let nextSequenceNumber = 1
 
       while (true) {
@@ -212,15 +183,7 @@ export const CupsEventStreamIppLive = Layer.effect(
         nextSequenceNumber = decision.nextSequenceNumber
 
         if (decision.observePrinterStatus) {
-          yield* statusRuntime
-            .observeNow("cups-notification")
-            .pipe(Effect.catch(() => Effect.void))
-        }
-
-        if (decision.repairCupsTrackedJobs) {
-          yield* reconciler
-            .repairCupsTrackedJobs()
-            .pipe(Effect.catch(() => Effect.void))
+          yield* statusRuntime.observeNow("cups-notification")
         }
 
         if (notifyGetIntervalSeconds !== null && notifyGetIntervalSeconds > 0) {

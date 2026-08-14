@@ -21,7 +21,17 @@ export class IppParseError extends Schema.TaggedErrorClass<IppParseError>()(
   },
 ) {}
 
+export class IppDuplicateAttributeError extends Schema.TaggedErrorClass<IppDuplicateAttributeError>()(
+  "IppDuplicateAttributeError",
+  {
+    group: Schema.String,
+    name: Schema.String,
+    occurrences: Schema.Number,
+  },
+) {}
+
 export type IppClientError =
   | IppSerializationError
   | IppTransportError
   | IppParseError
+  | IppDuplicateAttributeError

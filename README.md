@@ -1,645 +1,172 @@
 # ipp-print-orchestrator
 
-`ipp-print-orchestrator` is a local-first, fault-tolerant print orchestrator for a Raspberry Pi print server. It runs beside CUPS, keeps durable orchestration state on disk, and uses Effect services, tags, and layers as the application architecture.
+This repository runs a guarded CUPS print server for an HP Laser MFP 135a on a
+Raspberry Pi. Phones submit jobs directly to the advertised IPPS queue. CUPS is
+the only job ingress, spool, and lifecycle authority.
 
-## Status
+The Effect agent does three things:
 
-Implemented so far:
+- observes CUPS, the configured device URI, and Linux USB state;
+- exposes local health and status endpoints;
+- emits bounded process logs and optional OTLP telemetry.
 
-- Effect-first Bun workspace setup with strict TypeScript and Effect language service
-- Pure domain model, typed operational errors, and explicit state machine
-- Scripted testkit with in-memory and fault-injection layers
-- File-backed blob store, job repository, and durable event outbox
-- Startup recovery with queue rehydration and targeted CUPS job repair
-- Live CUPS CLI adapter based on `lp` and `lpstat`
-- Local HTTP API with health and status endpoints
-- Internal heartbeat emission and local smoke testing
-- Pi deployment scripts and systemd unit files
+The CUPS filter and USB backend enforce print safety before bytes reach the
+printer. The agent does not accept or persist print jobs.
 
-Current deviation from the original pnpm-oriented scaffold:
-
-- This repository uses a Bun workspace because the package manager was chosen up front as `bun`
-- Deployment and local commands therefore use `bun` instead of `pnpm`
-
-## Repository Layout
+## Repository layout
 
 ```text
-apps/agent/
-  src/
-    cli/
-    config/
-    domain/
-    http/
-    live/
-    observability/
-    services/
-    util/
-packages/shared/
-packages/ipp/
-packages/testkit/
-scripts/
-systemd/
+apps/agent/       Effect service and CUPS PDF filter
+packages/ipp/     Lossless IPP codec, client, and subscription helpers
+nix/              Runtime, HP ULD, USB backend, module, and checks
+scripts/          Local and live-Pi operational adapters
+systemd/          Transitional non-NixOS units
+docs/             Accepted printer and safety decision
 ```
 
-## Architecture
+## Protocol invariants
 
-Key rules enforced in the current implementation:
+- Parsed IPP groups and attributes remain ordered arrays. Repeated complete
+  attributes are preserved and rejected at the network boundary; they are never
+  flattened into a JavaScript object.
+- Outgoing request attributes use maps because this process constructs them and
+  uniqueness is intrinsic at that boundary.
+- `usb://` and the installed `ipp-orch-usb://` wrapper URI identify the same
+  physical USB device.
+- The Nix HP ULD package is the only source of the installed PPD. Its four paper
+  defaults are A4.
+- Enabling a shared queue requires the official CUPS
+  `get-printer-attributes.test` to pass against its public IPPS endpoint.
 
-- CUPS remains the real spooler
-- The orchestrator persists local state before acknowledging accepted jobs
-- Durable repo state is the orchestration source of truth
-- External interactions are hidden behind Effect services
-- Operational failures are typed domain errors, not raw exceptions
-- `SubmissionUncertain` is explicit and blocks blind re-submit
-- Startup recovery is mandatory and rehydrates retryable jobs
-
-Important services:
-
-- `BlobStore`
-- `JobRepo`
-- `EventSink`
-- `Telemetry`
-- `CupsClient`
-- `PrinterProbe`
-- `NetworkProbe`
-- `QueueRuntime`
-- `Reconciler`
-- `Heartbeat`
-- `Orchestrator`
-
-## Effect Setup
-
-This repository is configured to work with Effect:
-
-- `effect-solutions` guidance is referenced in `CLAUDE.md` and `AGENTS.md`
-- the Effect language service is installed and patched through `prepare`
-- strict TypeScript settings live in `tsconfig.base.json`
-- a local reference checkout of Effect lives under `.reference/effect/`
-
-When working on Effect code:
-
-```bash
-effect-solutions list
-effect-solutions show basics services-and-layers data-modeling error-handling testing
-```
-
-## Local Setup
-
-Install dependencies:
+## Setup and checks
 
 ```bash
 bun install
+bun run typecheck
+bun run test
+bun run build
+bun run lint
+nix flake check
 ```
 
-Copy or adapt environment values if needed:
+Effect code must follow the local guide before changes:
 
 ```bash
-cp .env.example .env
+effect-solutions list
+effect-solutions show services-and-layers data-modeling error-handling testing
 ```
 
-Runtime entrypoints load configuration from shell environment first, then `.env` in the repository root if present. On the Pi, ad hoc CLI commands also fall back to `/etc/ipp-print-orchestrator.env`.
-
-The app reads configuration from environment variables. The most important settings are:
-
-- `IPP_ORCH_DATA_DIR`
-- `IPP_ORCH_PRINTER_NAME`
-- `IPP_ORCH_BIND_HOST`
-- `IPP_ORCH_BIND_PORT`
-- `IPP_ORCH_USB_SYSFS_ROOT`
-- `IPP_ORCH_HEARTBEAT_INTERVAL_MS`
-- `IPP_ORCH_RECONCILE_INTERVAL_MS`
-
-Deprecated compatibility setting:
-
-- `IPP_ORCH_STATUS_OBSERVATION_INTERVAL_MS`
-  - ignored by the current runtime
-  - older installs may still have it in `/etc/ipp-print-orchestrator.env` from the previous polling-based design
-- `IPP_ORCH_CUPS_TMP_DIR_MIN_FREE_BYTES`
-  - minimum free space required in the temp partition before running the preflight CUPS chain
-  - default: `16777216` (16 MiB)
-
-For local USB printers, the runtime checks both the configured CUPS queue and Linux USB presence under sysfs. USB hotplug events trigger a sysfs-backed attachment refresh, and cold-start status hydrates the same state without running `lpinfo -v` on the request path.
-
-Mandatory printer setup for home/USB printers:
-
-- disable any printer-side `Auto Power Off`, `Sleep`, `Deep Sleep`, `Eco`, or similar automatic power-saving mode before using the orchestrator
-
-If you do not disable printer-side auto power-off, the printer can disappear from the USB bus while CUPS still has a configured queue, which presents as intermittent `printerAttached=false` transitions and confusing "printer looks idle but does not print" behavior.
-
-## Running Locally
-
-Run the full daemon:
+Run the agent locally:
 
 ```bash
 bun --filter @ipp/agent dev
 ```
 
-Run the built daemon:
-
-```bash
-bun run build
-bun --filter @ipp/agent start
-```
-
-Run targeted entrypoints:
-
-```bash
-bun --filter @ipp/agent worker
-bun --filter @ipp/agent reconcile
-bun --filter @ipp/agent submit -- ./path/to/file.pdf
-```
-
-## HTTP API
-
-Available endpoints:
-
-- `POST /v1/jobs`
-- `GET /v1/jobs/:id`
-- `GET /v1/health`
-- `GET /v1/status`
-
-Example submit request:
-
-```bash
-curl -X POST http://127.0.0.1:4310/v1/jobs \
-  -H 'content-type: application/json' \
-  -d '{
-    "fileName": "hello.txt",
-    "mimeType": "text/plain",
-    "contentBase64": "aGVsbG8K"
-  }'
-```
-
-## Running Tests
-
-Root commands:
-
-```bash
-bun run typecheck
-bun run test
-bun run build
-bun run lint
-bun run format
-```
-
-Nix build-system checks:
-
-```bash
-nix flake check
-nix build .#packages.x86_64-linux.ipp-print-orchestrator
-nix build .#checks.x86_64-linux.nixos-module
-```
-
-The flake exposes `nixosModules.ipp-print-orchestrator` for the long-term NixOS
-target. The current live Pi deploy still uses the transitional non-NixOS path:
-it builds aarch64 closures locally or on a configured builder, copies those
-closures to the Pi, and activates systemd/CUPS from copied store paths.
-
-Agent package commands:
-
-```bash
-bun --filter @ipp/agent test
-bun --filter @ipp/agent test:watch
-bun --filter @ipp/agent smoke
-```
-
-## Smoke Testing
-
-Local smoke test:
+The local smoke test starts the agent and checks both public endpoints:
 
 ```bash
 nu scripts/smoke-test-local.nu
 ```
 
-Live Pi smoke test:
+## HTTP surface
 
-```bash
-nu scripts/smoke-test-live-to-pi.nu
-```
+- `GET /v1/health`
+- `GET /v1/status`
 
-Continuous live Pi status watch from your laptop:
+There is deliberately no job API. Use the IPPS queue for printing.
 
-```bash
-nu scripts/watch-status-live-to-pi.nu
-```
+## Configuration
 
-The watcher prints a compact status line on every poll, including printer attachment, CUPS reachability, network state, nonterminal job count, queue depth, heartbeat age, and the first local IP.
+Runtime entrypoints read the process environment first and then the repository
+`.env`. The Pi service also reads `/etc/ipp-print-orchestrator.env`.
 
-USB hotplug diagnostics from your laptop:
+- `IPP_ORCH_PRINTER_NAME`
+- `IPP_ORCH_BIND_HOST`
+- `IPP_ORCH_BIND_PORT`
+- `IPP_ORCH_USB_SYSFS_ROOT`
+- `IPP_ORCH_HEARTBEAT_INTERVAL_MS`
+- `IPP_ORCH_LOG_PRETTY`
+- `IPP_ORCH_ENABLE_OTLP`
+- `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`
+- `OTEL_EXPORTER_OTLP_TRACES_HEADERS`
+- `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`
+- `OTEL_EXPORTER_OTLP_LOGS_HEADERS`
+- `OTEL_RESOURCE_ATTRIBUTES`
 
-```bash
-nu scripts/diagnose-usb-hotplug-live-to-pi.nu
-```
+The CUPS PDF filter has separate resource guards such as
+`IPP_ORCH_CUPS_TMP_DIR_MIN_FREE_BYTES`. See the filter source and
+[ADR 0001](docs/adr-0001-hp135a-cups-driver-and-safety.md) for its safety
+contract.
 
-The diagnostic SSHes into the Pi and prints the CUPS device URI, current
-`/v1/status`, matching USB sysfs devices, and raw `udevadm monitor` events while
-you unplug and replug the printer.
+## Pi operations
 
-The live Pi smoke script checks:
-
-- local health endpoint
-- local status endpoint
-- `lpstat -p`
-- `lpstat -t`
-- the configured printer queue exists in CUPS
-
-Live Axiom observability check:
-
-```bash
-nu scripts/check-observability-live-to-pi.nu
-```
-
-The check SSHes into the Pi, reads `/etc/ipp-print-orchestrator.env`, verifies
-that enabled OTLP has usable Axiom endpoint/header configuration, triggers one
-local status request, and queries the configured Axiom logs and traces datasets
-for recent rows.
-
-`AXIOM_QUERY_TOKEN` and `AXIOM_QUERY_DOMAIN` are optional and are only used by
-this live query check. They are not required for OTLP export. If your OTLP token
-is ingest-only, set `AXIOM_QUERY_TOKEN` in local `.env` to an Axiom token with
-query access before deploying. `AXIOM_QUERY_DOMAIN` is only needed when the
-query API domain cannot be derived from the OTLP endpoint.
-
-## Deploying To The Pi
-
-Expected target:
-
-- SSH host: `pi@print-server.local`
-- app directory: `/home/pi/apps/ipp-print-orchestrator`
-
-One-time bootstrap on the live Pi:
+The supported development-machine entrypoints are:
 
 ```bash
 nu scripts/bootstrap-live-to-pi.nu
-```
-
-Bootstrap installs base packages, installs Nushell on the Pi from the official Nushell Debian/Ubuntu apt repository when `nu` is missing, installs Bun when needed, and creates `/etc/ipp-print-orchestrator.env` on first run. That first file is only a safe placeholder: OTLP defaults to disabled there because bootstrap does not know the production Axiom endpoints or tokens yet. If the Pi already has exactly one CUPS printer queue, the script uses that queue name automatically for `IPP_ORCH_PRINTER_NAME`. If there are multiple queues or none yet, set `IPP_ORCH_PRINTER_NAME` manually after bootstrap.
-
-Before treating the Pi setup as complete, verify on the physical printer itself that any `Auto Power Off`, `Sleep`, `Deep Sleep`, `Eco`, or similar automatic power-saving mode is disabled. This is a mandatory step for reliable USB-attached printing.
-
-Deploy to the live Pi from the development machine:
-
-```bash
 nu scripts/deploy-live-to-pi.nu
+nu scripts/smoke-test-live-to-pi.nu
+nu scripts/check-observability-live-to-pi.nu
+nu scripts/diagnose-usb-hotplug-live-to-pi.nu
 ```
 
-Nix-closure deploy requirements:
-
-- `nu`
-- `nix`
-- `ssh`
-- `rsync`
-- `AARCH64_BUILDER_HOST=local` requires `qemu-aarch64` in `binfmt_misc` and `aarch64-linux` in `nix config show extra-platforms`
-
-If you are using local emulation, run once:
-
-```bash
-nu scripts/prepare-aarch64-builder.nu
-```
-
-If `AARCH64_BUILDER_HOST` points to a remote host, that host must be configured as an aarch64 builder and must not be `PI_HOST`.
-
-Deployment target and auth can be configured in the ignored local `.env` file:
+Target and SSH settings belong in the ignored local `.env`:
 
 ```dotenv
 PI_HOST=pi@print-server.local
+PI_SSH_KEY_PATH=~/.ssh/ipp-print-orchestrator-pi
 APP_DIR=/home/pi/apps/ipp-print-orchestrator
-```
-`APP_DIR` is the deployment destination on the Pi (for example, where scripts install
-systemd units and where `install-systemd` renders unit paths). The local checkout
-still runs from this machine; it is synchronized into this remote directory during deploy.
-
-Optionally set `PI_SSH_KEY_PATH` in local `.env` if you want to override the default key location of `~/.ssh/ipp-print-orchestrator-pi`.
-
-Script environment naming convention:
-
-- `scripts/*-live-to-pi.nu` commands are run from the development machine and use SSH against the configured live Pi. These are the entrypoints for production-like Pi operations, for example `deploy-live-to-pi.nu` and `bootstrap-live-to-pi.nu`.
-- `scripts/*-live-from-pi.nu` commands are target-side implementations that execute from an SSH session on the Pi or are invoked by a `*-live-to-pi.nu` wrapper/deploy step. Do not run these directly from the development machine.
-- `scripts/*-mock-local.nu` commands are local-only mock/fake workflows. They must not SSH to the Pi or touch live Pi state.
-- `scripts/*-local.nu` commands run only on the development machine and do not target the Pi. Use this suffix when the script is local but not explicitly a mock.
-
-Run `nu scripts/bootstrap-live-to-pi.nu` first. If SSH key auth is not already configured, bootstrap creates or reuses `PI_SSH_KEY_PATH` (default: `~/.ssh/ipp-print-orchestrator-pi`), opens one normal interactive OpenSSH password login to the Pi, and uses a temporary OpenSSH control connection for first-time setup. If remote `nu` already exists, SSH key setup runs directly in Nushell and no remote bash is run. If remote `nu` is missing, bootstrap runs only the minimal bash needed to install Nushell, then switches to remote Nushell to append the public key to `~/.ssh/authorized_keys`. Empty `PI_SSH_KEY_PATH` values are treated as unset so the default key path is used. Subsequent bootstrap, deploy, systemd install, smoke, watch, and update commands use OpenSSH key auth with `BatchMode=yes` and fail fast if the key is missing.
-
-The scripts do not use `sshpass`, `PI_PASSWORD`, or `PI_SUDO_PASSWORD`. They assume the Pi user can run the required `sudo` commands without storing a password in this repository.
-
-Your local `.env` is the source of truth for the Pi service environment. `.env.example` is only a template for humans; deploy does not read it as runtime configuration. Each deploy filters the service runtime keys from local `.env` and installs them to `/etc/ipp-print-orchestrator.env` on the Pi before restarting services. For example, if local `.env` sets `IPP_ORCH_ENABLE_OTLP=true` with valid `OTEL_*` Axiom endpoint/header values, deploy writes those enabled observability settings over the bootstrap placeholder. Deploy-only keys such as `PI_HOST`, `APP_DIR`, and `PI_SSH_KEY_PATH` are not written to the Pi service env, and `.env` is excluded from the rsync copy.
-
-Directory-valued runtime settings such as `IPP_ORCH_DATA_DIR=data` are relative to the systemd service `WorkingDirectory`. During deploy, `scripts/install-systemd-live-from-pi.nu` renders the installed service unit so `WorkingDirectory` points at the configured `APP_DIR`, while `ExecStart` points at the copied Nix store wrapper. Use an absolute path for a runtime directory only if you intentionally want it outside `APP_DIR`.
-
-To reinstall only the systemd units from the development machine after the app has already been deployed to the Pi:
-
-```bash
-nu scripts/install-systemd-live-to-pi.nu
+AARCH64_BUILDER_HOST=local
 ```
 
-The local wrapper uses the same `PI_HOST`, `APP_DIR`, and `PI_SSH_KEY_PATH` settings as the other Pi scripts, SSHes into the Pi, and runs the target-side `scripts/install-systemd-live-from-pi.nu` from the deployed app directory.
+Scripts ending in `-live-to-pi.nu` run from the development machine. Their
+`-live-from-pi.nu` counterparts are target-side implementations invoked through
+SSH. The current Pi path is transitional non-NixOS activation from copied Nix
+store closures; the flake also exports `nixosModules.ipp-print-orchestrator`.
 
-## CUPS Printer Setup
+## CUPS safety
 
-The HP Laser MFP 135a is a Samsung-derived SPL printer. Do not configure it with
-generic PCL/PCL XL drivers; they can appear to work for simple text while
-producing corrupted output for images, logos, and filled vector graphics. The
-live setup script builds and copies the Nix HP driver closure, then installs the
-store-backed `rastertospl` filter and matching
-`HP_Laser_MFP_13x_Series.ppd` integration points into CUPS.
+The HP 135a is a Samsung-derived SPL printer. Do not replace the matching HP ULD
+driver with generic PCL/PCL XL or SpliX. The packaged PPD keeps 8-bit grayscale,
+renders the standard option at 300x300, skips blank form feeds, and defaults all
+paper declarations to A4.
 
-The setup script keeps HP's 8-bit grayscale raster mode intact. Do not force the
-PPD to 1-bit grayscale: `rastertospl` does not handle that stream correctly for
-this printer, and scanned/image-heavy pages can be squeezed horizontally because
-the raster line stride no longer matches what the filter expects. Instead, the
-script lowers the standard render resolution to 300x300 while keeping the
-driver's advertised `600dpi` option name, which reduces scanned-PDF SPL payloads
-without changing the raster bit depth.
+The `ipp-pdf-preflight-to-spl` filter rejects encrypted or unreadable PDFs,
+multiple copies, inconsistent page counts, unsafe SPL headers, oversized output,
+and insufficient temporary space. It stages complete SPL/QPDL output before the
+`ipp-orch-usb` backend touches USB. The backend rejects empty input and times out
+a wedged real USB backend.
 
-The setup script also installs the queue-specific CUPS filter
-`ipp-pdf-preflight-to-spl` from the copied Nix runtime closure. Android and the
-orchestrator both submit PDFs into this queue, so PDF safety has to live at the
-CUPS boundary. The filter rejects
-encrypted/protected PDFs and PDFs whose metadata cannot be read before invoking
-the HP driver pipeline. Accepted PDFs still render through
-`pdftopdf -> gstoraster -> rastertospl`, but final SPL/QPDL output is staged
-first and only streamed to CUPS after the filter verifies a matching page count,
-single-copy output, and a bounded byte size. The filter also forces the known
-safe PDF options, including `print-scaling=none`, for direct Android jobs.
-
-Troubleshooting preflight failures:
-
-- `CupsTmpDirFull` / `/tmp` exhaustion:
-  - Symptom: filter exits with `ERROR: CupsTmpDirFull: Insufficient temporary space...`
-  - Cause: temporary partition is below `IPP_ORCH_CUPS_TMP_DIR_MIN_FREE_BYTES` and
-    stale artifacts block the CUPS preflight chain.
-  - What to do now:
-    - `df -h /tmp` to confirm free space.
-    - `rm -rf /tmp/raststrace* /tmp/rastertospl*.err /tmp/rastertospl.log` on the Pi (for legacy debug artifacts).
-    - retry the print job.
-  - Why this is safe: the guard fails before `pdftopdf`/`gstoraster` writes files, and CUPS still gets an explicit, typed failure.
-
-The physical page-count authority is the final HP `rastertospl` `PAGE:` output,
-not Ghostscript's progress log. A malformed or unusual PDF can make Ghostscript
-log `Processing page 2...` even when the normalized PDF has one page and the
-final SPL/QPDL stream contains one driver-reported page. The safety filter
-therefore rejects when the final driver page count differs from `pdfinfo`, but
-does not reject solely because of an extra Ghostscript progress line. To guard
-against the blank/form-feed path that caused the 2026-06-21 paper incident, the
-filter also requires the staged SPL/QPDL header to contain
-`@PJL SET XIGNOREFF=ON`, and the Nix-patched HP PPD defaults
-`*DefaultJCLSkipBlankPages: True`.
-
-The queue device URI uses the `ipp-orch-usb` backend wrapper. That wrapper
-stages the filter pipeline output before invoking the real CUPS `usb` backend
-with the original HP `usb://` URI. If the filter produces no printer bytes, the
-wrapper fails immediately without touching USB; if bytes are present, it feeds
-the staged payload to the real backend with a hard timeout and deauthorizes the
-HP USB device if the backend wedges after rendering. The backend implementation
-is packaged as a Nix output. The CUPS setup script installs a tiny root-owned
-launcher at `/usr/lib/cups/backend/ipp-orch-usb` that execs the copied store
-backend. That permission matters: CUPS otherwise runs the backend as `lp`, and
-delegation to `/usr/lib/cups/backend/usb` fails before bytes can reach the
-printer.
-
-Emergency stop from the development machine:
-
-```bash
-nu scripts/setup-cups-live-to-pi.nu --stop-only
-```
-
-This stops CUPS, disables CUPS activation units, clears the CUPS spool, and does
-not print anything.
-
-Safe configuration command:
+Safe queue configuration leaves CUPS stopped, unshared, and rejecting jobs:
 
 ```bash
 nu scripts/setup-cups-live-to-pi.nu
 ```
 
-By default this builds/copies the required Nix closures, installs the CUPS
-integration points from those store paths, configures the queue, then leaves CUPS
-stopped, disabled, unshared, and rejecting jobs. It does not print a test page.
-
-Only expose the queue again when paper is intentionally loaded and the printer
-is known to have no buffered pages:
+Enable printing only with the printer cleared and paper intentionally loaded:
 
 ```bash
 nu scripts/setup-cups-live-to-pi.nu --enable-printing
 ```
 
-If Android reports that the printer has blocked encrypted jobs or that the
-printer no longer accepts encrypted jobs, repair the CUPS TLS identity without
-clearing the spool:
+That command enables the queue only after TLS identity checks and the official
+IPPS attribute conformance test pass. It does not print a test page.
+
+Emergency stop:
 
 ```bash
-nu scripts/setup-cups-live-to-pi.nu --repair-tls-only
+nu scripts/setup-cups-live-to-pi.nu --stop-only
 ```
 
-This refreshes the CUPS server certificate so its SANs match the currently
-advertised Avahi/mDNS hostname and local IP addresses, restarts CUPS if it was
-already running, and performs no physical print.
-
-The `ipp-print-orchestrator-cups-tls-watch.service` systemd unit keeps that
-invariant current after installation. It records Avahi's advertised FQDN under
-`/run/ipp-print-orchestrator/` and reruns the TLS repair path if Avahi changes
-the advertised host name.
-
-Do not validate this printer with ad hoc local `lp` commands that force
-`page-ranges` or `print-scaling=fit`. Android's working path submits a single
-IPP `Print-Job` with the PDF document attached to the request and uses
-`print-scaling=none`. The orchestrator submit path follows that IPP shape
-directly; local `lp` can create a different CUPS job path that this SPL printer
-may process incorrectly even when CUPS reports the job as completed.
-
-CUPS is configured with built-in DNS-SD browsing disabled. The setup script
-publishes one explicit Avahi service for `_ipps._tcp` only, so Android discovers
-the TLS endpoint instead of falling back to the unencrypted `ipp://` service.
-
-CUPS is configured with `ErrorPolicy=abort-job`, `JobRetryLimit=0`,
-`MaxJobsPerPrinter=1`, and `MaxJobTime=300`; the supervised USB backend adds a
-shorter device-phase timeout and deauthorizes the HP USB device if the backend
-wedges. A failed job must become a failed job, not an indefinitely processing
-job. CUPS also preserves job files and job history for 86400 seconds so a bad PDF
-can be inspected after an incident; do not treat the spool as permanent document
-storage.
-
-The deploy script:
-
-- builds the aarch64 Nix runtime, HP ULD driver, and supervised USB backend closures
-- copies those closures to the Pi Nix store
-- verifies the copied store paths on the Pi before activation
-- rsyncs the repository to the Pi with generated/runtime directories excluded
-- validates enabled OTLP/Axiom settings before writing the service environment
-- syncs the filtered local service environment to `/etc/ipp-print-orchestrator.env`
-- installs systemd units with `ipp-print-orchestrator.service` executing the Nix store wrapper
-- restarts the service and heartbeat timer
-- verifies `/v1/health`
-- prints phase timings and the exact store paths deployed
-
-To intentionally update already-installed Pi packages:
-
-```bash
-bun run update:live-to-pi
-```
-
-The update script upgrades only related apt packages that are already installed,
-skips missing packages, upgrades Bun only when Bun is present, and prints
-`timeit` timings for each update phase. Deploy no longer runs `bun install` on
-the Pi; the service process comes from the copied Nix store closure.
-
-If `/v1/status` shows `cupsReachable: false` and `printerAttached: false` even though `lpstat -p` works on the Pi, verify the configured queue name:
-
-```bash
-grep '^IPP_ORCH_PRINTER_NAME=' /etc/ipp-print-orchestrator.env
-lpstat -p
-```
-
-If they do not match, update `/etc/ipp-print-orchestrator.env` so `IPP_ORCH_PRINTER_NAME` matches the real CUPS queue exactly, then restart the service:
-
-```bash
-sudoedit /etc/ipp-print-orchestrator.env
-sudo systemctl restart ipp-print-orchestrator
-curl http://127.0.0.1:4310/v1/status
-```
+Printer-side Auto Power Off, Deep Sleep, Eco, or equivalent modes must be
+disabled. Otherwise the USB device can disappear while the configured CUPS queue
+still exists.
 
 ## Observability
 
-The app now has a dedicated `apps/agent/src/observability/` module that owns OTLP startup, the Effect-to-OpenTelemetry tracer bridge, and wide-event log export. The rest of the runtime only depends on that module's small public surface.
+Events are written once through structured process logging and optional OTLP.
+There is no local append-only event mirror. When OTLP is unavailable, remote
+telemetry can be missing; printer operation and status observation continue.
 
-By default, the app still emits wide-event JSON to stdout/journald through the `Telemetry` service. That means you can already tail live events remotely from your laptop:
-
-```bash
-ssh pi@print-server.local 'journalctl -u ipp-print-orchestrator -f --no-pager'
-```
-
-If you enable OTLP, the daemon exports:
-
-- Effect spans through an OpenTelemetry tracer bridge
-- wide-event logs as structured OTLP log records
-
-The runtime now emits canonical change events for network, CUPS, and printer status transitions. Heartbeat is a periodic liveness event that also carries a sampled status summary for quiet periods with no status transitions.
-
-By default, the daemon uses Linux USB hotplug events for USB printer attach/detach detection and an IPP notification stream for CUPS/printer state changes. The old periodic status observation loop has been removed from the daemon hot path.
-
-The CUPS notification stream now uses the in-repo `packages/ipp/` workspace package for IPP codec, transport, and subscription helpers instead of relying on the stale upstream `ipp` package request path. This is intentional: the upstream serializer dropped `subscription-attributes-tag` on outbound requests, which caused CUPS to reject `Create-Printer-Subscriptions` with `client-error-bad-request` and `status-message="No subscription attributes in request."`
-
-If you see a wide event with `observationReason="cups-stream-disconnect"` and a `printerMessage` like `IPP Create-Printer-Subscriptions request failed: client-error-bad-request (status-message="No subscription attributes in request.")`, the daemon is failing to establish the notification subscription. That symptom should no longer happen with the in-repo serializer path unless the local CUPS server is rejecting the request for some other reason.
-
-For a package-level reference of the local IPP library surface, see `docs/ipp-package.md`.
-
-`network.status.changed` remains a local durable fact, but should not be treated as a guaranteed remote Axiom fact during internet outages until a replay worker exists for the local outbox.
-
-Example Axiom match-monitor query for actionable printer availability changes:
-
-```apl
-['ipp-print-logs']
-| extend event_name = ['attributes.eventName'],
-         hostname = ['attributes.hostname'],
-         observation_reason = ['attributes.observationReason'],
-         previous_cups_reachable = ['attributes.previousCupsReachable'],
-         cups_reachable = ['attributes.cupsReachable'],
-         previous_attached = ['attributes.previousPrinterAttached'],
-         attached = ['attributes.printerAttached'],
-         previous_queue_available = ['attributes.previousPrinterQueueAvailable'],
-         queue_available = ['attributes.printerQueueAvailable'],
-         previous_printer_state = ['attributes.previousPrinterState'],
-         printer_state = ['attributes.printerState']
-| where (event_name == "cups.status.changed"
-         and isnotnull(previous_cups_reachable)
-         and previous_cups_reachable != cups_reachable)
-     or (event_name == "printer.status.changed"
-         and ((isnotnull(previous_attached) and previous_attached != attached)
-              or (isnotnull(previous_queue_available) and previous_queue_available != queue_available)
-              or (coalesce(previous_printer_state, "<null>") != coalesce(printer_state, "<null>"))))
-| project _time,
-          event_name,
-          hostname,
-          observation_reason,
-          previous_cups_reachable,
-          cups_reachable,
-          previous_attached,
-          attached,
-          previous_queue_available,
-          queue_available,
-          previous_printer_state,
-          printer_state
-```
-
-Use the broader `printer.status.changed` query from `docs/axiom-observability.md`
-for diagnostics only; it can match message/reason-only churn that is not
-actionable for alerting.
-
-For physical attach/detach-only notifications, replace the `where` clause with:
-
-```apl
-| where event_name == "printer.status.changed"
-| where isnotnull(previous_attached) and previous_attached != attached
-```
-
-Example Axiom-oriented environment:
-
-```bash
-IPP_ORCH_ENABLE_OTLP=true
-OTEL_RESOURCE_ATTRIBUTES=service.name=ipp-print-orchestrator,service.version=dev
-OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=https://AXIOM_OTLP_DOMAIN/v1/traces
-OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=https://AXIOM_OTLP_DOMAIN/v1/logs
-OTEL_EXPORTER_OTLP_TRACES_HEADERS=authorization=Bearer AXIOM_API_TOKEN,x-axiom-dataset=ipp-print-traces
-OTEL_EXPORTER_OTLP_LOGS_HEADERS=authorization=Bearer AXIOM_API_TOKEN,x-axiom-dataset=ipp-print-logs
-```
-
-Or, if your backend uses a shared OTLP base URL:
-
-```bash
-IPP_ORCH_ENABLE_OTLP=true
-OTEL_RESOURCE_ATTRIBUTES=service.name=ipp-print-orchestrator,service.version=dev
-OTEL_EXPORTER_OTLP_ENDPOINT=https://OTLP_COLLECTOR_DOMAIN
-OTEL_EXPORTER_OTLP_HEADERS=authorization=Bearer TOKEN
-```
-
-Current scope:
-
-- traces: wired
-- logs: wired
-- metrics: not wired yet
-
-## Systemd And Journald
-
-Installed units:
-
-- `systemd/ipp-print-orchestrator.service`
-- `systemd/ipp-print-orchestrator-heartbeat.service`
-- `systemd/ipp-print-orchestrator-heartbeat.timer`
-
-Manual commands on the Pi:
-
-```bash
-sudo systemctl status ipp-print-orchestrator
-journalctl -u ipp-print-orchestrator -f
-curl http://127.0.0.1:4310/v1/health
-curl http://127.0.0.1:4310/v1/status
-lpstat -p
-lpstat -t
-```
-
-## Common Failure Modes
-
-`Printer unavailable`
-
-- the worker moves jobs into `WaitingForPrinter`
-- startup recovery will rehydrate them after restart
-
-`CUPS unavailable`
-
-- submission attempts transition through `WaitingForCups` and `RetryScheduled`
-- retries use Effect scheduling and avoid busy loops
-
-`Submission uncertain`
-
-- the job enters `SubmissionUncertain`
-- the system will not blindly resubmit until CUPS job repair determines what happened
-
-`Telemetry unavailable`
-
-- printing continues
-- durable local state and outbox persistence still happen
-
-`Network offline`
-
-- the app degrades locally without crashing
-- local orchestration and disk persistence still work
+`AXIOM_QUERY_TOKEN` and `AXIOM_QUERY_DOMAIN` are used only by the live
+observability check and are not service runtime settings.

@@ -651,10 +651,6 @@ def configure-queue [
     "-o"
     "PageSize=A4"
     "-o"
-    "PageSize-default=A4"
-    "-o"
-    "media-default=A4"
-    "-o"
     "Quality-default=600dpi"
     "-o"
     "ColorModel-default=Gray"
@@ -665,7 +661,7 @@ def configure-queue [
   ]) | ignore
 
   if $enable_printing {
-    run-required "enable CUPS queue" ["sudo" "cupsenable" $printer_name] | ignore
+    run-required "enable CUPS queue" ["sudo" "cupsenable" "-r" "Ready." $printer_name] | ignore
     run-required "accept CUPS queue jobs" ["sudo" "cupsaccept" $printer_name] | ignore
   } else {
     run-best-effort ["sudo" "cupsdisable" $printer_name]
@@ -881,6 +877,7 @@ def main [
   ensure-apt-packages [
     cups
     cups-client
+    cups-ipp-utils
     cups-filters
     cups-filters-core-drivers
     ghostscript
@@ -922,10 +919,15 @@ def main [
     run-best-effort ["sudo" "systemctl" "disable" "--now" "cups-browsed.service"]
     run-required "enable CUPS and Avahi services" ["sudo" "systemctl" "enable" "--now" "cups.service" "cups.socket" "cups.path" "avahi-daemon.service"] | ignore
     verify-cups-tls-identity $tls_identity
+    run-required "validate public IPPS attributes" [
+      "ipptool"
+      "-tv"
+      $"ipps://($tls_identity.avahi_fqdn):631/printers/($queue_name)"
+      "/usr/share/cups/ipptool/get-printer-attributes.test"
+    ] | ignore
     print $"Configured and enabled shared CUPS queue ($queue_name) with ($selected_driver.value)."
     print "No test page was printed."
   } else {
-    # Safe setup mode stops CUPS, so TLS verification waits for --enable-printing or --repair-tls-only.
     final-safe-stop $queue_name
     print $"Configured queue ($queue_name) with ($selected_driver.value), then left CUPS stopped, disabled, unshared, and rejecting jobs."
     print "No test page was printed. Re-run with --enable-printing only when you are ready to expose the queue."

@@ -26,14 +26,7 @@ let
   baseModuleConfig = {
     enable = true;
     package = packages.ipp-print-orchestrator;
-    hpDriverPackage = packages.hp-uld-hp135a;
-    cupsUsbBackendPackage = packages.cups-usb-backend;
-
-    printer = {
-      queueName = "HP135a";
-      enablePrinting = true;
-      advertise = true;
-    };
+    printerName = "HP135a";
 
     observability = {
       enableOtlp = true;
@@ -48,19 +41,6 @@ let
 
   service = nixosEval.config.systemd.services.ipp-print-orchestrator;
   heartbeat = nixosEval.config.systemd.services.ipp-print-orchestrator-heartbeat;
-
-  unsafePrintingEval = builtins.tryEval (
-    (nixosEvalFor (
-      baseModuleConfig
-      // {
-        printer = {
-          queueName = "HP135a";
-          enablePrinting = true;
-          advertise = false;
-        };
-      }
-    )).config.system.build.toplevel.drvPath
-  );
 
   unsafeOtlpEval = builtins.tryEval (
     (nixosEvalFor (
@@ -149,6 +129,10 @@ in
         grep -F '*cupsFilter:  "application/vnd.cups-raster 0 rastertospl"' "$ppd"
         grep -F '*Quality 600dpi/Standard: "<</HWResolution[300 300]>>setpagedevice"' "$ppd"
         grep -F '*DefaultJCLSkipBlankPages: True' "$ppd"
+        grep -F '*DefaultPageSize: A4' "$ppd"
+        grep -F '*DefaultPageRegion: A4' "$ppd"
+        grep -F '*DefaultImageableArea: A4' "$ppd"
+        grep -F '*DefaultPaperDimension: A4' "$ppd"
 
         if grep -F '*Quality 600dpi/Standard: "<</HWResolution[600 600]>>setpagedevice"' "$ppd"; then
           echo "unsafe 600dpi default survived HP ULD PPD patch" >&2
@@ -157,6 +141,11 @@ in
 
         if grep -F '*DefaultJCLSkipBlankPages: False' "$ppd"; then
           echo "unsafe blank-page printing default survived HP ULD PPD patch" >&2
+          exit 1
+        fi
+
+        if grep -E '^\\*Default(PageSize|PageRegion|ImageableArea|PaperDimension): Letter$' "$ppd"; then
+          echo "Letter survived as a PPD paper default" >&2
           exit 1
         fi
 
@@ -189,7 +178,6 @@ in
         serviceOtlp = service.environment.IPP_ORCH_ENABLE_OTLP;
         serviceQueue = service.environment.IPP_ORCH_PRINTER_NAME;
         heartbeatExec = heartbeat.serviceConfig.ExecStart;
-        unsafePrintingAccepted = if unsafePrintingEval.success then "true" else "false";
         unsafeOtlpAccepted = if unsafeOtlpEval.success then "true" else "false";
       }
       ''
@@ -203,7 +191,6 @@ in
 
         test "$serviceOtlp" = true
         test "$serviceQueue" = HP135a
-        test "$unsafePrintingAccepted" = false
         test "$unsafeOtlpAccepted" = false
 
         case "$heartbeatExec" in

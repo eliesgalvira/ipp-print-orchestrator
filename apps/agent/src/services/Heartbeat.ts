@@ -1,6 +1,5 @@
 import { Context, type Effect } from "effect"
 
-import type { OperationalError } from "../domain/Errors.js"
 import type { StatusSnapshot } from "./StatusRuntime.js"
 
 export interface HeartbeatSnapshot extends StatusSnapshot {
@@ -13,7 +12,7 @@ export interface HeartbeatSnapshot extends StatusSnapshot {
 export class Heartbeat extends Context.Service<
   Heartbeat,
   {
-    readonly beat: () => Effect.Effect<HeartbeatSnapshot, OperationalError>
+    readonly beat: () => Effect.Effect<HeartbeatSnapshot>
     readonly lastSuccess: () => Effect.Effect<string | null>
   }
 >()("@ipp/agent/services/Heartbeat") {}

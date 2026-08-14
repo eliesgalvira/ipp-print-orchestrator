@@ -1,9 +1,6 @@
 import { describe, expect, it } from "@effect/vitest"
 
-import {
-  makeJobObservation,
-  makePrinterObservation,
-} from "./CupsObservation.js"
+import { makePrinterObservation } from "./CupsObservation.js"
 
 describe("CupsObservation", () => {
   it("treats offline-report as detached and unavailable", () => {
@@ -31,31 +28,5 @@ describe("CupsObservation", () => {
 
     expect(observation.attached).toBe(true)
     expect(observation.state).toBe("processing")
-  })
-
-  it("maps terminal CUPS job states explicitly", () => {
-    const canceled = makeJobObservation({
-      cupsJobId: "42",
-      state: "canceled",
-      reasons: ["job-canceled-at-device"],
-      printerState: "idle",
-      printerStateReasons: [],
-      printerStateMessage: null,
-      mediaSheetsCompleted: 1,
-    })
-
-    const aborted = makeJobObservation({
-      cupsJobId: "43",
-      state: "aborted",
-      reasons: ["aborted-by-system"],
-      printerState: "stopped",
-      printerStateReasons: ["media-empty"],
-      printerStateMessage: "Out of paper",
-      mediaSheetsCompleted: 0,
-    })
-
-    expect(canceled.state).toBe("canceled")
-    expect(aborted.state).toBe("aborted")
-    expect(aborted.printerStateMessage).toBe("Out of paper")
   })
 })

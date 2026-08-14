@@ -7,9 +7,6 @@ export default defineConfig({
       "@ipp/ipp": fileURLToPath(
         new URL("./packages/ipp/src/index.ts", import.meta.url),
       ),
-      "@ipp/shared": fileURLToPath(
-        new URL("./packages/shared/src/index.ts", import.meta.url),
-      ),
     },
   },
   test: {

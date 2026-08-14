@@ -24,16 +24,6 @@ const queueBlockingReasons = new Set([
 
 export type CupsPrinterState = "idle" | "processing" | "stopped" | "unknown"
 
-export type CupsJobState =
-  | "pending"
-  | "pending-held"
-  | "processing"
-  | "processing-stopped"
-  | "canceled"
-  | "aborted"
-  | "completed"
-  | "unknown"
-
 export interface CupsPrinterObservation {
   readonly printerName: string
   readonly acceptingJobs: boolean
@@ -42,16 +32,6 @@ export interface CupsPrinterObservation {
   readonly message: string | null
   readonly attached: boolean
   readonly queueAvailable: boolean
-}
-
-export interface CupsJobObservation {
-  readonly cupsJobId: string
-  readonly state: CupsJobState
-  readonly reasons: readonly string[]
-  readonly printerState: CupsPrinterState | null
-  readonly printerStateReasons: readonly string[]
-  readonly printerStateMessage: string | null
-  readonly mediaSheetsCompleted: number | null
 }
 
 const normalizeReasons = (value: unknown): readonly string[] => {
@@ -77,23 +57,7 @@ const normalizePrinterState = (value: unknown): CupsPrinterState =>
     Match.orElse(() => "unknown"),
   )
 
-const normalizeJobState = (value: unknown): CupsJobState =>
-  Match.value(value).pipe(
-    Match.withReturnType<CupsJobState>(),
-    Match.when("pending", () => "pending"),
-    Match.when("pending-held", () => "pending-held"),
-    Match.when("processing", () => "processing"),
-    Match.when("processing-stopped", () => "processing-stopped"),
-    Match.when("canceled", () => "canceled"),
-    Match.when("aborted", () => "aborted"),
-    Match.when("completed", () => "completed"),
-    Match.orElse(() => "unknown"),
-  )
-
 const normalizeBoolean = (value: unknown): boolean => value === true
-
-const normalizeNumber = (value: unknown): number | null =>
-  typeof value === "number" ? value : null
 
 const normalizeString = (value: unknown): string | null =>
   typeof value === "string" && value.length > 0 ? value : null
@@ -135,24 +99,3 @@ export const makePrinterObservation = (input: {
     queueAvailable: deriveQueueAvailable(acceptingJobs, state, reasons),
   }
 }
-
-export const makeJobObservation = (input: {
-  readonly cupsJobId: string
-  readonly state: unknown
-  readonly reasons: unknown
-  readonly printerState: unknown
-  readonly printerStateReasons: unknown
-  readonly printerStateMessage: unknown
-  readonly mediaSheetsCompleted: unknown
-}): CupsJobObservation => ({
-  cupsJobId: input.cupsJobId,
-  state: normalizeJobState(input.state),
-  reasons: normalizeReasons(input.reasons),
-  printerState:
-    input.printerState === undefined || input.printerState === null
-      ? null
-      : normalizePrinterState(input.printerState),
-  printerStateReasons: normalizeReasons(input.printerStateReasons),
-  printerStateMessage: normalizeString(input.printerStateMessage),
-  mediaSheetsCompleted: normalizeNumber(input.mediaSheetsCompleted),
-})

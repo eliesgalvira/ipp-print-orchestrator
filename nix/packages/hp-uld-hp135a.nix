@@ -15,6 +15,18 @@ let
   standardSafe300DpiLine = ''*Quality 600dpi/Standard: "<</HWResolution[300 300]>>setpagedevice"'';
   skipBlankPagesDefaultLine = "*DefaultJCLSkipBlankPages: False";
   safeSkipBlankPagesDefaultLine = "*DefaultJCLSkipBlankPages: True";
+  letterDefaults = [
+    "*DefaultPageSize: Letter"
+    "*DefaultPageRegion: Letter"
+    "*DefaultImageableArea: Letter"
+    "*DefaultPaperDimension: Letter"
+  ];
+  a4Defaults = [
+    "*DefaultPageSize: A4"
+    "*DefaultPageRegion: A4"
+    "*DefaultImageableArea: A4"
+    "*DefaultPaperDimension: A4"
+  ];
 
   cupsFilterReplacement = lib.escapeShellArg (
     lib.concatStringsSep "\n" [
@@ -78,14 +90,18 @@ stdenvNoCC.mkDerivation {
     grep -F ${lib.escapeShellArg standard600DpiLine} "$ppd"
     grep -F ${lib.escapeShellArg skipBlankPagesDefaultLine} "$ppd"
 
+    ${lib.concatMapStringsSep "\n" (line: "grep -F ${lib.escapeShellArg line} \"$ppd\"") letterDefaults}
+
     substituteInPlace "$ppd" \
       --replace-fail ${lib.escapeShellArg hpRasterFilterLine} ${cupsFilterReplacement} \
       --replace-fail ${lib.escapeShellArg standard600DpiLine} ${lib.escapeShellArg standardSafe300DpiLine} \
-      --replace-fail ${lib.escapeShellArg skipBlankPagesDefaultLine} ${lib.escapeShellArg safeSkipBlankPagesDefaultLine}
+      --replace-fail ${lib.escapeShellArg skipBlankPagesDefaultLine} ${lib.escapeShellArg safeSkipBlankPagesDefaultLine} \
+      ${lib.concatMapStringsSep " \\\n      " (pair: "--replace-fail ${lib.escapeShellArg pair.from} ${lib.escapeShellArg pair.to}") (lib.zipListsWith (from: to: { inherit from to; }) letterDefaults a4Defaults)}
 
     grep -F ${lib.escapeShellArg pdfPreflightFilterLine} "$ppd"
     grep -F ${lib.escapeShellArg standardSafe300DpiLine} "$ppd"
     grep -F ${lib.escapeShellArg safeSkipBlankPagesDefaultLine} "$ppd"
+    ${lib.concatMapStringsSep "\n" (line: "grep -F ${lib.escapeShellArg line} \"$ppd\"") a4Defaults}
 
     makeWrapper "$out/libexec/hp-uld/rastertospl" "$out/lib/cups/filter/rastertospl" \
       --prefix LD_LIBRARY_PATH : "$out/lib/smfp:${libraryPath}"

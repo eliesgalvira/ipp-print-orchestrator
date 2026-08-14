@@ -25,7 +25,6 @@
       "dependencies": {
         "@effect/platform-node": "^4.0.0-beta.64",
         "@ipp/ipp": "workspace:*",
-        "@ipp/shared": "workspace:*",
         "@opentelemetry/api": "^1.9.0",
         "@opentelemetry/api-logs": "^0.213.0",
         "@opentelemetry/exporter-logs-otlp-http": "^0.213.0",
@@ -40,22 +39,6 @@
       "name": "@ipp/ipp",
       "dependencies": {
         "effect": "^4.0.0-beta.64",
-      },
-    },
-    "packages/shared": {
-      "name": "@ipp/shared",
-      "dependencies": {
-        "effect": "^4.0.0-beta.64",
-      },
-    },
-    "packages/testkit": {
-      "name": "@ipp/testkit",
-      "dependencies": {
-        "@ipp/shared": "workspace:*",
-        "effect": "^4.0.0-beta.64",
-      },
-      "devDependencies": {
-        "fast-check": "^4.6.0",
       },
     },
   },
@@ -149,10 +132,6 @@
     "@ipp/agent": ["@ipp/agent@workspace:apps/agent"],
 
     "@ipp/ipp": ["@ipp/ipp@workspace:packages/ipp"],
-
-    "@ipp/shared": ["@ipp/shared@workspace:packages/shared"],
-
-    "@ipp/testkit": ["@ipp/testkit@workspace:packages/testkit"],
 
     "@jridgewell/sourcemap-codec": ["@jridgewell/sourcemap-codec@1.5.5", "", {}, "sha512-cYQ9310grqxueWbl+WuIUIaiUaDcj7WOq5fVhEljNVgRfOUhY9fy2zTvfoqWsnebh8Sl70VScFbICvJnLKB0Og=="],
 

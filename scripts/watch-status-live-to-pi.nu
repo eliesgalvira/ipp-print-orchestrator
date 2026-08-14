@@ -36,8 +36,6 @@ def format-status-line [line: string]: nothing -> string {
       $"state=(($status | get -o printerState) | default unknown)"
       $"cups=(format-flag ($status | get -o cupsReachable) up down)"
       $"net=(format-flag ($status | get -o networkOnline) online offline)"
-      $"jobs=(($status | get -o nonterminalJobCount) | default 0)"
-      $"queue=(($status | get -o queueDepth) | default 0)"
       $"heartbeat=(format-heartbeat-age ($status | get -o lastSuccessfulHeartbeatAt))"
     ]
 

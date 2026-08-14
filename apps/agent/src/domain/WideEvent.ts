@@ -1,27 +1,9 @@
 import { Schema } from "effect"
 
-import { JobId } from "./JobId.js"
-import { JobState } from "./JobState.js"
-
 export const WideEventName = Schema.Literals([
   "network.status.changed",
   "cups.status.changed",
   "printer.status.changed",
-  "print.request.received",
-  "print.job.stored",
-  "print.job.queued",
-  "print.job.submission.attempt",
-  "print.job.submitted",
-  "print.job.outcome",
-  "print.job.state.changed",
-  "print.job.completed",
-  "print.job.failed",
-  "queue.job.enqueued",
-  "queue.job.dequeued",
-  "queue.rehydration.started",
-  "queue.rehydration.completed",
-  "cups.job.repair.started",
-  "cups.job.repair.completed",
   "http.request.completed",
   "heartbeat",
 ])
@@ -31,18 +13,6 @@ export type WideEventName = typeof WideEventName.Type
 export class WideEvent extends Schema.Class<WideEvent>("WideEvent")({
   timestamp: Schema.String,
   eventName: WideEventName,
-  requestId: Schema.optional(Schema.String),
-  printId: Schema.optional(JobId),
-  printerName: Schema.optional(Schema.String),
-  fileName: Schema.optional(Schema.String),
-  mimeType: Schema.optional(Schema.String),
-  fileSize: Schema.optional(Schema.Number),
-  retryCount: Schema.optional(Schema.Number),
-  attemptNumber: Schema.optional(Schema.Number),
-  currentState: Schema.optional(JobState),
-  previousState: Schema.optional(JobState),
-  finalState: Schema.optional(JobState),
-  cupsJobId: Schema.optional(Schema.String),
   errorTag: Schema.optional(Schema.String),
   errorMessage: Schema.optional(Schema.String),
   route: Schema.optional(Schema.String),
@@ -51,12 +21,6 @@ export class WideEvent extends Schema.Class<WideEvent>("WideEvent")({
   durationMs: Schema.optional(Schema.Number),
   clientAddress: Schema.optional(Schema.String),
   userAgent: Schema.optional(Schema.String),
-  acceptedAt: Schema.optional(Schema.String),
-  submittedAt: Schema.optional(Schema.String),
-  terminalAt: Schema.optional(Schema.String),
-  jobDurationMs: Schema.optional(Schema.Number),
-  timeToSubmitMs: Schema.optional(Schema.Number),
-  timeToTerminalMs: Schema.optional(Schema.Number),
   appUp: Schema.optional(Schema.Boolean),
   hostname: Schema.optional(Schema.String),
   observationReason: Schema.optional(Schema.String),
@@ -75,7 +39,5 @@ export class WideEvent extends Schema.Class<WideEvent>("WideEvent")({
   previousPrinterReasons: Schema.optional(Schema.Array(Schema.String)),
   printerMessage: Schema.optional(Schema.NullOr(Schema.String)),
   previousPrinterMessage: Schema.optional(Schema.NullOr(Schema.String)),
-  queueDepth: Schema.optional(Schema.Number),
-  nonterminalJobCount: Schema.optional(Schema.Number),
   lastSuccessfulHeartbeatAt: Schema.optional(Schema.NullOr(Schema.String)),
 }) {}

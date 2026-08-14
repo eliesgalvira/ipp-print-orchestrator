@@ -4,13 +4,6 @@ import {
   notificationIncludesEvent,
 } from "@ipp/ipp"
 
-const jobNotificationEvents = new Set([
-  "job-completed",
-  "job-created",
-  "job-progress",
-  "job-stopped",
-])
-
 const printerNotificationEvents = new Set([
   "printer-modified",
   "printer-state-changed",
@@ -19,17 +12,7 @@ const printerNotificationEvents = new Set([
 export interface CupsNotificationDecision {
   readonly nextSequenceNumber: number
   readonly observePrinterStatus: boolean
-  readonly repairCupsTrackedJobs: boolean
 }
-
-export const notificationsIncludeJobEvent = (
-  notifications: readonly IppAttributeGroup[],
-): boolean => notificationIncludesEvent(notifications, jobNotificationEvents)
-
-export const notificationsIncludePrinterEvent = (
-  notifications: readonly IppAttributeGroup[],
-): boolean =>
-  notificationIncludesEvent(notifications, printerNotificationEvents)
 
 export const decideCupsNotification = (params: {
   readonly notifications: readonly IppAttributeGroup[]
@@ -42,9 +25,9 @@ export const decideCupsNotification = (params: {
       maxSeen >= params.nextSequenceNumber
         ? maxSeen + 1
         : params.nextSequenceNumber,
-    observePrinterStatus: notificationsIncludePrinterEvent(
+    observePrinterStatus: notificationIncludesEvent(
       params.notifications,
+      printerNotificationEvents,
     ),
-    repairCupsTrackedJobs: notificationsIncludeJobEvent(params.notifications),
   }
 }

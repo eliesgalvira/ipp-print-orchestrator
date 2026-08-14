@@ -74,23 +74,39 @@ describe("IPP client transport", () => {
       version: "2.0",
       operation: "Get-Printer-Attributes",
       id: expect.any(Number),
-      "operation-attributes-tag": {
-        "attributes-charset": "utf-8",
-        "attributes-natural-language": "en",
-        "printer-uri": "ipp://127.0.0.1/printers/Test_Printer",
-        "requested-attributes": ["printer-name", "printer-state"],
-      },
+      groups: [
+        {
+          tag: "operation-attributes-tag",
+          attributes: [
+            { name: "attributes-charset", value: "utf-8" },
+            { name: "attributes-natural-language", value: "en" },
+            {
+              name: "printer-uri",
+              value: "ipp://127.0.0.1/printers/Test_Printer",
+            },
+            {
+              name: "requested-attributes",
+              value: ["printer-name", "printer-state"],
+            },
+          ],
+        },
+      ],
     })
 
     expect(response).toEqual({
       version: "2.0",
       statusCode: "successful-ok",
       id: 123,
-      "printer-attributes-tag": {
-        "printer-name": "Test_Printer",
-        "printer-state": "idle",
-        "printer-is-accepting-jobs": true,
-      },
+      groups: [
+        {
+          tag: "printer-attributes-tag",
+          attributes: [
+            { name: "printer-name", value: "Test_Printer" },
+            { name: "printer-state", value: "idle" },
+            { name: "printer-is-accepting-jobs", value: true },
+          ],
+        },
+      ],
     })
   })
 })

@@ -71,13 +71,7 @@
   },
   "references": [
     {
-      "path": "./packages/shared"
-    },
-    {
       "path": "./packages/ipp"
-    },
-    {
-      "path": "./packages/testkit"
     },
     {
       "path": "./apps/agent"

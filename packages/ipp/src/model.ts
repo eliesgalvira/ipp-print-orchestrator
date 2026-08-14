@@ -10,81 +10,67 @@ export type IppScalarValue =
 
 export type IppAttributeValue = IppScalarValue | readonly IppAttributeValue[]
 
+export interface IppAttribute {
+  readonly name: string
+  readonly value: IppAttributeValue
+}
+
 export interface IppCollection {
-  readonly [name: string]: IppAttributeValue
+  readonly members: readonly IppAttribute[]
 }
 
 export interface IppAttributeGroup {
-  readonly [name: string]: IppAttributeValue
+  readonly tag: string
+  readonly attributes: readonly IppAttribute[]
 }
 
 export interface IppMessage {
-  readonly version?: string
+  readonly version: string
   readonly operation?: string
   readonly statusCode?: string
-  readonly id?: number
+  readonly id: number
+  readonly groups: readonly IppAttributeGroup[]
   readonly data?: Buffer
-  readonly "operation-attributes-tag"?:
-    | IppAttributeGroup
-    | readonly IppAttributeGroup[]
-  readonly "job-attributes-tag"?:
-    | IppAttributeGroup
-    | readonly IppAttributeGroup[]
-  readonly "printer-attributes-tag"?:
-    | IppAttributeGroup
-    | readonly IppAttributeGroup[]
-  readonly "unsupported-attributes-tag"?:
-    | IppAttributeGroup
-    | readonly IppAttributeGroup[]
-  readonly "subscription-attributes-tag"?:
-    | IppAttributeGroup
-    | readonly IppAttributeGroup[]
-  readonly "event-notification-attributes-tag"?:
-    | IppAttributeGroup
-    | readonly IppAttributeGroup[]
-  readonly "resource-attributes-tag"?:
-    | IppAttributeGroup
-    | readonly IppAttributeGroup[]
-  readonly "document-attributes-tag"?:
-    | IppAttributeGroup
-    | readonly IppAttributeGroup[]
-  readonly [groupName: string]: unknown
+}
+
+export interface IppAttributeMap {
+  readonly [name: string]: IppAttributeValue
 }
 
 export interface IppRequestMessage {
   readonly data?: Buffer
-  readonly "operation-attributes-tag"?: IppAttributeGroup
-  readonly "job-attributes-tag"?: IppAttributeGroup
-  readonly "printer-attributes-tag"?: IppAttributeGroup
-  readonly "subscription-attributes-tag"?: IppAttributeGroup
-  readonly "document-attributes-tag"?: IppAttributeGroup
+  readonly "operation-attributes-tag"?: IppAttributeMap
+  readonly "job-attributes-tag"?: IppAttributeMap
+  readonly "printer-attributes-tag"?: IppAttributeMap
+  readonly "subscription-attributes-tag"?: IppAttributeMap
+  readonly "document-attributes-tag"?: IppAttributeMap
 }
 
 export interface IppResponseMessage {
   readonly data?: Buffer
-  readonly "operation-attributes-tag"?: IppAttributeGroup
-  readonly "job-attributes-tag"?:
-    | IppAttributeGroup
-    | readonly IppAttributeGroup[]
-  readonly "printer-attributes-tag"?:
-    | IppAttributeGroup
-    | readonly IppAttributeGroup[]
-  readonly "unsupported-attributes-tag"?:
-    | IppAttributeGroup
-    | readonly IppAttributeGroup[]
-  readonly "subscription-attributes-tag"?:
-    | IppAttributeGroup
-    | readonly IppAttributeGroup[]
-  readonly "event-notification-attributes-tag"?:
-    | IppAttributeGroup
-    | readonly IppAttributeGroup[]
-  readonly "resource-attributes-tag"?:
-    | IppAttributeGroup
-    | readonly IppAttributeGroup[]
-  readonly "document-attributes-tag"?:
-    | IppAttributeGroup
-    | readonly IppAttributeGroup[]
+  readonly "operation-attributes-tag"?: IppAttributeMap
+  readonly "job-attributes-tag"?: IppAttributeMap
+  readonly "printer-attributes-tag"?: IppAttributeMap
+  readonly "unsupported-attributes-tag"?: IppAttributeMap
+  readonly "subscription-attributes-tag"?: IppAttributeMap
+  readonly "event-notification-attributes-tag"?: IppAttributeMap
+  readonly "resource-attributes-tag"?: IppAttributeMap
+  readonly "document-attributes-tag"?: IppAttributeMap
 }
+
+export const attributeGroups = (
+  message: IppMessage,
+  tag: string,
+): readonly IppAttributeGroup[] =>
+  message.groups.filter((group) => group.tag === tag)
+
+export const attributeValues = (
+  group: IppAttributeGroup,
+  name: string,
+): readonly IppAttributeValue[] =>
+  group.attributes
+    .filter((attribute) => attribute.name === name)
+    .map((attribute) => attribute.value)
 
 export interface SerializeIppRequestOptions {
   readonly operation: string

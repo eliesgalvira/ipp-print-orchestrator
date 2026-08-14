@@ -1,7 +1,5 @@
 import { Context, type Effect } from "effect"
 
-import type { OperationalError } from "../domain/Errors.js"
-
 export interface StatusObservationInput {
   readonly timestamp: string
   readonly hostname: string
@@ -27,8 +25,6 @@ export interface StatusSnapshot {
   readonly printerState: string | null
   readonly printerReasons: readonly string[]
   readonly printerMessage: string | null
-  readonly queueDepth: number
-  readonly nonterminalJobCount: number
 }
 
 export class StatusRuntime extends Context.Service<
@@ -36,10 +32,8 @@ export class StatusRuntime extends Context.Service<
   {
     readonly recordObservedStatus: (
       input: StatusObservationInput,
-    ) => Effect.Effect<void, OperationalError>
-    readonly observeNow: (
-      reason: string,
-    ) => Effect.Effect<StatusSnapshot, OperationalError>
-    readonly current: () => Effect.Effect<StatusSnapshot, OperationalError>
+    ) => Effect.Effect<void>
+    readonly observeNow: (reason: string) => Effect.Effect<StatusSnapshot>
+    readonly current: () => Effect.Effect<StatusSnapshot>
   }
 >()("@ipp/agent/services/StatusRuntime") {}

@@ -1,9 +1,16 @@
-# IPP Print Orchestrator
+# IPP Print Server
 
-This context describes a local-first print orchestrator that accepts print jobs, keeps durable local state, and coordinates CUPS, printer readiness, and recovery.
+This project exposes one guarded CUPS queue to family devices and observes its
+availability. CUPS is the only authority for accepted print jobs and their
+lifecycle.
 
 ## Language
 
-**Job lifecycle**:
-The durable journey of a print job from intake through storage, queueing, CUPS submission, recovery, and terminal outcome.
-_Avoid_: Job workflow, print pipeline, lifecycle service
+**Public print job**: A job submitted by a client to the advertised IPPS queue
+and owned by CUPS until its terminal outcome.
+
+**Printer readiness**: Whether CUPS can accept work and the physical printer is
+present, authorized, and free of a blocking condition.
+
+**Physical USB identity**: The underlying USB printer represented by either a
+direct device URI or an installed supervised-backend URI.

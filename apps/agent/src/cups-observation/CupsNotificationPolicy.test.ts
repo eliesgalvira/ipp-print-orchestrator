@@ -1,62 +1,35 @@
 import { describe, expect, it } from "@effect/vitest"
 
-import {
-  decideCupsNotification,
-  notificationsIncludeJobEvent,
-  notificationsIncludePrinterEvent,
-} from "./CupsNotificationPolicy.js"
+import { decideCupsNotification } from "./CupsNotificationPolicy.js"
 
 describe("CUPS notification policy", () => {
-  it("detects job notifications that should trigger targeted repair", () => {
-    expect(
-      notificationsIncludeJobEvent([
-        { "notify-subscribed-event": "printer-state-changed" },
-        { "notify-subscribed-event": "job-completed" },
-      ]),
-    ).toBe(true)
-
-    expect(
-      notificationsIncludeJobEvent([
-        { "notify-subscribed-event": "printer-state-changed" },
-      ]),
-    ).toBe(false)
-  })
-
-  it("detects printer notifications that should trigger status observation", () => {
-    expect(
-      notificationsIncludePrinterEvent([
-        { "notify-subscribed-event": "job-progress" },
-        { "notify-subscribed-event": "printer-state-changed" },
-      ]),
-    ).toBe(true)
-
-    expect(
-      notificationsIncludePrinterEvent([
-        { "notify-subscribed-event": "job-progress" },
-        { "notify-subscribed-event": "job-completed" },
-      ]),
-    ).toBe(false)
-  })
-
-  it("advances sequence numbers and reports required side effects", () => {
+  it("advances sequence numbers and observes printer changes", () => {
     expect(
       decideCupsNotification({
         nextSequenceNumber: 9,
         notifications: [
           {
-            "notify-sequence-number": 10,
-            "notify-subscribed-event": "job-progress",
+            tag: "event-notification-attributes-tag",
+            attributes: [
+              { name: "notify-sequence-number", value: 10 },
+              { name: "notify-subscribed-event", value: "job-progress" },
+            ],
           },
           {
-            "notify-sequence-number": 12,
-            "notify-subscribed-event": "printer-state-changed",
+            tag: "event-notification-attributes-tag",
+            attributes: [
+              { name: "notify-sequence-number", value: 12 },
+              {
+                name: "notify-subscribed-event",
+                value: "printer-state-changed",
+              },
+            ],
           },
         ],
       }),
     ).toEqual({
       nextSequenceNumber: 13,
       observePrinterStatus: true,
-      repairCupsTrackedJobs: true,
     })
   })
 })

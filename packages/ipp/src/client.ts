@@ -1,7 +1,12 @@
-import { Effect, Layer, Schema, Context } from "effect"
-import { parseIppMessage, serializeIppRequest } from "./codec.js"
+import { Context, Effect, Layer, Schema } from "effect"
+import {
+  parseIppMessage,
+  serializeIppRequest,
+  validateIppMessage,
+} from "./codec.js"
 import {
   type IppClientError,
+  IppDuplicateAttributeError,
   IppParseError,
   IppSerializationError,
   IppTransportError,
@@ -92,9 +97,10 @@ export const requestIpp = (request: IppExecuteRequest) =>
     ),
     Effect.flatMap((body) =>
       Effect.try({
-        try: () => parseIppMessage(body),
+        try: () => validateIppMessage(parseIppMessage(body)),
         catch: (error) =>
-          Schema.is(IppParseError)(error)
+          Schema.is(IppParseError)(error) ||
+          Schema.is(IppDuplicateAttributeError)(error)
             ? error
             : new IppParseError({ message: String(error) }),
       }),

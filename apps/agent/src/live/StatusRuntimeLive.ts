@@ -3,10 +3,8 @@ import { Clock, Effect, Layer, Ref } from "effect"
 
 import { WideEvent } from "../domain/WideEvent.js"
 import { WideEventPublisher } from "../observability/WideEventPublisher.js"
-import { JobRepo } from "../services/JobRepo.js"
 import { NetworkProbe } from "../services/NetworkProbe.js"
 import { PrinterProbe } from "../services/PrinterProbe.js"
-import { QueueRuntime } from "../services/QueueRuntime.js"
 import {
   type StatusObservationInput,
   StatusRuntime,
@@ -31,8 +29,6 @@ const emptyObservedSnapshot = (
   printerState: input.printerState ?? null,
   printerReasons: input.printerReasons ?? [],
   printerMessage: input.printerMessage ?? null,
-  queueDepth: 0,
-  nonterminalJobCount: 0,
 })
 
 const mergeObservedSnapshot = (
@@ -86,33 +82,9 @@ export const StatusRuntimeLive = Layer.effect(
     const wideEventPublisher = yield* WideEventPublisher
     const networkProbe = yield* NetworkProbe
     const printerProbe = yield* PrinterProbe
-    const queueRuntime = yield* QueueRuntime
-    const jobRepo = yield* JobRepo
     const lastObservedStatusRef = yield* Ref.make<EmittedStatusSnapshot | null>(
       null,
     )
-
-    const enrichWithCurrentCounts = Effect.fn(
-      "StatusRuntime.enrichWithCurrentCounts",
-    )(function* (observed: EmittedStatusSnapshot) {
-      const queueDepth = yield* queueRuntime.size()
-      const nonterminalJobs = yield* jobRepo.listNonTerminal()
-
-      return {
-        timestamp: observed.timestamp,
-        hostname: observed.hostname,
-        networkOnline: observed.networkOnline,
-        localIps: observed.localIps,
-        cupsReachable: observed.cupsReachable,
-        printerAttached: observed.printerAttached,
-        printerQueueAvailable: observed.printerQueueAvailable,
-        printerState: observed.printerState,
-        printerReasons: observed.printerReasons,
-        printerMessage: observed.printerMessage,
-        queueDepth,
-        nonterminalJobCount: nonterminalJobs.length,
-      } satisfies StatusSnapshot
-    })
 
     const emitStatusChangeEvents = Effect.fn(
       "StatusRuntime.emitStatusChangeEvents",
@@ -240,7 +212,7 @@ export const StatusRuntimeLive = Layer.effect(
         )
       }
 
-      return yield* enrichWithCurrentCounts(currentObservedStatus)
+      return currentObservedStatus satisfies StatusSnapshot
     })
 
     const current = Effect.fn("StatusRuntime.current")(function* () {
