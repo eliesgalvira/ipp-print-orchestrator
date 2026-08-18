@@ -18,7 +18,7 @@ printer. The agent does not accept or persist print jobs.
 ```text
 apps/agent/       Effect service and CUPS PDF filter
 packages/ipp/     Lossless IPP codec, client, and subscription helpers
-nix/              Runtime, HP ULD, USB backend, module, and checks
+nix/              flake-parts modules (*.mod.nix): packages, checks, dev shell, formatter
 scripts/          Local and live-Pi operational adapters
 systemd/          Pi systemd units rendered against the copied Nix runtime closure
 docs/             Accepted printer and safety decision
