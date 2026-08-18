@@ -25,7 +25,6 @@ const HP_ULD_RASTER_FILTER = '*cupsFilter:  "application/vnd.cups-raster 0 raste
 const HP_ULD_PDF_PREFLIGHT_FILTER = '*cupsFilter: "application/pdf 0 ipp-pdf-preflight-to-spl"'
 const HP_ULD_STANDARD_600DPI = '*Quality 600dpi/Standard: "<</HWResolution[600 600]>>setpagedevice"'
 const HP_ULD_STANDARD_SAFE_300DPI = '*Quality 600dpi/Standard: "<</HWResolution[300 300]>>setpagedevice"'
-const LEGACY_PAGE_DEFAULT_RESET_ARGS = ["-R" "media-default" "-R" "PageSize-default"]
 
 def run-required [label: string, command: list<string>]: nothing -> string {
   let result = (run-external ...$command | complete)
@@ -237,11 +236,6 @@ def resolve-hp-device-uri [printer_name: string, device_uri: any]: nothing -> st
 
     error make $err
   }
-}
-
-def driver-available [driver: string]: nothing -> bool {
-  let models = (run-required "list CUPS printer models" ["/usr/sbin/lpinfo" "-m"])
-  $models | lines | any {|line| $line == $driver or ($line | str starts-with $"($driver) ")}
 }
 
 def install-root-dir [path: string]: nothing -> nothing {
@@ -564,11 +558,11 @@ def install-cups-artifacts [
   install-queue-ppd-if-present $printer_name $ppd_path
 }
 
-def configure-cups-network [--enable-printing]: nothing -> nothing {
+def wait-for-cups-ready []: nothing -> nothing {
   for attempt in 1..10 {
     let result = (run-external "sudo" "cupsctl" | complete)
     if $result.exit_code == 0 {
-      break
+      return
     }
 
     if $attempt == 10 {
@@ -577,6 +571,10 @@ def configure-cups-network [--enable-printing]: nothing -> nothing {
 
     sleep 1sec
   }
+}
+
+def configure-cups-network [--enable-printing]: nothing -> nothing {
+  wait-for-cups-ready
 
   if $enable_printing {
     run-required "configure CUPS LAN sharing" [
@@ -625,32 +623,26 @@ def configure-cups-network [--enable-printing]: nothing -> nothing {
   }
 }
 
-def configure-queue [
-  printer_name: string
-  device_uri: string
-  model_or_ppd: string
-  --ppd
-  --enable-printing
-]: nothing -> nothing {
-  for queue in $TEMP_QUEUES {
-    run-best-effort ["sudo" "lpadmin" "-x" $queue]
-  }
+def queue-option-reset-args [printers_conf: string, printer_name: string]: nothing -> list<string> {
+  cups-printer-block $printers_conf $printer_name
+  | lines
+  | each {|line| $line | str trim}
+  | where {|line| $line | str starts-with "Option "}
+  | each {|line|
+      let option_name = ($line | split row " " | get 1)
+      ["-R" $"($option_name)-default"]
+    }
+  | flatten
+}
 
-  let driver_args = if $ppd {
-    ["-P" $model_or_ppd]
-  } else {
-    ["-m" $model_or_ppd]
-  }
-
-  run-required $"configure CUPS queue ($printer_name)" ([
-    "sudo"
-    "lpadmin"
+def queue-configuration-args [printer_name: string, device_uri: string, ppd_path: string]: nothing -> list<string> {
+  [
     "-p"
     $printer_name
-    "-E"
     "-v"
     $device_uri
-  ] ++ $driver_args ++ $LEGACY_PAGE_DEFAULT_RESET_ARGS ++ [
+    "-P"
+    $ppd_path
     "-D"
     "HP Laser MFP 135a"
     "-L"
@@ -662,17 +654,40 @@ def configure-queue [
     "-o"
     "printer-error-policy=abort-job"
     "-o"
-    $"printer-is-shared=($enable_printing)"
-  ]) | ignore
+    "printer-is-shared=false"
+  ]
+}
 
-  if $enable_printing {
-    run-required "enable CUPS queue" ["sudo" "cupsenable" "-r" "Ready." $printer_name] | ignore
-    run-required "accept CUPS queue jobs" ["sudo" "cupsaccept" $printer_name] | ignore
-  } else {
-    run-best-effort ["sudo" "cupsdisable" $printer_name]
-    run-best-effort ["sudo" "cupsreject" $printer_name]
-    run-best-effort ["sudo" "lpadmin" "-p" $printer_name "-o" "printer-is-shared=false"]
+def configure-queue [printer_name: string, device_uri: string, ppd_path: string]: nothing -> nothing {
+  for queue in $TEMP_QUEUES {
+    run-best-effort ["sudo" "lpadmin" "-x" $queue]
   }
+
+  let printers_conf = (run-external "sudo" "cat" "/etc/cups/printers.conf" | complete | get stdout)
+  let reset_args = (queue-option-reset-args $printers_conf $printer_name)
+  if ($reset_args | length) > 0 {
+    run-required $"reset persisted CUPS queue options for ($printer_name)" (["sudo" "lpadmin" "-p" $printer_name] ++ $reset_args) | ignore
+  }
+
+  run-required $"configure CUPS queue ($printer_name)" (["sudo" "lpadmin"] ++ (queue-configuration-args $printer_name $device_uri $ppd_path)) | ignore
+  run-best-effort ["sudo" "cupsdisable" $printer_name]
+  run-best-effort ["sudo" "cupsreject" $printer_name]
+}
+
+def enable-queue [printer_name: string]: nothing -> nothing {
+  run-required "share CUPS queue" ["sudo" "lpadmin" "-p" $printer_name "-o" "printer-is-shared=true"] | ignore
+  run-required "enable CUPS queue" ["sudo" "cupsenable" "-r" "Ready." $printer_name] | ignore
+  run-required "accept CUPS queue jobs" ["sudo" "cupsaccept" $printer_name] | ignore
+}
+
+def verify-ipp-contract [printer_uri: string]: nothing -> nothing {
+  wait-for-cups-ready
+  run-required $"validate IPP printer attributes at ($printer_uri)" [
+    "ipptool"
+    "-tv"
+    $printer_uri
+    "/usr/share/cups/ipptool/get-printer-attributes.test"
+  ] | ignore
 }
 
 def cups-printer-block [printers_conf: string, printer_name: string]: nothing -> string {
@@ -813,7 +828,6 @@ def final-safe-stop [printer_name: string]: nothing -> nothing {
 
 def main [
   --printer-name: string
-  --driver: string
   --device-uri: string
   --runtime-path: string
   --driver-path: string
@@ -903,38 +917,32 @@ def main [
 
   run-required "start CUPS for queue configuration" ["sudo" "systemctl" "start" "cups.service"] | ignore
 
-  let selected_driver = if (has-value $driver) {
-    if not (driver-available $driver) {
-      error make {msg: $"CUPS driver is not available: ($driver)"}
-    }
-
-    {kind: model, value: $driver}
-  } else {
-    {kind: ppd, value: (ensure-hp-uld-driver $driver_path)}
-  }
+  let ppd_path = (ensure-hp-uld-driver $driver_path)
 
   install-cups-artifacts $queue_name $runtime_path $driver_path $backend_path
   configure-cups-network --enable-printing=$enable_printing
-  configure-queue $queue_name (supervised-usb-device-uri $resolved_device_uri) $selected_driver.value --ppd=($selected_driver.kind == "ppd") --enable-printing=$enable_printing
+  configure-queue $queue_name (supervised-usb-device-uri $resolved_device_uri) $ppd_path
   force-queue-error-policy-abort-job $queue_name
   clear-spool-files
+  verify-ipp-contract $"ipp://localhost:631/printers/($queue_name)"
 
   if $enable_printing {
-    install-avahi-ipps-service $queue_name $tls_identity.avahi_fqdn
-    run-best-effort ["sudo" "systemctl" "disable" "--now" "cups-browsed.service"]
-    run-required "enable CUPS and Avahi services" ["sudo" "systemctl" "enable" "--now" "cups.service" "cups.socket" "cups.path" "avahi-daemon.service"] | ignore
-    verify-cups-tls-identity $tls_identity
-    run-required "validate public IPPS attributes" [
-      "ipptool"
-      "-tv"
-      $"ipps://($tls_identity.avahi_fqdn):631/printers/($queue_name)"
-      "/usr/share/cups/ipptool/get-printer-attributes.test"
-    ] | ignore
-    print $"Configured and enabled shared CUPS queue ($queue_name) with ($selected_driver.value)."
+    try {
+      enable-queue $queue_name
+      install-avahi-ipps-service $queue_name $tls_identity.avahi_fqdn
+      run-best-effort ["sudo" "systemctl" "disable" "--now" "cups-browsed.service"]
+      run-required "enable CUPS and Avahi services" ["sudo" "systemctl" "enable" "--now" "cups.service" "cups.socket" "cups.path" "avahi-daemon.service"] | ignore
+      verify-cups-tls-identity $tls_identity
+      verify-ipp-contract $"ipps://($tls_identity.avahi_fqdn):631/printers/($queue_name)"
+    } catch {|err|
+      final-safe-stop $queue_name
+      error make {msg: $"queue exposure failed and was rolled back to the safe state: (error-message $err)"}
+    }
+    print $"Configured and enabled shared CUPS queue ($queue_name) with ($ppd_path)."
     print "No test page was printed."
   } else {
     final-safe-stop $queue_name
-    print $"Configured queue ($queue_name) with ($selected_driver.value), then left CUPS stopped, disabled, unshared, and rejecting jobs."
+    print $"Configured queue ($queue_name) with ($ppd_path), then left CUPS stopped, disabled, unshared, and rejecting jobs."
     print "No test page was printed. Re-run with --enable-printing only when you are ready to expose the queue."
   }
 }

@@ -14,7 +14,6 @@ def run-required [label: string, command: list<string>]: nothing -> nothing {
 
 def main [
   --printer-name: string
-  --driver: string
   --device-uri: string
   --enable-printing
   --stop-only
@@ -49,7 +48,6 @@ def main [
   let forwarded_args = (
     []
     | append (if (has-value $printer_name) { ["--printer-name" $printer_name] } else { [] })
-    | append (if (has-value $driver) { ["--driver" $driver] } else { [] })
     | append (if (has-value $device_uri) { ["--device-uri" $device_uri] } else { [] })
     | append (if (has-value $nix_paths.runtime_path) { ["--runtime-path" $nix_paths.runtime_path] } else { [] })
     | append (if (has-value $nix_paths.driver_path) { ["--driver-path" $nix_paths.driver_path] } else { [] })

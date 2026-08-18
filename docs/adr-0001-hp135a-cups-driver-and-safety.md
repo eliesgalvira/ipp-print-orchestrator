@@ -90,11 +90,19 @@ Patch the HP PPD conservatively:
 - Normalize the HP vendor PPD's default paper declarations to A4 before
   installing either the driver PPD or the queue PPD:
   `*DefaultPageSize`, `*DefaultPageRegion`, `*DefaultImageableArea`, and
-  `*DefaultPaperDimension`. Do not rely only on queue-level `PageSize=A4` or
-  `media-default=A4`, because CUPS can expose both queue options and PPD defaults
-  through IPP, producing contradictory metadata for Android clients.
+  `*DefaultPaperDimension`. The PPD is the only source of the page default.
+  Never set queue-level `PageSize`, `PageSize-default`, or `media-default`:
+  CUPS publishes queue options alongside the PPD-derived value, producing two
+  `media-default` attributes that Android rejects. This recurred on 2026-08-14
+  from options persisted in `printers.conf` by an earlier activation, so
+  activation resets every persisted queue option before applying its own.
 - Perform that normalization in the Nix derivation. Activation copies the
   immutable PPD and does not maintain a second rewrite implementation.
+- Gate exposure on the IPP contract. Activation configures the queue disabled
+  and unshared, runs the official `ipptool get-printer-attributes.test` against
+  `ipp://localhost`, and only then enables, shares, and advertises the queue.
+  The same test then runs against the public IPPS endpoint; if it fails, the
+  queue is rolled back to the safe state instead of staying exposed.
 - Keep the driver's existing `Quality 600dpi` option name for compatibility with
   CUPS defaults, but render that default at 300x300.
 - Add a queue-specific `application/pdf` CUPS filter named

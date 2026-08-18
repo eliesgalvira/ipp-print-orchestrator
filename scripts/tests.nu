@@ -259,6 +259,30 @@ print (supervised-usb-device-uri "file:///tmp/output")
   assert equal ($lines | get 1) "file:///tmp/output"
 }
 
+def "test CUPS queue configuration owns every persisted queue option" []: nothing -> nothing {
+  let result = (
+    nu --no-config-file --commands '
+source scripts/setup-cups-live-from-pi.nu
+let printers_conf = "<Printer Other>\nOption media Letter\n</Printer>\n<Printer HP135a>\nUUID urn:uuid:target\nOption media A4\nOption PageSize A4\nOption Resolution 600dpi\nAttribute marker-colors none\n</Printer>\n"
+print ((queue-option-reset-args $printers_conf "HP135a") | str join " ")
+print ((queue-option-reset-args "" "HP135a") | length)
+print ((queue-configuration-args "HP135a" "ipp-orch-usb://HP/x" "/nix/store/x.ppd") | str join " ")
+'
+    | complete
+  )
+
+  assert equal $result.exit_code 0 $"expected CUPS queue option helpers to execute: ($result.stderr)"
+  let lines = ($result.stdout | lines)
+  assert equal ($lines | get 0) "-R media-default -R PageSize-default -R Resolution-default"
+  assert equal ($lines | get 1) "0"
+  let configuration = ($lines | get 2)
+  assert ($configuration | str contains "-P /nix/store/x.ppd") "queue must take its PPD from the Nix store"
+  assert ($configuration | str contains "printer-is-shared=false") "queue must be configured unshared before the IPP contract gate"
+  assert not ($configuration | str contains "-E") "queue must not be enabled before the IPP contract gate"
+  assert not ($configuration | str contains "media") "queue must not set media-default; the PPD owns the page default"
+  assert not ($configuration | str contains "PageSize") "queue must not set PageSize; the PPD owns the page default"
+}
+
 def "test CUPS printer block extraction is scoped to target queue" []: nothing -> nothing {
   let result = (
     nu --no-config-file --commands '
