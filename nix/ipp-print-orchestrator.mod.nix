@@ -23,6 +23,7 @@
         let
           inherit (lib.meta) getExe;
           inherit (lib.strings) makeBinPath;
+          inherit (lib.trivial) importJSON;
 
           bun2nix = inputs.bun2nix.packages.${system}.default;
           appName = "ipp-print-orchestrator";
@@ -32,7 +33,7 @@
         in
         stdenvNoCC.mkDerivation {
           pname = appName;
-          version = "0.1.0";
+          version = (importJSON "${self}/package.json").version;
 
           src = self;
 
@@ -107,6 +108,35 @@
       ) { };
 
       checks.ipp-print-orchestrator = config.packages.ipp-print-orchestrator;
+
+      checks.js-runtime-manifest =
+        let
+          inherit (lib.attrsets) filterAttrs mapAttrs;
+          inherit (lib.strings) hasPrefix removePrefix toJSON;
+          inherit (lib.trivial) importJSON;
+
+          agentDeps = (importJSON "${self}/apps/agent/package.json").dependencies;
+          runtimeDeps = (importJSON "${self}/nix/js-runtime/package.json").dependencies;
+
+          pinnedAgentDeps = mapAttrs (name: version: removePrefix "^" version) (
+            filterAttrs (name: version: !hasPrefix "workspace:" version) agentDeps
+          );
+        in
+        pkgs.runCommand "ipp-print-orchestrator-js-runtime-manifest-check"
+          {
+            agentManifest = toJSON pinnedAgentDeps;
+            runtimeManifest = toJSON runtimeDeps;
+          }
+          /* bash */ ''
+            if [ "$agentManifest" != "$runtimeManifest" ]; then
+              echo "nix/js-runtime/package.json dependencies drifted from apps/agent/package.json" >&2
+              echo "agent (pinned):  $agentManifest" >&2
+              echo "runtime:         $runtimeManifest" >&2
+              exit 1
+            fi
+
+            touch "$out"
+          '';
 
       checks.ipp-print-orchestrator-js =
         pkgs.runCommand "ipp-print-orchestrator-js-check"

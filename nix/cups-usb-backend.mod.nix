@@ -18,10 +18,11 @@
         }:
         let
           inherit (lib.strings) escapeShellArg makeBinPath;
+          inherit (lib.trivial) importJSON;
         in
         stdenvNoCC.mkDerivation {
           pname = "ipp-orch-cups-usb-backend";
-          version = "0.1.0";
+          version = (importJSON "${self}/package.json").version;
 
           src = self;
 
