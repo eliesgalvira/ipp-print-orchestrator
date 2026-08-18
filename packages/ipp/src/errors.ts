@@ -1,27 +1,27 @@
 import { Schema } from "effect"
 
-export class IppSerializationError extends Schema.TaggedErrorClass<IppSerializationError>()(
+export class IppSerializationError extends Schema.TaggedError<IppSerializationError>()(
   "IppSerializationError",
   {
     message: Schema.String,
   },
 ) {}
 
-export class IppTransportError extends Schema.TaggedErrorClass<IppTransportError>()(
+export class IppTransportError extends Schema.TaggedError<IppTransportError>()(
   "IppTransportError",
   {
     message: Schema.String,
   },
 ) {}
 
-export class IppParseError extends Schema.TaggedErrorClass<IppParseError>()(
+export class IppParseError extends Schema.TaggedError<IppParseError>()(
   "IppParseError",
   {
     message: Schema.String,
   },
 ) {}
 
-export class IppDuplicateAttributeError extends Schema.TaggedErrorClass<IppDuplicateAttributeError>()(
+export class IppDuplicateAttributeError extends Schema.TaggedError<IppDuplicateAttributeError>()(
   "IppDuplicateAttributeError",
   {
     group: Schema.String,

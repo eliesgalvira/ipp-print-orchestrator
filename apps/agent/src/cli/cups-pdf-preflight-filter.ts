@@ -140,7 +140,7 @@ const formatBytesForDebug = (bytes: number): string =>
     1,
   )} MiB)`
 
-class TempDirCleanupFailed extends Schema.TaggedErrorClass<TempDirCleanupFailed>()(
+class TempDirCleanupFailed extends Schema.TaggedError<TempDirCleanupFailed>()(
   "TempDirCleanupFailed",
   {
     message: Schema.String,

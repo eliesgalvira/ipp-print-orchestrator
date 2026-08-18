@@ -31,7 +31,7 @@ const usbDevicePresentMessage =
 
 type UsbPresence = "attached" | "missing" | "deauthorized"
 
-class UsbSysfsReadFailed extends Schema.TaggedErrorClass<UsbSysfsReadFailed>()(
+class UsbSysfsReadFailed extends Schema.TaggedError<UsbSysfsReadFailed>()(
   "UsbSysfsReadFailed",
   {
     message: Schema.String,

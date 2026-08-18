@@ -3,27 +3,27 @@ import { Schema } from "effect"
 import { SplOutputGuardRejectionReasons } from "./CupsFilterOutputGuard.js"
 import { PdfPreflightRejectionReason } from "./PdfPreflight.js"
 
-export class ValidationError extends Schema.TaggedErrorClass<ValidationError>()(
+export class ValidationError extends Schema.TaggedError<ValidationError>()(
   "ValidationError",
   { message: Schema.String },
 ) {}
 
-export class CupsUnavailable extends Schema.TaggedErrorClass<CupsUnavailable>()(
+export class CupsUnavailable extends Schema.TaggedError<CupsUnavailable>()(
   "CupsUnavailable",
   { message: Schema.String },
 ) {}
 
-export class CupsCommandFailed extends Schema.TaggedErrorClass<CupsCommandFailed>()(
+export class CupsCommandFailed extends Schema.TaggedError<CupsCommandFailed>()(
   "CupsCommandFailed",
   { message: Schema.String },
 ) {}
 
-export class CupsTmpDirFull extends Schema.TaggedErrorClass<CupsTmpDirFull>()(
+export class CupsTmpDirFull extends Schema.TaggedError<CupsTmpDirFull>()(
   "CupsTmpDirFull",
   { message: Schema.String },
 ) {}
 
-export class OutputGuardRejected extends Schema.TaggedErrorClass<OutputGuardRejected>()(
+export class OutputGuardRejected extends Schema.TaggedError<OutputGuardRejected>()(
   "OutputGuardRejected",
   {
     reason: Schema.Literals([...SplOutputGuardRejectionReasons]),
@@ -35,22 +35,22 @@ export class OutputGuardRejected extends Schema.TaggedErrorClass<OutputGuardReje
   },
 ) {}
 
-export class CupsIppUnavailable extends Schema.TaggedErrorClass<CupsIppUnavailable>()(
+export class CupsIppUnavailable extends Schema.TaggedError<CupsIppUnavailable>()(
   "CupsIppUnavailable",
   { message: Schema.String },
 ) {}
 
-export class CupsIppProtocolError extends Schema.TaggedErrorClass<CupsIppProtocolError>()(
+export class CupsIppProtocolError extends Schema.TaggedError<CupsIppProtocolError>()(
   "CupsIppProtocolError",
   { message: Schema.String },
 ) {}
 
-export class TelemetryUnavailable extends Schema.TaggedErrorClass<TelemetryUnavailable>()(
+export class TelemetryUnavailable extends Schema.TaggedError<TelemetryUnavailable>()(
   "TelemetryUnavailable",
   { message: Schema.String },
 ) {}
 
-export class PdfPreflightRejected extends Schema.TaggedErrorClass<PdfPreflightRejected>()(
+export class PdfPreflightRejected extends Schema.TaggedError<PdfPreflightRejected>()(
   "PdfPreflightRejected",
   {
     reason: PdfPreflightRejectionReason,

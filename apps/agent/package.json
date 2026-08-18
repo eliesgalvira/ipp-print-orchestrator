@@ -14,7 +14,7 @@
     "smoke": "nu ../../scripts/smoke-test-local.nu"
   },
   "dependencies": {
-    "@effect/platform-node": "^4.0.0-beta.64",
+    "@effect/platform-node": "^4.0.0-rc.110",
     "@ipp/ipp": "workspace:*",
     "@opentelemetry/api": "^1.9.0",
     "@opentelemetry/api-logs": "^0.213.0",
@@ -23,6 +23,6 @@
     "@opentelemetry/exporter-trace-otlp-http": "^0.213.0",
     "@opentelemetry/sdk-logs": "^0.213.0",
     "@opentelemetry/sdk-node": "^0.213.0",
-    "effect": "^4.0.0-beta.64"
+    "effect": "^4.0.0-rc.110"
   }
 }
