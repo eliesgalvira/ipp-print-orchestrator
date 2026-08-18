@@ -1,6 +1,14 @@
 {
   description = "IPP print orchestrator";
 
+  nixConfig = {
+    experimental-features = [
+      "flakes"
+      "nix-command"
+      "pipe-operators"
+    ];
+  };
+
   inputs.nixpkgs = {
     url = "github:NixOS/nixpkgs/nixos-26.05";
   };
@@ -28,7 +36,7 @@
           "aarch64-linux"
         ];
 
-        imports = filter (hasSuffix ".mod.nix") (listFilesRecursive ./nix);
+        imports = listFilesRecursive ./nix |> filter (hasSuffix ".mod.nix");
       }
     );
 }

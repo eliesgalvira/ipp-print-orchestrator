@@ -118,9 +118,10 @@
           agentDeps = (importJSON "${self}/apps/agent/package.json").dependencies;
           runtimeDeps = (importJSON "${self}/nix/js-runtime/package.json").dependencies;
 
-          pinnedAgentDeps = mapAttrs (name: version: removePrefix "^" version) (
-            filterAttrs (name: version: !hasPrefix "workspace:" version) agentDeps
-          );
+          pinnedAgentDeps =
+            agentDeps
+            |> filterAttrs (name: version: !hasPrefix "workspace:" version)
+            |> mapAttrs (name: version: removePrefix "^" version);
         in
         pkgs.runCommand "ipp-print-orchestrator-js-runtime-manifest-check"
           {

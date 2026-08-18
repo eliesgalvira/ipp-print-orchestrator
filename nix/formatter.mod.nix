@@ -7,7 +7,7 @@
       inherit (lib.lists) filter singleton;
       inherit (lib.strings) escapeShellArgs hasSuffix;
 
-      nixFiles = filter (hasSuffix ".nix") (listFilesRecursive self);
+      nixFiles = listFilesRecursive self |> filter (hasSuffix ".nix");
     in
     {
       formatter = pkgs.nixfmt-tree;
