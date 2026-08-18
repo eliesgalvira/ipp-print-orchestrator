@@ -20,7 +20,7 @@ apps/agent/       Effect service and CUPS PDF filter
 packages/ipp/     Lossless IPP codec, client, and subscription helpers
 nix/              Runtime, HP ULD, USB backend, module, and checks
 scripts/          Local and live-Pi operational adapters
-systemd/          Transitional non-NixOS units
+systemd/          Pi systemd units rendered against the copied Nix runtime closure
 docs/             Accepted printer and safety decision
 ```
 
@@ -121,8 +121,8 @@ AARCH64_BUILDER_HOST=local
 
 Scripts ending in `-live-to-pi.nu` run from the development machine. Their
 `-live-from-pi.nu` counterparts are target-side implementations invoked through
-SSH. The current Pi path is transitional non-NixOS activation from copied Nix
-store closures; the flake also exports `nixosModules.ipp-print-orchestrator`.
+SSH. The Pi runs Raspberry Pi OS; the flake builds the runtime, driver, and
+backend closures that are copied to its Nix store.
 
 ## CUPS safety
 

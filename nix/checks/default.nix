@@ -2,61 +2,8 @@
   pkgs,
   src,
   packages,
-  nixosModule,
 }:
 
-let
-  nixosEvalFor =
-    serviceConfig:
-    import "${pkgs.path}/nixos/lib/eval-config.nix" {
-      pkgs = pkgs;
-      system = pkgs.stdenv.hostPlatform.system;
-      modules = [
-        nixosModule
-        (
-          { ... }:
-          {
-            system.stateVersion = "26.05";
-            services.ippPrintOrchestrator = serviceConfig;
-          }
-        )
-      ];
-    };
-
-  baseModuleConfig = {
-    enable = true;
-    package = packages.ipp-print-orchestrator;
-    printerName = "HP135a";
-
-    observability = {
-      enableOtlp = true;
-      tracesEndpoint = "https://example.invalid/v1/traces";
-      logsEndpoint = "https://example.invalid/v1/logs";
-      tracesHeaders = "authorization=Bearer test,x-axiom-dataset=ipp-print-traces";
-      logsHeaders = "authorization=Bearer test,x-axiom-dataset=ipp-print-logs";
-    };
-  };
-
-  nixosEval = nixosEvalFor baseModuleConfig;
-
-  service = nixosEval.config.systemd.services.ipp-print-orchestrator;
-  heartbeat = nixosEval.config.systemd.services.ipp-print-orchestrator-heartbeat;
-
-  unsafeOtlpEval = builtins.tryEval (
-    (nixosEvalFor (
-      baseModuleConfig
-      // {
-        observability = {
-          enableOtlp = true;
-          tracesEndpoint = null;
-          logsEndpoint = "https://example.invalid/v1/logs";
-          tracesHeaders = null;
-          logsHeaders = "authorization=Bearer test,x-axiom-dataset=ipp-print-logs";
-        };
-      }
-    )).config.system.build.toplevel.drvPath
-  );
-in
 {
   hp-uld-hp135a = packages.hp-uld-hp135a;
 
@@ -167,39 +114,6 @@ in
         cd source
 
         nu --no-config-file scripts/tests.nu
-
-        touch "$out"
-      '';
-
-  nixos-module =
-    pkgs.runCommand "ipp-print-orchestrator-nixos-module-check"
-      {
-        serviceExec = service.serviceConfig.ExecStart;
-        serviceOtlp = service.environment.IPP_ORCH_ENABLE_OTLP;
-        serviceQueue = service.environment.IPP_ORCH_PRINTER_NAME;
-        heartbeatExec = heartbeat.serviceConfig.ExecStart;
-        unsafeOtlpAccepted = if unsafeOtlpEval.success then "true" else "false";
-      }
-      ''
-        case "$serviceExec" in
-          /nix/store/*/bin/ipp-print-orchestrator-agent) ;;
-          *)
-            echo "service ExecStart does not use the packaged store wrapper: $serviceExec" >&2
-            exit 1
-            ;;
-        esac
-
-        test "$serviceOtlp" = true
-        test "$serviceQueue" = HP135a
-        test "$unsafeOtlpAccepted" = false
-
-        case "$heartbeatExec" in
-          /nix/store/*/bin/curl\ --fail\ --silent\ http://127.0.0.1:4310/v1/health) ;;
-          *)
-            echo "heartbeat ExecStart does not use store curl and expected health URL: $heartbeatExec" >&2
-            exit 1
-            ;;
-        esac
 
         touch "$out"
       '';
