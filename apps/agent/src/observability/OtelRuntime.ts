@@ -4,7 +4,7 @@ import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http"
 import { BatchLogRecordProcessor } from "@opentelemetry/sdk-logs"
 import { NodeSDK, tracing } from "@opentelemetry/sdk-node"
 import type { Tracer as EffectTracer } from "effect"
-import { Effect } from "effect"
+import { Effect, Redacted } from "effect"
 
 import type { WideEvent } from "../domain/WideEvent.js"
 import { type OtelConfig, readOtelConfig } from "./OtelConfig.js"
@@ -46,6 +46,13 @@ const logAttributesForEvent = (
   return attributes
 }
 
+const exposeHeaders = (
+  headers: Record<string, Redacted.Redacted<string>>,
+): Record<string, string> =>
+  Object.fromEntries(
+    Object.entries(headers).map(([key, value]) => [key, Redacted.value(value)]),
+  )
+
 const registerShutdownHooks = () => {
   if (shutdownRegistered) {
     return
@@ -79,7 +86,7 @@ export const startObservability = async (
           new tracing.BatchSpanProcessor(
             new OTLPTraceExporter({
               url: config.traces.endpoint,
-              headers: config.traces.headers,
+              headers: exposeHeaders(config.traces.headers),
             }),
           ),
         ]
@@ -91,7 +98,7 @@ export const startObservability = async (
           new BatchLogRecordProcessor(
             new OTLPLogExporter({
               url: config.logs.endpoint,
-              headers: config.logs.headers,
+              headers: exposeHeaders(config.logs.headers),
             }),
           ),
         ]

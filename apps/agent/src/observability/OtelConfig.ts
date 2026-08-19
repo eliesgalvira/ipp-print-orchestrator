@@ -1,8 +1,10 @@
+import { Redacted } from "effect"
+
 const DEFAULT_SERVICE_NAME = "ipp-print-orchestrator"
 
 export interface OtelSignalConfig {
   readonly endpoint: string
-  readonly headers: Record<string, string>
+  readonly headers: Record<string, Redacted.Redacted<string>>
 }
 
 export interface OtelConfig {
@@ -30,7 +32,9 @@ const deriveSignalEndpoint = (
   return `${normalized}/v1/${signal}`
 }
 
-const parseHeaders = (value: string | undefined): Record<string, string> => {
+const parseHeaders = (
+  value: string | undefined,
+): Record<string, Redacted.Redacted<string>> => {
   if (value === undefined || value.trim() === "") {
     return {}
   }
@@ -52,7 +56,7 @@ const parseHeaders = (value: string | undefined): Record<string, string> => {
           return []
         }
 
-        return [[key, headerValue] as const]
+        return [[key, Redacted.make(headerValue)] as const]
       }),
   )
 }
