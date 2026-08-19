@@ -5,6 +5,7 @@ import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner
 
 import { AppConfig } from "./config/AppConfig.js"
 import { isPhysicalUsbDeviceUri } from "./domain/PrinterDeviceUri.js"
+import { udevProductMatchesUsbIdentity } from "./domain/UsbDeviceIdentity.js"
 import { HttpServerLive, runHttpServer } from "./http/HttpServer.js"
 import { MainLayer } from "./live/MainLayer.js"
 import { startObservability, withObservability } from "./observability/index.js"
@@ -48,7 +49,9 @@ const program = Effect.scoped(
           { includeStderr: true },
         )
         .pipe(
-          Stream.filter((line) => line.startsWith("UDEV")),
+          Stream.filter((line) =>
+            udevProductMatchesUsbIdentity(line, config.usbDeviceIdentity),
+          ),
           Stream.runForEach(() => observeStatus("udev-usb-event")),
           Effect.catch((error) =>
             Console.error(`usb hotplug monitor failed: ${String(error)}`),

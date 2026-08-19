@@ -20,8 +20,6 @@ import { pipeline } from "node:stream/promises"
 import { Cause, Effect, Schema } from "effect"
 
 import {
-  countCupsPageLogEntries,
-  countGhostscriptProcessedPages,
   decideCupsCopiesGuard,
   decideSplOutputGuard,
   hasSplBlankPageSuppression,
@@ -428,9 +426,7 @@ const cleanupStaleTempDirs = (tempRoot: string) =>
         if (ageMs > tempDirRetentionMs) {
           rmSync(tempPath, { force: true, recursive: true })
         }
-      } catch {
-        // Best-effort cleanup only; stale temp dirs must not block a print job.
-      }
+      } catch {}
     }
   })
 
@@ -516,45 +512,20 @@ const renderPipeline = (
     const cupsRasterPath = join(tempDirectory, "document.cups-raster")
     const splPath = join(tempDirectory, "document.spl")
 
-    const pdftopdf = yield* runCupsFilter({
+    yield* runCupsFilter({
       label: "pdftopdf",
       command: pdfToPdfFilter,
       args: cupsArgsFor(invocation, inputPath),
       inputContentType: rawPdfContentType,
       output: { _tag: "File", path: normalizedPdfPath },
     })
-    const gstoraster = yield* runCupsFilter({
+    yield* runCupsFilter({
       label: "gstoraster",
       command: ghostscriptRasterFilter,
       args: cupsArgsFor(invocation, normalizedPdfPath),
       inputContentType: cupsPdfContentType,
       output: { _tag: "File", path: cupsRasterPath },
     })
-    const subfilterStderr = `${pdftopdf.stderr}\n${gstoraster.stderr}`
-    const observedPagesFromSubfilters =
-      countCupsPageLogEntries(subfilterStderr) ||
-      countGhostscriptProcessedPages(subfilterStderr)
-
-    if (observedPagesFromSubfilters > pdfPages + 1) {
-      return yield* new OutputGuardRejected({
-        reason: "unexpected-page-count",
-        message: `Subfilter PDF pipeline reported ${observedPagesFromSubfilters} pages for a ${pdfPages}-page PDF; rejecting before raster-to-SPL`,
-        actualBytes: 0,
-        expectedPages: pdfPages,
-        observedPages: observedPagesFromSubfilters,
-      })
-    }
-
-    if (
-      observedPagesFromSubfilters > 0 &&
-      observedPagesFromSubfilters !== pdfPages
-    ) {
-      yield* writeCupsStderr(
-        "INFO",
-        `Subfilter PDF pipeline reported ${observedPagesFromSubfilters} pages for a ${pdfPages}-page PDF; continuing to raster-to-SPL for final page count verification`,
-      )
-    }
-
     const rasterToSpl = yield* runCupsFilter({
       label: "rastertospl",
       command: splRasterFilter,

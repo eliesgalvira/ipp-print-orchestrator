@@ -1,11 +1,11 @@
 #!/usr/bin/env nu
 
 use lib/env.nu *
-use lib/observability.nu [local-service-env-content]
+use lib/service-env.nu [local-service-env-content]
 use lib/remote.nu *
 use lib/repo.nu *
 
-const SERVICE_ENV_FILE_MODE = "0644" # non-secret service config; readable by operators and systemd.
+const SERVICE_ENV_FILE_MODE = "0640"
 
 def require-command [name: string]: nothing -> nothing {
   if (which $name | is-empty) {
@@ -24,11 +24,12 @@ def sync-service-env [
   let remote_script_template = '
 let env_content = __ENV_CONTENT_NUON__
 let service_env_file_mode = "__SERVICE_ENV_FILE_MODE__"
+let service_env_group = (^id -gn | str trim)
 let tmp_env = (mktemp)
 
 try {
   ($env_content + "\n") | save --force $tmp_env
-  run-external "sudo" "install" "-m" $service_env_file_mode $tmp_env "/etc/ipp-print-orchestrator.env"
+  run-external "sudo" "install" "-o" "root" "-g" $service_env_group "-m" $service_env_file_mode $tmp_env "/etc/ipp-print-orchestrator.env"
 } catch {|err|
   rm --force $tmp_env
   error make $err
@@ -118,30 +119,30 @@ def local-deploy []: nothing -> nothing {
         ] --key-path $ssh_key_path --control-path $control_path --connect-timeout $ssh_connect_timeout --connection-attempts $ssh_connection_attempts --batch --tty
       } --attempts 5 --delay 2sec
     }
+
+    let port = (get-config $dotenv IPP_ORCH_BIND_PORT "4310")
+
+    print ""
+    print "Deployment complete."
+    print ""
+    print "Useful follow-up commands on the Pi:"
+    print $"  ssh ($pi_host)"
+    print "  sudo systemctl status ipp-print-orchestrator"
+    print "  journalctl -u ipp-print-orchestrator -f"
+    print $"  curl http://127.0.0.1:($port)/v1/health"
+    print $"  curl http://127.0.0.1:($port)/v1/status"
+    print "  lpstat -p"
+    print "  lpstat -t"
+    print ""
+    print "Useful remote commands from your laptop:"
+    print "  nu scripts/watch-status-live-to-pi.nu"
+    print $"  ssh ($pi_host) 'journalctl -u ipp-print-orchestrator -f --no-pager'"
   } finally {
     run-timed "stop ssh control connection" {
       stop-ssh-master $pi_host $control_path
     }
     rm --recursive --force $control_dir
   }
-
-  let port = (get-config $dotenv IPP_ORCH_BIND_PORT "4310")
-
-  print ""
-  print "Deployment complete."
-  print ""
-  print "Useful follow-up commands on the Pi:"
-  print $"  ssh ($pi_host)"
-  print "  sudo systemctl status ipp-print-orchestrator"
-  print "  journalctl -u ipp-print-orchestrator -f"
-  print $"  curl http://127.0.0.1:($port)/v1/health"
-  print $"  curl http://127.0.0.1:($port)/v1/status"
-  print "  lpstat -p"
-  print "  lpstat -t"
-  print ""
-  print "Useful remote commands from your laptop:"
-  print "  nu scripts/watch-status-live-to-pi.nu"
-  print $"  ssh ($pi_host) 'journalctl -u ipp-print-orchestrator -f --no-pager'"
 }
 
 def main []: nothing -> nothing {

@@ -2,7 +2,6 @@ import { describe, expect, it } from "@effect/vitest"
 
 import {
   countCupsPageLogEntries,
-  countGhostscriptProcessedPages,
   decideCupsCopiesGuard,
   decideSplOutputGuard,
   hasSplBlankPageSuppression,
@@ -135,22 +134,6 @@ describe("CUPS filter output guard", () => {
     expect(
       countCupsPageLogEntries(
         "ATTR: job-media-progress=50\npage: 1 1\nPAGE: 2 1\n",
-      ),
-    ).toBe(2)
-  })
-
-  it("counts Ghostscript processing lines from cupsFilter stderr", () => {
-    expect(
-      countGhostscriptProcessedPages(
-        "INFO: cfFilterGhostscript: Processing page 1...\nINFO: cfFilterGhostscript: Processing page 2...\n",
-      ),
-    ).toBe(2)
-  })
-
-  it("counts Ghostscript processing lines without cfFilterGhostscript prefix", () => {
-    expect(
-      countGhostscriptProcessedPages(
-        "INFO: Processing page 1...\nINFO: Processing page 2...\n",
       ),
     ).toBe(2)
   })

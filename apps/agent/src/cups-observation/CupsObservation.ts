@@ -3,7 +3,6 @@ import { Match } from "effect"
 const attachedBlockingReasons = new Set([
   "connecting-to-device",
   "offline",
-  "offline-report",
   "shutdown",
   "stopped-partly",
   "timed-out",
@@ -48,6 +47,9 @@ const normalizeReasons = (value: unknown): readonly string[] => {
     : []
 }
 
+const reasonKeyword = (reason: string): string =>
+  reason.replace(/-(?:report|warning|error)$/, "")
+
 const normalizePrinterState = (value: unknown): CupsPrinterState =>
   Match.value(value).pipe(
     Match.withReturnType<CupsPrinterState>(),
@@ -67,7 +69,7 @@ export const derivePrinterAttached = (
   state: CupsPrinterState,
 ): boolean =>
   state !== "stopped" &&
-  !reasons.some((reason) => attachedBlockingReasons.has(reason))
+  !reasons.some((reason) => attachedBlockingReasons.has(reasonKeyword(reason)))
 
 export const deriveQueueAvailable = (
   acceptingJobs: boolean,
@@ -76,7 +78,7 @@ export const deriveQueueAvailable = (
 ): boolean =>
   acceptingJobs &&
   state !== "stopped" &&
-  !reasons.some((reason) => queueBlockingReasons.has(reason))
+  !reasons.some((reason) => queueBlockingReasons.has(reasonKeyword(reason)))
 
 export const makePrinterObservation = (input: {
   readonly printerName: string

@@ -4,7 +4,7 @@ use lib/remote.nu [run-sudo run-timed]
 use lib/repo.nu repo-root
 
 const SYSTEMD_UNIT_FILE_MODE = "0644" # root-owned unit files must be readable by systemd and operators.
-const SERVICE_ENV_FILE_MODE = "0644" # non-secret service defaults; real secrets belong outside this env file.
+const SERVICE_ENV_FILE_MODE = "0640"
 
 def run-sudo-timed [phase: string, args: list<string>]: nothing -> any {
   run-timed $phase {
@@ -66,6 +66,9 @@ def default-service-env-content []: nothing -> string {
     "IPP_ORCH_BIND_HOST=127.0.0.1"
     "IPP_ORCH_BIND_PORT=4310"
     "IPP_ORCH_USB_SYSFS_ROOT=/sys/bus/usb/devices"
+    "IPP_ORCH_USB_VENDOR_ID=03f0"
+    "IPP_ORCH_USB_PRODUCT_ID=f22a"
+    "IPP_ORCH_USB_SERIAL="
     "IPP_ORCH_HEARTBEAT_INTERVAL_MS=60000"
     "IPP_ORCH_LOG_PRETTY=false"
     "IPP_ORCH_ENABLE_OTLP=false"
@@ -81,10 +84,11 @@ def default-service-env-content []: nothing -> string {
 def install-default-service-env []: nothing -> nothing {
   run-timed "install default service environment" {
     let tmp_env = (mktemp)
+    let service_env_group = (^id -gn | str trim)
 
     try {
       default-service-env-content | save --force $tmp_env
-      run-sudo ["install" "-m" $SERVICE_ENV_FILE_MODE $tmp_env "/etc/ipp-print-orchestrator.env"]
+      run-sudo ["install" "-o" "root" "-g" $service_env_group "-m" $SERVICE_ENV_FILE_MODE $tmp_env "/etc/ipp-print-orchestrator.env"]
     } catch {|err|
       rm --force $tmp_env
       error make $err

@@ -15,59 +15,10 @@ interface EmittedStatusSnapshot extends StatusSnapshot {
   readonly observationReason: string
 }
 
-const emptyObservedSnapshot = (
-  input: StatusObservationInput,
-): EmittedStatusSnapshot => ({
-  timestamp: input.timestamp,
-  hostname: input.hostname,
-  observationReason: input.observationReason,
-  networkOnline: input.networkOnline ?? false,
-  localIps: input.localIps ?? [],
-  cupsReachable: input.cupsReachable ?? false,
-  printerAttached: input.printerAttached ?? false,
-  printerQueueAvailable: input.printerQueueAvailable ?? false,
-  printerState: input.printerState ?? null,
-  printerReasons: input.printerReasons ?? [],
-  printerMessage: input.printerMessage ?? null,
-})
-
 const mergeObservedSnapshot = (
-  previous: EmittedStatusSnapshot | null,
+  previous: EmittedStatusSnapshot,
   input: StatusObservationInput,
-): EmittedStatusSnapshot => {
-  if (previous === null) {
-    return emptyObservedSnapshot(input)
-  }
-
-  return {
-    ...previous,
-    timestamp: input.timestamp,
-    hostname: input.hostname,
-    observationReason: input.observationReason,
-    ...(input.networkOnline === undefined
-      ? {}
-      : { networkOnline: input.networkOnline }),
-    ...(input.localIps === undefined ? {} : { localIps: [...input.localIps] }),
-    ...(input.cupsReachable === undefined
-      ? {}
-      : { cupsReachable: input.cupsReachable }),
-    ...(input.printerAttached === undefined
-      ? {}
-      : { printerAttached: input.printerAttached }),
-    ...(input.printerQueueAvailable === undefined
-      ? {}
-      : { printerQueueAvailable: input.printerQueueAvailable }),
-    ...(input.printerState === undefined
-      ? {}
-      : { printerState: input.printerState }),
-    ...(input.printerReasons === undefined
-      ? {}
-      : { printerReasons: [...input.printerReasons] }),
-    ...(input.printerMessage === undefined
-      ? {}
-      : { printerMessage: input.printerMessage }),
-  }
-}
+): EmittedStatusSnapshot => ({ ...previous, ...input })
 
 const sameStringArray = (
   left: readonly string[],
@@ -169,6 +120,9 @@ export const StatusRuntimeLive = Layer.effect(
       "StatusRuntime.recordObservedStatus",
     )(function* (input: StatusObservationInput) {
       const previousObservedStatus = yield* Ref.get(lastObservedStatusRef)
+      if (previousObservedStatus === null) {
+        return
+      }
       const currentObservedStatus = mergeObservedSnapshot(
         previousObservedStatus,
         input,
@@ -188,10 +142,9 @@ export const StatusRuntimeLive = Layer.effect(
 
       const now = new Date(yield* Clock.currentTimeMillis).toISOString()
       const network = yield* networkProbe.status()
-      const printer = yield* printerProbe.status(reason)
+      const printer = yield* printerProbe.status()
       const host = hostname()
-
-      yield* recordObservedStatus({
+      const currentObservedStatus: EmittedStatusSnapshot = {
         timestamp: now,
         hostname: host,
         observationReason: reason,
@@ -203,14 +156,13 @@ export const StatusRuntimeLive = Layer.effect(
         printerState: printer.state,
         printerReasons: printer.reasons,
         printerMessage: printer.message,
-      })
-
-      const currentObservedStatus = yield* Ref.get(lastObservedStatusRef)
-      if (currentObservedStatus === null) {
-        return yield* Effect.die(
-          "StatusRuntime.observeNow did not persist status",
-        )
       }
+
+      const previousObservedStatus = yield* Ref.get(lastObservedStatusRef)
+      yield* emitStatusChangeEvents(
+        previousObservedStatus,
+        currentObservedStatus,
+      )
 
       return currentObservedStatus satisfies StatusSnapshot
     })

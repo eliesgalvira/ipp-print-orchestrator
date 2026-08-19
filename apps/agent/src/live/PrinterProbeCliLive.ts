@@ -1,22 +1,22 @@
-import { Effect, Layer, Ref, Schema } from "effect"
+import { Effect, Layer } from "effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Path from "effect/Path"
 import type * as PlatformError from "effect/PlatformError"
 import { AppConfig } from "../config/AppConfig.js"
 import { CupsObserver } from "../cups-observation/CupsObserver.js"
+import { isPhysicalUsbDeviceUri } from "../domain/PrinterDeviceUri.js"
 import {
-  isPhysicalUsbDeviceUri,
-  type PhysicalUsbDeviceUri,
-  parsePhysicalUsbDeviceUri,
-} from "../domain/PrinterDeviceUri.js"
+  makeUsbDeviceIdentity,
+  type UsbDeviceIdentity,
+  usbDeviceIdentityMatches,
+} from "../domain/UsbDeviceIdentity.js"
 import { PrinterDeviceSource } from "../services/PrinterDeviceSource.js"
 import { PrinterProbe } from "../services/PrinterProbe.js"
 
 type PrinterProbeService = typeof PrinterProbe.Service
 
 interface UsbSysfsDevice {
-  readonly serial: string | null
-  readonly matchTokens: readonly string[]
+  readonly identity: UsbDeviceIdentity
   readonly authorized?: boolean
 }
 
@@ -26,23 +26,7 @@ const usbDeviceMissingMessage =
   "Configured USB printer device is not present in sysfs. Printer might be unplugged or turned off."
 const usbDeviceDeauthorizedMessage =
   "Configured USB printer device is present in sysfs but deauthorized by the kernel. Reconnect or reauthorize the USB device before printing."
-const usbDevicePresentMessage =
-  "Configured USB printer device is present in sysfs"
-
 type UsbPresence = "attached" | "missing" | "deauthorized"
-
-class UsbSysfsReadFailed extends Schema.TaggedError<UsbSysfsReadFailed>()(
-  "UsbSysfsReadFailed",
-  {
-    message: Schema.String,
-  },
-) {}
-
-const normalizeMatchTokens = (value: string): readonly string[] =>
-  value
-    .toLowerCase()
-    .split(/[^a-z0-9]+/g)
-    .filter((token) => token.length > 0)
 
 const readOptionalTextFile = (
   fs: FileSystem.FileSystem,
@@ -73,13 +57,13 @@ const readUsbSysfsDevice = (
   deviceRoot: string,
 ): Effect.Effect<UsbSysfsDevice | null> =>
   Effect.gen(function* () {
-    const manufacturer = yield* readOptionalTextFile(
+    const vendorId = yield* readOptionalTextFile(
       fs,
-      path.join(deviceRoot, "manufacturer"),
+      path.join(deviceRoot, "idVendor"),
     )
-    const product = yield* readOptionalTextFile(
+    const productId = yield* readOptionalTextFile(
       fs,
-      path.join(deviceRoot, "product"),
+      path.join(deviceRoot, "idProduct"),
     )
     const serial = yield* readOptionalTextFile(
       fs,
@@ -90,15 +74,12 @@ const readUsbSysfsDevice = (
       path.join(deviceRoot, "authorized"),
     )
 
-    if (manufacturer === null && product === null && serial === null) {
+    if (vendorId === null || productId === null) {
       return null
     }
 
     return {
-      serial: serial?.trim().toLowerCase() ?? null,
-      matchTokens: normalizeMatchTokens(
-        `${manufacturer ?? ""} ${product ?? ""}`,
-      ),
+      identity: makeUsbDeviceIdentity({ vendorId, productId, serial }),
       ...(authorized !== null ? { authorized: authorized !== "0" } : {}),
     } satisfies UsbSysfsDevice
   })
@@ -129,49 +110,15 @@ const readUsbSysfsDevices = (
     return devices.flatMap((device) => (device === null ? [] : [device]))
   })
 
-export const listUsbSysfsDevices = (
-  usbSysfsRoot: string,
-): Effect.Effect<
-  readonly UsbSysfsDevice[],
-  UsbSysfsReadFailed,
-  FileSystem.FileSystem | Path.Path
-> =>
-  Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem
-    const path = yield* Path.Path
-    return yield* readUsbSysfsDevices(fs, path, usbSysfsRoot)
-  }).pipe(
-    Effect.mapError(
-      (error) =>
-        new UsbSysfsReadFailed({
-          message: String(error),
-        }),
-    ),
-  )
-
-export const usbDeviceUriMatchesSysfsDevice = (
-  target: PhysicalUsbDeviceUri,
-  device: UsbSysfsDevice,
-): boolean => {
-  if (target.serial !== null) {
-    return device.serial === target.serial
-  }
-
-  return (
-    target.matchTokens.length > 0 &&
-    target.matchTokens.every((token) => device.matchTokens.includes(token))
-  )
-}
-
 const usbPresenceFromObservation = (attached: boolean): UsbPresence =>
   attached ? "attached" : "missing"
 
 const usbPresenceFromDevices = (
-  target: PhysicalUsbDeviceUri,
+  target: UsbDeviceIdentity,
   devices: readonly UsbSysfsDevice[],
 ): UsbPresence => {
   const matchingDevice = devices.find((device) =>
-    usbDeviceUriMatchesSysfsDevice(target, device),
+    usbDeviceIdentityMatches(target, device.identity),
   )
 
   if (matchingDevice === undefined) {
@@ -199,18 +146,11 @@ export const PrinterProbeCliLive = Layer.effect(
     const printerDeviceSource = yield* PrinterDeviceSource
     const fs = yield* FileSystem.FileSystem
     const path = yield* Path.Path
-    const configuredDeviceUriRef = yield* Ref.make<string | null>(null)
-    const usbPresenceRef = yield* Ref.make<UsbPresence | null>(null)
 
     const getConfiguredDeviceUri = Effect.fn(
       "PrinterProbe.getConfiguredDeviceUri",
     )(function* () {
-      const cached = yield* Ref.get(configuredDeviceUriRef)
-      if (cached !== null) {
-        return cached
-      }
-
-      const deviceUri = yield* printerDeviceSource.installedDeviceUri().pipe(
+      return yield* printerDeviceSource.installedDeviceUri().pipe(
         Effect.catchTag("CupsUnavailable", () =>
           Effect.succeed<string | null>(null),
         ),
@@ -218,43 +158,18 @@ export const PrinterProbeCliLive = Layer.effect(
           Effect.succeed<string | null>(null),
         ),
       )
-
-      if (deviceUri !== null) {
-        yield* Ref.set(configuredDeviceUriRef, deviceUri)
-      }
-
-      return deviceUri
     })
 
-    const refreshUsbPresence = Effect.fn("PrinterProbe.refreshUsbPresence")(
+    const readUsbPresence = Effect.fn("PrinterProbe.readUsbPresence")(
       function* (attachedFromObservation: boolean) {
-        const cached = yield* Ref.get(usbPresenceRef)
-        const configuredDeviceUri = yield* getConfiguredDeviceUri()
-        const parsedUsbDeviceUri =
-          configuredDeviceUri === null
-            ? null
-            : parsePhysicalUsbDeviceUri(configuredDeviceUri)
-
-        if (parsedUsbDeviceUri === null) {
-          yield* Ref.set(usbPresenceRef, null)
-          return usbPresenceFromObservation(attachedFromObservation)
-        }
-
         return yield* readUsbSysfsDevices(
           fs,
           path,
           appConfig.usbSysfsRoot,
         ).pipe(
           Effect.map((devices) =>
-            usbPresenceFromDevices(parsedUsbDeviceUri, devices),
+            usbPresenceFromDevices(appConfig.usbDeviceIdentity, devices),
           ),
-          Effect.mapError(
-            (error) =>
-              new UsbSysfsReadFailed({
-                message: String(error),
-              }),
-          ),
-          Effect.tap((usbPresence) => Ref.set(usbPresenceRef, usbPresence)),
           Effect.tap((usbPresence) =>
             Effect.annotateCurrentSpan({
               "printer_probe.usb_presence_source": "sysfs",
@@ -265,10 +180,11 @@ export const PrinterProbeCliLive = Layer.effect(
           ),
           Effect.catch(() =>
             Effect.gen(function* () {
-              const fallback =
-                cached ?? usbPresenceFromObservation(attachedFromObservation)
+              const fallback = usbPresenceFromObservation(
+                attachedFromObservation,
+              )
               yield* Effect.annotateCurrentSpan({
-                "printer_probe.usb_presence_source": "sysfs-fallback",
+                "printer_probe.usb_presence_source": "cups-fallback",
                 "printer_probe.usb_sysfs_root": appConfig.usbSysfsRoot,
                 "printer_probe.usb_attached": fallback === "attached",
                 "printer_probe.usb_presence": fallback,
@@ -280,35 +196,9 @@ export const PrinterProbeCliLive = Layer.effect(
       },
     )
 
-    const deriveUsbPresence = Effect.fn("PrinterProbe.deriveUsbPresence")(
-      function* (attached: boolean, reason?: string) {
-        if (!attached) {
-          return "missing" satisfies UsbPresence
-        }
-
-        const deviceUri = yield* getConfiguredDeviceUri()
-
-        if (deviceUri === null || !isPhysicalUsbDeviceUri(deviceUri)) {
-          return usbPresenceFromObservation(attached)
-        }
-
-        const cached = yield* Ref.get(usbPresenceRef)
-        if (reason !== "udev-usb-event" && cached !== null) {
-          yield* Effect.annotateCurrentSpan({
-            "printer_probe.usb_presence_source": "cache",
-            "printer_probe.usb_attached": cached === "attached",
-            "printer_probe.usb_presence": cached,
-          })
-          return cached
-        }
-
-        return yield* refreshUsbPresence(attached)
-      },
-    )
-
     const status: PrinterProbeService["status"] = Effect.fn(
       "PrinterProbe.status",
-    )(function* (reason?: string) {
+    )(function* () {
       return yield* cupsObserver.observePrinter().pipe(
         Effect.flatMap((observation) =>
           Effect.gen(function* () {
@@ -316,21 +206,14 @@ export const PrinterProbeCliLive = Layer.effect(
             const isUsbPrinter =
               configuredDeviceUri !== null &&
               isPhysicalUsbDeviceUri(configuredDeviceUri)
-            const usbPresence = yield* deriveUsbPresence(
-              observation.attached,
-              reason,
-            )
+            const usbPresence = isUsbPrinter
+              ? yield* readUsbPresence(observation.attached)
+              : usbPresenceFromObservation(observation.attached)
             const attached = isUsbPrinter
               ? usbPresence === "attached"
               : observation.attached
             const usbUnavailable: boolean =
               isUsbPrinter && observation.attached && usbPresence !== "attached"
-            const usbPresentEvent: boolean =
-              isUsbPrinter &&
-              reason === "udev-usb-event" &&
-              observation.attached &&
-              attached
-
             return {
               attached,
               queueAvailable: attached && observation.queueAvailable,
@@ -341,9 +224,7 @@ export const PrinterProbeCliLive = Layer.effect(
                 : observation.reasons,
               message: usbUnavailable
                 ? usbPresenceMessage(usbPresence)
-                : usbPresentEvent
-                  ? usbDevicePresentMessage
-                  : observation.message,
+                : observation.message,
             }
           }),
         ),
@@ -353,7 +234,7 @@ export const PrinterProbeCliLive = Layer.effect(
             queueAvailable: false,
             cupsReachable: false,
             state: null,
-            reasons: [error._tag],
+            reasons: [],
             message: error.message,
           }),
         ),

@@ -36,7 +36,6 @@
     "@effect/language-service": "^0.85.1",
     "@effect/vitest": "^4.0.0-rc.110",
     "@types/node": "^25.4.0",
-    "effect-solutions": "^0.5.2",
     "fast-check": "^4.6.0",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",

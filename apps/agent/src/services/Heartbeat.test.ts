@@ -77,7 +77,7 @@ describe("Heartbeat", () => {
         cupsReachable: false,
         printerQueueAvailable: false,
         printerState: null,
-        printerReasons: ["CupsIppProtocolError"],
+        printerReasons: [],
       })
 
       const current = yield* statusRuntime.current()

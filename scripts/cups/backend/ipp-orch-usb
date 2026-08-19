@@ -3,6 +3,9 @@ set -u
 
 REAL_BACKEND=${IPP_ORCH_REAL_USB_BACKEND:-/usr/lib/cups/backend/usb}
 TIMEOUT_SECONDS=${IPP_ORCH_USB_BACKEND_TIMEOUT_SECONDS:-300}
+USB_SYSFS_ROOT=${IPP_ORCH_USB_SYSFS_ROOT:-/sys/bus/usb/devices}
+USB_VENDOR_ID=${IPP_ORCH_USB_VENDOR_ID:-03f0}
+USB_PRODUCT_ID=${IPP_ORCH_USB_PRODUCT_ID:-f22a}
 discovery_output=
 payload=
 
@@ -14,14 +17,16 @@ cleanup_payload() {
   [ -n "${payload:-}" ] && rm -f "$payload"
 }
 
-deauthorize_hp_usb() {
-  for device in /sys/bus/usb/devices/*; do
+deauthorize_target_usb() {
+  for device in "$USB_SYSFS_ROOT"/*; do
     [ -r "$device/idVendor" ] || continue
+    [ -r "$device/idProduct" ] || continue
     [ -w "$device/authorized" ] || continue
-    vendor=$(cat "$device/idVendor" 2>/dev/null || true)
-    case "$vendor" in
-      03f0 | 03F0) echo 0 >"$device/authorized" 2>/dev/null || true ;;
-    esac
+    vendor=$(tr '[:upper:]' '[:lower:]' <"$device/idVendor" 2>/dev/null || true)
+    product=$(tr '[:upper:]' '[:lower:]' <"$device/idProduct" 2>/dev/null || true)
+    [ "$vendor" = "$USB_VENDOR_ID" ] || continue
+    [ "$product" = "$USB_PRODUCT_ID" ] || continue
+    echo 0 >"$device/authorized" 2>/dev/null || true
   done
 }
 
@@ -71,8 +76,8 @@ status=$?
 
 case "$status" in
   124 | 137)
-    echo "ERROR: ipp-orch-usb backend timed out after ${TIMEOUT_SECONDS}s; deauthorizing HP USB device" >&2
-    deauthorize_hp_usb
+    echo "ERROR: ipp-orch-usb backend timed out after ${TIMEOUT_SECONDS}s; deauthorizing target USB device" >&2
+    deauthorize_target_usb
     exit 1
     ;;
   *)

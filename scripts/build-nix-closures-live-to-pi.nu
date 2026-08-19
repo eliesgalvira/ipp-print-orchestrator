@@ -9,7 +9,7 @@ use lib/remote.nu [
   run-timed
   ssh-options
 ]
-use lib/repo.nu [deploy-excludes repo-root]
+use lib/repo.nu [deploy-excludes repo-root source-installable]
 
 const DEFAULT_RUNTIME_INSTALLABLE = ".#packages.aarch64-linux.ipp-print-orchestrator"
 const DEFAULT_DRIVER_INSTALLABLE = ".#packages.aarch64-linux.hp-uld-hp135a"
@@ -79,15 +79,6 @@ def verify-remote-nix [
   print $"($label) nix: ($result.stdout | str trim)"
 }
 
-def remote-installable [source_dir: string, installable: string]: nothing -> string {
-  if ($installable | str starts-with ".#") {
-    $installable
-      | str replace --regex "^\\.#" $"($source_dir)#"
-  } else {
-    $installable
-  }
-}
-
 def remote-out-path [
   host: string
   key_path: path
@@ -96,7 +87,7 @@ def remote-out-path [
   --connect-timeout: int
   --connection-attempts: int
 ]: nothing -> string {
-  let flake_ref = (remote-installable $source_dir $installable)
+  let flake_ref = (source-installable $source_dir $installable)
   let result = (
     run-ssh $host [
       $REMOTE_NIX
@@ -168,6 +159,7 @@ def local-aarch64-emulation-ready []: nothing -> nothing {
 }
 
 def build-local-paths [
+  source_dir: string
   runtime_installable: string
   driver_installable: string
   backend_installable: string
@@ -175,10 +167,23 @@ def build-local-paths [
   local-aarch64-emulation-ready
 
   {
-    runtime_path: (single-local-out-path $runtime_installable)
-    driver_path: (single-local-out-path $driver_installable)
-    backend_path: (single-local-out-path $backend_installable)
+    runtime_path: (single-local-out-path (source-installable $source_dir $runtime_installable))
+    driver_path: (single-local-out-path (source-installable $source_dir $driver_installable))
+    backend_path: (single-local-out-path (source-installable $source_dir $backend_installable))
   }
+}
+
+def stage-local-source [root_dir: string, source_dir: string]: nothing -> nothing {
+  let exclude_args = (deploy-excludes | each {|exclude| ["--exclude" $exclude]} | flatten)
+  let command = [
+    rsync
+    -az
+    --delete
+    ...$exclude_args
+    $"($root_dir)/"
+    $"($source_dir)/"
+  ]
+  run-external ...$command
 }
 
 def copy-closure [
@@ -242,18 +247,30 @@ def main [
   verify-remote-nix "Pi target" $pi.host $pi.key_path --connect-timeout $ssh_connect_timeout --connection-attempts $ssh_connection_attempts
 
   let paths = if $use_local_builder {
-    let build_started_at = (date now)
-    print $"[($build_started_at | format date "%+")] start build Nix closures locally through aarch64 emulation"
-    let built_paths = (build-local-paths $runtime_installable $driver_installable $backend_installable)
-    let build_elapsed = ((date now) - $build_started_at)
-    print $"[(date now | format date "%+")] done build Nix closures locally through aarch64 emulation \(($build_elapsed)\)"
+    let source_dir = (mktemp -d)
+    let built_paths = try {
+      run-timed "stage source for local aarch64 builder" {
+        stage-local-source $root_dir $source_dir
+      }
+
+      let build_started_at = (date now)
+      print $"[($build_started_at | format date "%+")] start build Nix closures locally through aarch64 emulation"
+      let result = (build-local-paths $source_dir $runtime_installable $driver_installable $backend_installable)
+      let build_elapsed = ((date now) - $build_started_at)
+      print $"[(date now | format date "%+")] done build Nix closures locally through aarch64 emulation \(($build_elapsed)\)"
+      $result
+    } catch {|err|
+      rm --recursive --force $source_dir
+      error make $err
+    }
+    rm --recursive --force $source_dir
     $built_paths
   } else {
     verify-remote-nix "aarch64 builder" $builder.host $builder.key_path --connect-timeout $ssh_connect_timeout --connection-attempts $ssh_connection_attempts
 
     run-timed "stage source on aarch64 builder" {
       let exclude_args = (
-        (deploy-excludes | append ["result" "result-*" ".direnv"])
+        deploy-excludes
         | each {|exclude| ["--exclude" $exclude]}
         | flatten
       )

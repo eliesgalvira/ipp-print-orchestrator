@@ -3,9 +3,10 @@
 use lib/env.nu has-value
 use lib/repo.nu repo-root
 
-def cleanup [job_id: int, log_file: path]: nothing -> nothing {
+def cleanup [job_id: int, log_file: path, headers_file: path]: nothing -> nothing {
   try { job kill $job_id }
   try { rm -f $log_file }
+  try { rm -f $headers_file }
 }
 
 def main []: nothing -> nothing {
@@ -16,6 +17,7 @@ def main []: nothing -> nothing {
     "4310"
   }
   let log_file = (mktemp -t ipp-orch-smoke-log.XXXXXX.txt)
+  let headers_file = (mktemp -t ipp-orch-smoke-headers.XXXXXX.txt)
   let printer_name = if (has-value ($env | get -o IPP_ORCH_PRINTER_NAME)) {
     $env.IPP_ORCH_PRINTER_NAME
   } else {
@@ -53,13 +55,21 @@ def main []: nothing -> nothing {
 
     ^curl -fsS $"http://127.0.0.1:($port)/v1/health"
     print ""
-    ^curl -fsS $"http://127.0.0.1:($port)/v1/status"
+    ^curl -fsS --dump-header $headers_file $"http://127.0.0.1:($port)/v1/status"
     print ""
+    let has_trace_id = (
+      open --raw $headers_file
+      | lines
+      | any {|line| $line =~ "(?i)^x-ipp-orch-trace-id:"}
+    )
+    if not $has_trace_id {
+      error make {msg: "status response did not include x-ipp-orch-trace-id"}
+    }
 
-    cleanup $app_job $log_file
+    cleanup $app_job $log_file $headers_file
     print "local smoke test passed"
   } catch {|err|
-    cleanup $app_job $log_file
+    cleanup $app_job $log_file $headers_file
     error make $err
   }
 }

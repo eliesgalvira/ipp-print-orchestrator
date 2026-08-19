@@ -166,8 +166,9 @@ Own the TLS identity used by Android and other IPP clients:
 - Verify every generated DNS/IP SAN after enabling the queue.
 - Provide a `--repair-tls-only` setup path that can refresh the certificate and
   restart CUPS without clearing the spool or reconfiguring the queue.
-- Run a small systemd watcher that records Avahi's current advertised FQDN and
-  reruns `--repair-tls-only` whenever that FQDN changes.
+- Run a small systemd watcher that compares the installed certificate SANs with
+  the current DNS names and IP addresses, then reruns `--repair-tls-only` when
+  they differ.
 
 The setup script is responsible for installing the driver, patching the PPD,
 configuring the queue, and clearing the spool. By default it leaves CUPS stopped,

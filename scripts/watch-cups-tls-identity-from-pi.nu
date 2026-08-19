@@ -1,47 +1,19 @@
 #!/usr/bin/env nu
 
-use lib/avahi.nu [advertised-host ensure-avahi-ready run-required]
+use lib/avahi.nu run-required
+use lib/cups-tls.nu [certificate-covers-identity current-cups-tls-identity]
 use lib/repo.nu repo-root
 
-const STATE_DIR = "/run/ipp-print-orchestrator"
-const STATE_FILE = "/run/ipp-print-orchestrator/cups-tls-avahi-fqdn"
+const CUPS_SSL_DIR = "/etc/cups/ssl"
+const LOCK_DIR = "/run/ipp-print-orchestrator"
 const REPAIR_LOCK = "/run/ipp-print-orchestrator/cups-tls-repair.lock"
-const RUNTIME_STATE_DIRECTORY_MODE = "0755" # owner can write; everyone can read/traverse runtime state paths.
-const RUNTIME_STATE_FILE_MODE = "0644" # owner can write; everyone can read the last observed Avahi hostname.
-
-def ensure-state-dir []: nothing -> nothing {
-  run-required "create CUPS TLS watcher state directory" ["sudo" "install" "-d" "-m" $RUNTIME_STATE_DIRECTORY_MODE $STATE_DIR] | ignore
-}
-
-def read-last-fqdn []: nothing -> string {
-  if not ($STATE_FILE | path exists) {
-    return ""
-  }
-
-  open --raw $STATE_FILE | str trim
-}
-
-def write-last-fqdn [fqdn: string]: nothing -> nothing {
-  ensure-state-dir
-
-  let tmp_state = (mktemp)
-  try {
-    [$fqdn ""] | str join "\n" | save --force $tmp_state
-    run-required "write CUPS TLS watcher state" ["sudo" "install" "-m" $RUNTIME_STATE_FILE_MODE $tmp_state $STATE_FILE] | ignore
-  } catch {|err|
-    rm --force $tmp_state
-    error make $err
-  }
-
-  rm --force $tmp_state
-}
+const LOCK_DIRECTORY_MODE = "0755"
 
 def repair-cups-tls-identity []: nothing -> nothing {
-  ensure-state-dir
+  run-required "create CUPS TLS repair lock directory" ["sudo" "install" "-d" "-m" $LOCK_DIRECTORY_MODE $LOCK_DIR] | ignore
 
   let root_dir = (repo-root)
   let setup_script = ($root_dir | path join "scripts/setup-cups-live-from-pi.nu")
-
   run-required "repair CUPS TLS identity" [
     "sudo"
     "flock"
@@ -53,35 +25,21 @@ def repair-cups-tls-identity []: nothing -> nothing {
   ] | ignore
 }
 
-def repair-if-avahi-hostname-changed [
-  --force
-]: nothing -> nothing {
-  ensure-avahi-ready
-
-  let current = (advertised-host)
-  let previous_fqdn = (read-last-fqdn)
-
-  if (not $force) and $current.fqdn == $previous_fqdn {
+def repair-if-certificate-is-stale []: nothing -> nothing {
+  let identity = (current-cups-tls-identity $CUPS_SSL_DIR)
+  if (certificate-covers-identity $identity.cert_path $identity) {
     return
   }
 
-  if ($previous_fqdn | str length) == 0 {
-    print $"Initial CUPS TLS identity sync for Avahi host ($current.fqdn)."
-  } else if $current.fqdn == $previous_fqdn {
-    print $"Forced CUPS TLS identity sync for Avahi host ($current.fqdn)."
-  } else {
-    print $"Avahi host changed from ($previous_fqdn) to ($current.fqdn); repairing CUPS TLS identity."
-  }
-
+  print $"CUPS TLS certificate does not match the current DNS names and IP addresses; repairing ($identity.cert_path)."
   repair-cups-tls-identity
-  write-last-fqdn $current.fqdn
 }
 
 def main [
   --once
   --interval: duration = 30sec
 ]: nothing -> nothing {
-  repair-if-avahi-hostname-changed
+  repair-if-certificate-is-stale
 
   if $once {
     return
@@ -89,6 +47,6 @@ def main [
 
   loop {
     sleep $interval
-    repair-if-avahi-hostname-changed
+    repair-if-certificate-is-stale
   }
 }

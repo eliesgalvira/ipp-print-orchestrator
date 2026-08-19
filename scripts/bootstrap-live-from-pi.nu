@@ -8,7 +8,7 @@ def has-value [value: any]: nothing -> bool {
   }
 }
 
-const SERVICE_ENV_FILE_MODE = "0644" # non-secret service config; readable by operators and systemd.
+const SERVICE_ENV_FILE_MODE = "0640"
 const SSH_DIRECTORY_PRIVATE_MODE = "700" # only the account owner can read/write/traverse ~/.ssh.
 const SSH_AUTHORIZED_KEYS_PRIVATE_MODE = "600" # only the account owner can read/write authorized_keys.
 
@@ -107,8 +107,9 @@ def install-default-env [app_dir: string, printer_name: string]: nothing -> noth
   }
 
   let tmp_env = (mktemp)
+  let service_env_group = (^id -gn | str trim)
   default-env-content $app_dir $printer_name | save --force $tmp_env
-  run-sudo ["install" "-m" $SERVICE_ENV_FILE_MODE $tmp_env "/etc/ipp-print-orchestrator.env"]
+  run-sudo ["install" "-o" "root" "-g" $service_env_group "-m" $SERVICE_ENV_FILE_MODE $tmp_env "/etc/ipp-print-orchestrator.env"]
   rm --force $tmp_env
 }
 

@@ -1,5 +1,5 @@
 [Unit]
-Description=Watch Avahi hostname and repair CUPS TLS identity
+Description=Watch and repair CUPS TLS identity
 After=network-online.target avahi-daemon.service cups.service
 Wants=network-online.target avahi-daemon.service
 

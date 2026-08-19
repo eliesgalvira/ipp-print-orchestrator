@@ -29,4 +29,23 @@ describe("CupsObservation", () => {
     expect(observation.attached).toBe(true)
     expect(observation.state).toBe("processing")
   })
+
+  it.each([
+    "media-jam-error",
+    "cover-open-warning",
+    "offline-warning",
+  ])("classifies the base reason in %s", (reason) => {
+    const observation = makePrinterObservation({
+      printerName: "HP135a",
+      acceptingJobs: true,
+      state: "idle",
+      reasons: [reason],
+      message: null,
+    })
+
+    expect(observation.queueAvailable).toBe(false)
+    if (reason.startsWith("offline")) {
+      expect(observation.attached).toBe(false)
+    }
+  })
 })

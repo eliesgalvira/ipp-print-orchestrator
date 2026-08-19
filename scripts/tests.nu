@@ -2,10 +2,12 @@
 
 use std/assert
 
+use check-observability-live-from-pi.nu trace-query
+use lib/cups-tls.nu certificate-covers-identity
 use lib/env.nu [get-config has-value load-dotenv]
-use lib/observability.nu [local-service-env-content otel-signal-config validate-observability-env]
 use lib/remote.nu [aarch64-builder-target parse-nix-paths remote-target rsync-args ssh-args ssh-options ssh-rsh-command run-with-retries]
-use lib/repo.nu [deploy-excludes repo-root]
+use lib/repo.nu [deploy-excludes repo-root source-installable]
+use lib/service-env.nu [local-service-env-content]
 
 def main []: nothing -> nothing {
   print "Running Nushell tests..."
@@ -198,49 +200,41 @@ def "test run-with-retries retries transient failures" []: nothing -> nothing {
   rm --force $attempt_path
 }
 
-def "test CUPS TLS verification output classifier handles identity mismatches" []: nothing -> nothing {
-  let accepted_self_signed = (
-    nu --no-config-file --commands '
-source scripts/setup-cups-live-from-pi.nu
-verify-openssl-output-has-matching-identity "print-server-2.local" "Verify return code: 18 (self-signed certificate)"
-'
-    | complete
-  )
+def "test CUPS TLS certificate identity is derived from SANs" []: nothing -> nothing {
+  let temp_dir = (mktemp --directory)
+  let cert_path = ($temp_dir | path join "cups.crt")
+  let key_path = ($temp_dir | path join "cups.key")
 
-  assert equal $accepted_self_signed.exit_code 0 $"expected self-signed cert with matching identity to pass: ($accepted_self_signed.stderr)"
+  try {
+    let generated = (
+      run-external
+        "openssl" "req" "-x509" "-newkey" "rsa:2048" "-nodes" "-days" "1"
+        "-subj" "/CN=print-server"
+        "-addext" "subjectAltName=DNS:print-server,DNS:print-server.local,IP:192.168.4.128"
+        "-keyout" $key_path "-out" $cert_path
+      | complete
+    )
+    assert equal $generated.exit_code 0 $"test certificate generation should succeed: ($generated.stderr)"
 
-  let unrelated_verify_code = (
-    nu --no-config-file --commands '
-source scripts/setup-cups-live-from-pi.nu
-verify-openssl-output-has-matching-identity "print-server.local" "Verify return code: 20 (unable to get local issuer certificate)"
-'
-    | complete
-  )
+    let identity = {
+      dns_names: ["print-server" "print-server.local"]
+      ip_addresses: ["192.168.4.128"]
+    }
+    assert (certificate-covers-identity $cert_path $identity) "certificate should cover its exact SAN set"
+    assert not (certificate-covers-identity $cert_path {
+      dns_names: ["print-server" "renamed.local"]
+      ip_addresses: ["192.168.4.128"]
+    }) "certificate should reject a changed DNS identity"
+    assert not (certificate-covers-identity $cert_path {
+      dns_names: ["print-server" "print-server.local"]
+      ip_addresses: ["192.168.4.129"]
+    }) "certificate should reject a changed IP identity"
+  } catch {|err|
+    rm --recursive --force $temp_dir
+    error make $err
+  }
 
-  assert equal $unrelated_verify_code.exit_code 1 "expected unrelated OpenSSL verification codes to fail"
-  assert ($unrelated_verify_code.stderr | str contains "CUPS TLS verification returned an unexpected result") "expected unrelated verification code to use the generic verification diagnostic"
-
-  let ip_mismatch = (
-    nu --no-config-file --commands '
-source scripts/setup-cups-live-from-pi.nu
-verify-openssl-output-has-matching-identity "192.168.4.128" "Verification error: IP address mismatch Verify return code: 64 (IP address mismatch)"
-'
-    | complete
-  )
-
-  assert equal $ip_mismatch.exit_code 1 "expected IP SAN mismatch to fail"
-  assert ($ip_mismatch.stderr | str contains "CUPS TLS identity verification failed") "expected IP mismatch to use the identity failure diagnostic"
-
-  let case_variant_hostname_mismatch = (
-    nu --no-config-file --commands '
-source scripts/setup-cups-live-from-pi.nu
-verify-openssl-output-has-matching-identity "print-server.local" "Verification error: Hostname mismatch Verify return code: 62 (hostname mismatch)"
-'
-    | complete
-  )
-
-  assert equal $case_variant_hostname_mismatch.exit_code 1 "expected hostname mismatch to fail"
-  assert ($case_variant_hostname_mismatch.stderr | str contains "CUPS TLS identity verification failed") "expected hostname mismatch to use the identity failure diagnostic"
+  rm --recursive --force $temp_dir
 }
 
 def "test supervised CUPS USB URI rewriting" []: nothing -> nothing {
@@ -335,6 +329,7 @@ def "test supervised CUPS USB backend wrapper delegates through original URI" []
   let backend = ($root | path join "scripts/cups/backend/ipp-orch-usb")
   let fake_backend = (mktemp -t ipp-orch-fake-usb-backend.XXXXXX)
   let capture = (mktemp -t ipp-orch-fake-usb-capture.XXXXXX)
+  let usb_root = (mktemp --directory)
 
   try {
     [
@@ -346,6 +341,10 @@ def "test supervised CUPS USB backend wrapper delegates through original URI" []
       "    exit 42"
       "  fi"
       "  echo 'direct usb://HP/Test?serial=123 \"HP Test\" \"HP Test\"'"
+      "  exit 0"
+      "fi"
+      "if [ \"${IPP_ORCH_FAKE_TIMEOUT:-}\" = \"true\" ]; then"
+      "  sleep 1"
       "  exit 0"
       "fi"
       "printf 'DEVICE_URI=%s\n' \"$DEVICE_URI\" > \"$IPP_ORCH_FAKE_CAPTURE\""
@@ -409,14 +408,42 @@ def "test supervised CUPS USB backend wrapper delegates through original URI" []
     assert ($captured | str contains "ARGC=5") "job mode should preserve backend arguments"
     assert ($captured | str contains "ARG1=79") "job mode should preserve the CUPS job id argument"
     assert ($captured | str contains "STDIN_BYTES=13") "job mode should feed staged printer bytes to the real backend"
+
+    let target_device = ($usb_root | path join "1-1")
+    let other_device = ($usb_root | path join "1-2")
+    mkdir $target_device $other_device
+    "03f0" | save ($target_device | path join "idVendor")
+    "f22a" | save ($target_device | path join "idProduct")
+    "1" | save ($target_device | path join "authorized")
+    "03f0" | save ($other_device | path join "idVendor")
+    "ffff" | save ($other_device | path join "idProduct")
+    "1" | save ($other_device | path join "authorized")
+
+    let timed_out_job = (
+      with-env {
+        IPP_ORCH_REAL_USB_BACKEND: $fake_backend
+        IPP_ORCH_FAKE_TIMEOUT: "true"
+        IPP_ORCH_USB_BACKEND_TIMEOUT_SECONDS: "0.05"
+        IPP_ORCH_USB_SYSFS_ROOT: $usb_root
+        IPP_ORCH_TEST_BACKEND: $backend
+        DEVICE_URI: "ipp-orch-usb://HP/Test?serial=123"
+      } {
+        run-external "bash" "-c" "printf 'printer-bytes' | sh \"$IPP_ORCH_TEST_BACKEND\" 79 Pixel title.pdf 1 print-scaling=none" | complete
+      }
+    )
+    assert equal $timed_out_job.exit_code 1 "backend timeout should fail the print job"
+    assert equal (open --raw ($target_device | path join "authorized") | str trim) "0" "backend timeout should deauthorize the target VID/PID"
+    assert equal (open --raw ($other_device | path join "authorized") | str trim) "1" "backend timeout should leave other HP devices authorized"
   } catch {|err|
     rm --force $fake_backend
     rm --force $capture
+    rm --recursive --force $usb_root
     error make $err
   }
 
   rm --force $fake_backend
   rm --force $capture
+  rm --recursive --force $usb_root
 }
 
 def "test repo helpers expose stable strings" []: nothing -> nothing {
@@ -425,11 +452,22 @@ def "test repo helpers expose stable strings" []: nothing -> nothing {
   assert ("result" in (deploy-excludes)) "deploy excludes should include Nix result symlink"
   assert ("result-*" in (deploy-excludes)) "deploy excludes should include numbered Nix result symlinks"
   assert (".git" in (deploy-excludes)) "deploy excludes should include .git"
+  assert (".direnv" in (deploy-excludes)) "deploy excludes should include direnv state"
+  assert (".env" in (deploy-excludes)) "deploy excludes should include secrets"
+}
+
+def "test source installables include untracked working tree files" []: nothing -> nothing {
+  assert equal (
+    source-installable "/work/ipp-print-orchestrator" ".#packages.aarch64-linux.ipp-print-orchestrator"
+  ) "path:/work/ipp-print-orchestrator#packages.aarch64-linux.ipp-print-orchestrator"
+  assert equal (
+    source-installable "/work/ipp-print-orchestrator" "github:example/project#package"
+  ) "github:example/project#package"
 }
 
 def "test deploy live pi service env rendering executes" []: nothing -> nothing {
   let command = '
-use scripts/lib/observability.nu [local-service-env-content]
+use scripts/lib/service-env.nu [local-service-env-content]
 local-service-env-content {
   PI_HOST: "ignored@example.local",
   APP_DIR: "/ignored",
@@ -465,33 +503,10 @@ print (render-unit systemd/ipp-print-orchestrator.service /srv/ipp --runtime-pat
   assert not ($result.stdout | str contains "/usr/bin/node") "renderer should remove mutable node ExecStart"
 }
 
-def "test observability validation rejects enabled blank otlp config" []: nothing -> nothing {
-  let result = (try {
-      validate-observability-env {IPP_ORCH_ENABLE_OTLP: "true"}
-      {exit_code: 0, stderr: ""}
-    } catch {|err|
-      {exit_code: 1, stderr: $err.msg}
-    })
-
-  assert equal $result.exit_code 1 "enabled OTLP without endpoints should fail validation"
-  assert ($result.stderr | str contains "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT") "failure should identify missing traces endpoint"
-  assert ($result.stderr | str contains "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT") "failure should identify missing logs endpoint"
-}
-
-def "test observability validation accepts axiom signal config" []: nothing -> nothing {
-  let dotenv = {
-    IPP_ORCH_ENABLE_OTLP: "true"
-    OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "https://us-east-1.aws.edge.axiom.co/v1/traces"
-    OTEL_EXPORTER_OTLP_TRACES_HEADERS: "authorization=Bearer test-token,x-axiom-dataset=ipp-print-traces"
-    OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: "https://us-east-1.aws.edge.axiom.co/v1/logs"
-    OTEL_EXPORTER_OTLP_LOGS_HEADERS: "authorization=Bearer test-token,x-axiom-dataset=ipp-print-logs"
-  }
-
-  validate-observability-env $dotenv
-
-  let logs = (otel-signal-config $dotenv logs)
-  assert equal $logs.dataset "ipp-print-logs"
-  assert equal $logs.authorization "Bearer test-token"
+def "test observability query targets the triggered trace" []: nothing -> nothing {
+  assert equal (
+    trace-query "ipp-print-logs" "a1b2c3"
+  ) "['ipp-print-logs'] | where trace_id == 'a1b2c3' | summarize rows = count()"
 }
 
 def "test nushell files parse" []: nothing -> nothing {

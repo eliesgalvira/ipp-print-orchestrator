@@ -18,21 +18,22 @@ describe("readOtelConfig", () => {
     const config = readOtelConfig(env)
 
     expect(JSON.stringify(config)).not.toContain(SECRET)
-    expect(String(config.traces?.headers["authorization"])).not.toContain(
-      SECRET,
-    )
-    expect(`${config.logs?.headers["authorization"]}`).toBe("<redacted>")
+    expect(String(config.traces?.headers.authorization)).not.toContain(SECRET)
+    expect(`${config.logs?.headers.authorization}`).toBe("<redacted>")
   })
 
   it("exposes header secrets only through explicit Redacted.value", () => {
     const config = readOtelConfig(env)
 
-    const authorization = config.traces?.headers["authorization"]
-    expect(authorization).toBeDefined()
-    expect(Redacted.value(authorization!)).toBe(`Bearer ${SECRET}`)
-    expect(Redacted.value(config.logs!.headers["x-axiom-dataset"]!)).toBe(
-      "logs",
-    )
+    expect(
+      Object.values(config.traces?.headers ?? {}).map(Redacted.value),
+    ).toContain(`Bearer ${SECRET}`)
+    expect(
+      Object.entries(config.logs?.headers ?? {}).map(([key, value]) => [
+        key,
+        Redacted.value(value),
+      ]),
+    ).toContainEqual(["x-axiom-dataset", "logs"])
   })
 
   it("keeps signals null when endpoints are absent", () => {

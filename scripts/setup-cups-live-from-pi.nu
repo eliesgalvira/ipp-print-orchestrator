@@ -1,6 +1,6 @@
 #!/usr/bin/env nu
 
-use lib/avahi.nu [advertised-host ensure-avahi-ready]
+use lib/cups-tls.nu current-cups-tls-identity
 use lib/env.nu [get-config has-value load-dotenv]
 use lib/repo.nu repo-root
 
@@ -12,6 +12,8 @@ const CUPS_FONTCONFIG_CACHE_DIR = "/var/cache/fontconfig"
 const CUPS_SSL_DIR = "/etc/cups/ssl"
 const AVAHI_IPPS_SERVICE_PATH = "/etc/avahi/services/ipp-print-orchestrator-hp135a.service"
 const CUPS_TLS_CERT_DAYS = "3650"
+const USB_VENDOR_ID = "03f0"
+const USB_PRODUCT_ID = "f22a"
 const PUBLIC_DIRECTORY_MODE = "0755" # owner=rwx, group/other=rx.
 const PUBLIC_DATA_FILE_MODE = "0644" # owner=rw, group/other=r.
 const PRIVATE_SECRET_FILE_MODE = "0600" # owner=rw, no group/other access.
@@ -145,7 +147,7 @@ def hp-usb-device-paths []: nothing -> list<string> {
       if not $has_usb_ids {
         false
       } else {
-        ((open $vendor_path | str trim) == "03f0") and ((open $product_path | str trim) == "f22a")
+        ((open $vendor_path | str trim) == $USB_VENDOR_ID) and ((open $product_path | str trim) == $USB_PRODUCT_ID)
       }
     }
 }
@@ -268,22 +270,6 @@ def require-store-path [label: string, store_path: string]: nothing -> nothing {
   }
 }
 
-def non-empty-unique-strings [values: list<string>]: nothing -> list<string> {
-  $values
-  | each {|value| $value | str trim | str replace --regex "\\.$" ""}
-  | where {|value| ($value | str length) > 0}
-  | uniq
-}
-
-def local-ip-addresses []: nothing -> list<string> {
-  run-required "detect local IP addresses" ["hostname" "-I"]
-  | split row " "
-  | each {|value| $value | str trim}
-  | where {|value| ($value | str length) > 0}
-  | where {|value| $value != "::1" and not ($value | str starts-with "127.")}
-  | uniq
-}
-
 def indexed-alt-name-lines [kind: string, values: list<string>]: nothing -> list<string> {
   $values
   | enumerate
@@ -321,24 +307,15 @@ def cups-tls-openssl-config [
 }
 
 def install-cups-tls-certificate []: nothing -> record {
-  ensure-avahi-ready
-
-  let system_hostname = (run-required "detect system hostname" ["hostname"] | str trim)
-  let avahi_host = (advertised-host)
-  let dns_names = (non-empty-unique-strings [
-    $system_hostname
-    $"($system_hostname).local"
-    $avahi_host.hostname
-    $"($avahi_host.hostname).local"
-    $avahi_host.fqdn
-    "localhost"
-  ])
-  let ip_addresses = (local-ip-addresses)
+  let identity = (current-cups-tls-identity $CUPS_SSL_DIR)
+  let system_hostname = $identity.system_hostname
+  let dns_names = $identity.dns_names
+  let ip_addresses = $identity.ip_addresses
   let tmp_dir = (mktemp -d)
   let config_path = ($tmp_dir | path join "cups-tls.cnf")
   let cert_path = ($tmp_dir | path join "cups.crt")
   let key_path = ($tmp_dir | path join "cups.key")
-  let target_cert_path = ($CUPS_SSL_DIR | path join $"($system_hostname).crt")
+  let target_cert_path = $identity.cert_path
   let target_key_path = ($CUPS_SSL_DIR | path join $"($system_hostname).key")
 
   try {
@@ -380,12 +357,7 @@ def install-cups-tls-certificate []: nothing -> record {
   }
 
   {
-    system_hostname: $system_hostname
-    avahi_hostname: $avahi_host.hostname
-    avahi_fqdn: $avahi_host.fqdn
-    dns_names: $dns_names
-    ip_addresses: $ip_addresses
-    cert_path: $target_cert_path
+    ...$identity
     key_path: $target_key_path
   }
 }
@@ -395,58 +367,24 @@ def systemd-service-active [service: string]: nothing -> bool {
   $result.exit_code == 0
 }
 
-def openssl-verify-return-code-is [output: string, code: int]: nothing -> bool {
-  $output | str contains $"Verify return code: ($code) "
-}
-
-def verify-openssl-output-has-matching-identity [label: string, output: string]: nothing -> nothing {
-  let lowered_output = ($output | str downcase)
-
-  if (
-    ($lowered_output | str contains "hostname mismatch")
-    or ($lowered_output | str contains "ip address mismatch")
-    or (openssl-verify-return-code-is $output 62)
-    or (openssl-verify-return-code-is $output 64)
-  ) {
-    error make {msg: $"CUPS TLS identity verification failed for ($label): ($output | str trim)"}
-  }
-
-  if not ((openssl-verify-return-code-is $output 0) or (openssl-verify-return-code-is $output 18)) {
-    error make {msg: $"CUPS TLS verification returned an unexpected result for ($label): ($output | str trim)"}
-  }
-}
-
-def verify-cups-tls-hostname [hostname: string]: nothing -> nothing {
-  let command = $"timeout 5 openssl s_client -connect 127.0.0.1:631 -servername (shell-quote $hostname) -verify_hostname (shell-quote $hostname) </dev/null"
-  let result = (run-external "bash" "-lc" $command | complete)
-  let output = [$result.stdout $result.stderr] | str join "\n"
-
-  if $result.exit_code != 0 {
-    error make {msg: $"CUPS TLS hostname verification command failed for ($hostname): ($output | str trim)"}
-  }
-
-  verify-openssl-output-has-matching-identity $hostname $output
-}
-
-def verify-cups-tls-ip [ip_address: string]: nothing -> nothing {
-  let command = $"timeout 5 openssl s_client -connect 127.0.0.1:631 -verify_ip (shell-quote $ip_address) </dev/null"
-  let result = (run-external "bash" "-lc" $command | complete)
-  let output = [$result.stdout $result.stderr] | str join "\n"
-
-  if $result.exit_code != 0 {
-    error make {msg: $"CUPS TLS IP verification command failed for ($ip_address): ($output | str trim)"}
-  }
-
-  verify-openssl-output-has-matching-identity $ip_address $output
-}
-
 def verify-cups-tls-identity [identity: record]: nothing -> nothing {
+  let result = ("" | run-external "timeout" "5" "openssl" "s_client" "-connect" "127.0.0.1:631" "-servername" $identity.avahi_fqdn "-showcerts" | complete)
+  if $result.exit_code != 0 {
+    error make {msg: $"fetch served CUPS TLS certificate failed: ($result.stderr | str trim)"}
+  }
+
   for dns_name in $identity.dns_names {
-    verify-cups-tls-hostname $dns_name
+    run-required-with-input $"verify CUPS TLS DNS identity ($dns_name)" ["openssl" "x509" "-noout" "-checkhost" $dns_name] $result.stdout | ignore
   }
 
   for ip_address in $identity.ip_addresses {
-    verify-cups-tls-ip $ip_address
+    run-required-with-input $"verify CUPS TLS IP identity ($ip_address)" ["openssl" "x509" "-noout" "-checkip" $ip_address] $result.stdout | ignore
+  }
+
+  let served_fingerprint = (run-required-with-input "fingerprint served CUPS TLS certificate" ["openssl" "x509" "-noout" "-fingerprint" "-sha256"] $result.stdout | str trim)
+  let installed_fingerprint = (run-required "fingerprint installed CUPS TLS certificate" ["openssl" "x509" "-in" $identity.cert_path "-noout" "-fingerprint" "-sha256"] | str trim)
+  if $served_fingerprint != $installed_fingerprint {
+    error make {msg: "CUPS is not serving the installed TLS certificate"}
   }
 }
 

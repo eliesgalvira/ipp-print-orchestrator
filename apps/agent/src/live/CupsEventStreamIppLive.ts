@@ -83,7 +83,7 @@ export const CupsEventStreamIppLive = Layer.effect(
       uri: printerUri,
     })
 
-    const recordCupsDisconnected = (message: string, errorTag: string) =>
+    const recordCupsDisconnected = (message: string) =>
       statusRuntime.recordObservedStatus({
         timestamp: new Date().toISOString(),
         hostname: hostname(),
@@ -91,7 +91,7 @@ export const CupsEventStreamIppLive = Layer.effect(
         cupsReachable: false,
         printerQueueAvailable: false,
         printerState: null,
-        printerReasons: [errorTag],
+        printerReasons: [],
         printerMessage: message,
       })
 
@@ -196,12 +196,12 @@ export const CupsEventStreamIppLive = Layer.effect(
       Effect.scoped(
         runNotificationSession.pipe(
           Effect.catchTag("CupsIppUnavailable", (error) =>
-            recordCupsDisconnected(error.message, error._tag).pipe(
+            recordCupsDisconnected(error.message).pipe(
               Effect.flatMap(() => Effect.fail(error)),
             ),
           ),
           Effect.catchTag("CupsIppProtocolError", (error) =>
-            recordCupsDisconnected(error.message, error._tag).pipe(
+            recordCupsDisconnected(error.message).pipe(
               Effect.flatMap(() => Effect.fail(error)),
             ),
           ),

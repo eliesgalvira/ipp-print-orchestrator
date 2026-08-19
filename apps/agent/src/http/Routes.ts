@@ -23,6 +23,12 @@ const instrumentRoute = <E, R>(
     const request = yield* HttpServerRequest.HttpServerRequest
     const startedAtMs = yield* Clock.currentTimeMillis
     const response = yield* handler
+    const span = yield* Effect.currentParentSpan
+    const tracedResponse = HttpServerResponse.setHeader(
+      response,
+      "x-ipp-orch-trace-id",
+      span.traceId,
+    )
     const finishedAtMs = yield* Clock.currentTimeMillis
 
     yield* wideEventPublisher.emit(
@@ -30,7 +36,7 @@ const instrumentRoute = <E, R>(
         timestamp: new Date(finishedAtMs).toISOString(),
         route,
         method: "GET",
-        statusCode: response.status,
+        statusCode: tracedResponse.status,
         durationMs: Math.max(0, finishedAtMs - startedAtMs),
         clientAddress: Option.getOrUndefined(request.remoteAddress),
         userAgent: Option.getOrUndefined(
@@ -39,8 +45,16 @@ const instrumentRoute = <E, R>(
       }),
     )
 
-    return response
-  })
+    return tracedResponse
+  }).pipe(
+    Effect.withSpan(`HTTP GET ${route}`, {
+      kind: "server",
+      attributes: {
+        "http.request.method": "GET",
+        "http.route": route,
+      },
+    }),
+  )
 
 export const HttpRoutes = Layer.mergeAll(
   HttpRouter.add(

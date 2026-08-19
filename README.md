@@ -49,13 +49,6 @@ bun run lint
 nix flake check
 ```
 
-Effect code must follow the local guide before changes:
-
-```bash
-effect-solutions list
-effect-solutions show services-and-layers data-modeling error-handling testing
-```
-
 Run the agent locally:
 
 ```bash
@@ -84,6 +77,9 @@ Runtime entrypoints read the process environment first and then the repository
 - `IPP_ORCH_BIND_HOST`
 - `IPP_ORCH_BIND_PORT`
 - `IPP_ORCH_USB_SYSFS_ROOT`
+- `IPP_ORCH_USB_VENDOR_ID`
+- `IPP_ORCH_USB_PRODUCT_ID`
+- `IPP_ORCH_USB_SERIAL`
 - `IPP_ORCH_HEARTBEAT_INTERVAL_MS`
 - `IPP_ORCH_LOG_PRETTY`
 - `IPP_ORCH_ENABLE_OTLP`
@@ -168,5 +164,7 @@ Events are written once through structured process logging and optional OTLP.
 There is no local append-only event mirror. When OTLP is unavailable, remote
 telemetry can be missing; printer operation and status observation continue.
 
-`AXIOM_QUERY_TOKEN` and `AXIOM_QUERY_DOMAIN` are used only by the live
-observability check and are not service runtime settings.
+The live observability check reads `AXIOM_QUERY_URL`, `AXIOM_QUERY_TOKEN`,
+`AXIOM_LOGS_DATASET`, and `AXIOM_TRACES_DATASET` from the target env file. It
+queries both datasets for the trace ID returned by the status request it just
+made.

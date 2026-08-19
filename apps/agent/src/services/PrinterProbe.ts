@@ -12,6 +12,6 @@ export interface PrinterStatus {
 export class PrinterProbe extends Context.Service<
   PrinterProbe,
   {
-    readonly status: (reason?: string) => Effect.Effect<PrinterStatus>
+    readonly status: () => Effect.Effect<PrinterStatus>
   }
 >()("@ipp/agent/services/PrinterProbe") {}

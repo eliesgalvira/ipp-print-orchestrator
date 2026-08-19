@@ -10,6 +10,7 @@
               pkgs.bash
               pkgs.coreutils
               pkgs.nushell
+              pkgs.openssl
             ];
           }
           /* bash */ ''
