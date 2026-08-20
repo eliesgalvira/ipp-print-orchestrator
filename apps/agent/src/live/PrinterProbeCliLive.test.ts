@@ -14,8 +14,8 @@ import { Effect, Layer } from "effect"
 
 import { AppConfig } from "../config/AppConfig.js"
 import { CupsObserver } from "../cups-observation/CupsObserver.js"
+import { CupsIppUnavailable } from "../domain/Errors.js"
 import { makeUsbDeviceIdentity } from "../domain/UsbDeviceIdentity.js"
-import { PrinterDeviceSource } from "../services/PrinterDeviceSource.js"
 import { PrinterProbe } from "../services/PrinterProbe.js"
 import { PrinterProbeCliLive } from "./PrinterProbeCliLive.js"
 
@@ -36,13 +36,13 @@ const cupsObserverLayer = (attached = true) =>
     }),
   )
 
-const printerDeviceSourceLayer = (deviceUri: string) =>
-  Layer.succeed(
-    PrinterDeviceSource,
-    PrinterDeviceSource.of({
-      installedDeviceUri: () => Effect.succeed(deviceUri),
-    }),
-  )
+const cupsUnavailableLayer = Layer.succeed(
+  CupsObserver,
+  CupsObserver.of({
+    observePrinter: () =>
+      Effect.fail(new CupsIppUnavailable({ message: "CUPS unavailable" })),
+  }),
+)
 
 const appConfigLayer = (usbSysfsRoot: string) =>
   Layer.succeed(AppConfig, {
@@ -136,11 +136,6 @@ describe("PrinterProbeCliLive", () => {
               Layer.provide(appConfigLayer(usbSysfsRoot)),
               Layer.provide(NodeServices.layer),
               Layer.provide(cupsObserverLayer()),
-              Layer.provide(
-                printerDeviceSourceLayer(
-                  "usb://HP/Laser%20MFP%20131%20133%20135-138?serial=ABC123&interface=1",
-                ),
-              ),
             ),
           ),
         ),
@@ -168,11 +163,36 @@ describe("PrinterProbeCliLive", () => {
               Layer.provide(appConfigLayer(usbSysfsRoot)),
               Layer.provide(NodeServices.layer),
               Layer.provide(cupsObserverLayer()),
-              Layer.provide(
-                printerDeviceSourceLayer(
-                  "usb://HP/Laser%20MFP%20131%20133%20135-138?serial=ABC123&interface=1",
-                ),
-              ),
+            ),
+          ),
+        ),
+      ),
+  )
+
+  it.effect(
+    "reports an attached USB printer while CUPS is temporarily unreachable",
+    () =>
+      withUsbSysfsRoot((usbSysfsRoot) =>
+        Effect.gen(function* () {
+          writeUsbDevice(usbSysfsRoot, "1-1", {})
+
+          const printerProbe = yield* PrinterProbe
+          const status = yield* printerProbe.status()
+
+          expect(status).toEqual({
+            attached: true,
+            queueAvailable: false,
+            cupsReachable: false,
+            state: null,
+            reasons: [],
+            message: "CUPS unavailable",
+          })
+        }).pipe(
+          Effect.provide(
+            PrinterProbeCliLive.pipe(
+              Layer.provide(appConfigLayer(usbSysfsRoot)),
+              Layer.provide(NodeServices.layer),
+              Layer.provide(cupsUnavailableLayer),
             ),
           ),
         ),
@@ -207,11 +227,6 @@ describe("PrinterProbeCliLive", () => {
               Layer.provide(appConfigLayer(usbSysfsRoot)),
               Layer.provide(NodeServices.layer),
               Layer.provide(cupsObserverLayer()),
-              Layer.provide(
-                printerDeviceSourceLayer(
-                  "usb://HP/Laser%20MFP%20131%20133%20135-138?serial=ABC123&interface=1",
-                ),
-              ),
             ),
           ),
         ),
@@ -244,40 +259,10 @@ describe("PrinterProbeCliLive", () => {
             Layer.provide(appConfigLayer(usbSysfsRoot)),
             Layer.provide(NodeServices.layer),
             Layer.provide(cupsObserverLayer()),
-            Layer.provide(
-              printerDeviceSourceLayer(
-                "ipp-orch-usb://HP/Laser%20MFP%20131%20133%20135-138?serial=ABC123&interface=1",
-              ),
-            ),
           ),
         ),
       ),
     ),
-  )
-
-  it.effect(
-    "keeps network printers attached without the USB presence check",
-    () =>
-      withUsbSysfsRoot((usbSysfsRoot) =>
-        Effect.gen(function* () {
-          const printerProbe = yield* PrinterProbe
-          const status = yield* printerProbe.status()
-
-          expect(status.attached).toBe(true)
-          expect(status.queueAvailable).toBe(true)
-        }).pipe(
-          Effect.provide(
-            PrinterProbeCliLive.pipe(
-              Layer.provide(appConfigLayer(usbSysfsRoot)),
-              Layer.provide(NodeServices.layer),
-              Layer.provide(cupsObserverLayer()),
-              Layer.provide(
-                printerDeviceSourceLayer("ipp://printer.local/ipp/print"),
-              ),
-            ),
-          ),
-        ),
-      ),
   )
 
   it.effect("reads current sysfs attachment on every observation", () =>
@@ -302,11 +287,6 @@ describe("PrinterProbeCliLive", () => {
             Layer.provide(appConfigLayer(usbSysfsRoot)),
             Layer.provide(NodeServices.layer),
             Layer.provide(cupsObserverLayer()),
-            Layer.provide(
-              printerDeviceSourceLayer(
-                "usb://HP/Laser%20MFP%20131%20133%20135-138?serial=ABC123&interface=1",
-              ),
-            ),
           ),
         ),
       ),
@@ -342,11 +322,6 @@ describe("PrinterProbeCliLive", () => {
               Layer.provide(appConfigLayer(usbSysfsRoot)),
               Layer.provide(NodeServices.layer),
               Layer.provide(cupsObserverLayer()),
-              Layer.provide(
-                printerDeviceSourceLayer(
-                  "usb://HP/Laser%20MFP%20131%20133%20135-138?serial=ABC123&interface=1",
-                ),
-              ),
             ),
           ),
         ),
@@ -392,11 +367,6 @@ describe("PrinterProbeCliLive", () => {
               Layer.provide(appConfigLayer(usbSysfsRoot)),
               Layer.provide(NodeServices.layer),
               Layer.provide(cupsObserverLayer()),
-              Layer.provide(
-                printerDeviceSourceLayer(
-                  "usb://HP/Laser%20MFP%20131%20133%20135-138?serial=ABC123&interface=1",
-                ),
-              ),
             ),
           ),
         ),

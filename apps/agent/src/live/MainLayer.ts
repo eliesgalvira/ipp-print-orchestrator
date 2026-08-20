@@ -6,7 +6,6 @@ import { CupsObserverIppLive } from "../cups-observation/CupsObserverIppLive.js"
 import { CupsEventStreamIppLive } from "./CupsEventStreamIppLive.js"
 import { HeartbeatLive } from "./HeartbeatLive.js"
 import { NetworkProbeCliLive } from "./NetworkProbeCliLive.js"
-import { PrinterDeviceSourceCliLive } from "./PrinterDeviceSourceCliLive.js"
 import { PrinterProbeCliLive } from "./PrinterProbeCliLive.js"
 import { StatusRuntimeLive } from "./StatusRuntimeLive.js"
 import { TelemetryLive } from "./TelemetryLive.js"
@@ -14,11 +13,6 @@ import { WideEventPublisherLive } from "./WideEventPublisherLive.js"
 
 const configLayer = AppConfig.layer
 const nodeLayer = NodeServices.layer
-
-const printerDeviceLayer = PrinterDeviceSourceCliLive.pipe(
-  Layer.provide(configLayer),
-  Layer.provide(nodeLayer),
-)
 
 const cupsObserverLayer = CupsObserverIppLive.pipe(
   Layer.provide(configLayer),
@@ -31,7 +25,6 @@ const probeLayer = Layer.merge(
     Layer.provide(configLayer),
     Layer.provide(nodeLayer),
     Layer.provide(cupsObserverLayer),
-    Layer.provide(printerDeviceLayer),
   ),
 )
 
@@ -56,7 +49,6 @@ const cupsEventStreamLayer = CupsEventStreamIppLive.pipe(
 export const MainLayer = Layer.mergeAll(
   configLayer,
   nodeLayer,
-  printerDeviceLayer,
   cupsObserverLayer,
   probeLayer,
   eventLayer,

@@ -220,12 +220,13 @@ def "test CUPS TLS certificate identity is derived from SANs" []: nothing -> not
       dns_names: ["print-server" "print-server.local"]
       ip_addresses: ["192.168.4.128"]
     }
-    assert (certificate-covers-identity $cert_path $identity) "certificate should cover its exact SAN set"
-    assert not (certificate-covers-identity $cert_path {
+    let certificate = (open --raw $cert_path)
+    assert (certificate-covers-identity $certificate $identity) "certificate should cover its exact SAN set"
+    assert not (certificate-covers-identity $certificate {
       dns_names: ["print-server" "renamed.local"]
       ip_addresses: ["192.168.4.128"]
     }) "certificate should reject a changed DNS identity"
-    assert not (certificate-covers-identity $cert_path {
+    assert not (certificate-covers-identity $certificate {
       dns_names: ["print-server" "print-server.local"]
       ip_addresses: ["192.168.4.129"]
     }) "certificate should reject a changed IP identity"
@@ -235,6 +236,24 @@ def "test CUPS TLS certificate identity is derived from SANs" []: nothing -> not
   }
 
   rm --recursive --force $temp_dir
+}
+
+def "test Pi smoke status requires the physical printer" []: nothing -> nothing {
+  let result = (
+    nu --no-config-file --commands '
+use scripts/lib/status.nu require-ready-status
+require-ready-status {
+  appUp: true
+  cupsReachable: true
+  printerAttached: false
+  printerQueueAvailable: false
+}
+'
+    | complete
+  )
+
+  assert not equal $result.exit_code 0 "smoke validation must reject a missing physical printer"
+  assert ($result.stderr | str contains "printerAttached") "smoke failure should identify the missing readiness field"
 }
 
 def "test supervised CUPS USB URI rewriting" []: nothing -> nothing {

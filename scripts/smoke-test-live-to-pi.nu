@@ -10,9 +10,13 @@ def main []: nothing -> any {
   let target = (remote-target $dotenv)
   let pi_host = $target.host
   let ssh_key_path = $target.key_path
+  let app_dir = (get-config $dotenv APP_DIR "/home/pi/apps/ipp-print-orchestrator")
   let default_port = (get-config $dotenv IPP_ORCH_BIND_PORT "4310")
 
   let remote_script = ('
+use __APP_DIR__/scripts/lib/cups-tls.nu [certificate-covers-identity current-cups-tls-identity served-cups-tls-certificate]
+use __APP_DIR__/scripts/lib/status.nu require-ready-status
+
 def has-value [value: any]: nothing -> bool {
   if $value == null { false } else { (($value | into string | str trim | str length) > 0) }
 }
@@ -60,10 +64,18 @@ let host = (get-value $dotenv IPP_ORCH_BIND_HOST "127.0.0.1")
 let port = (get-value $dotenv IPP_ORCH_BIND_PORT "__PORT__")
 let printer_name = (get-value $dotenv IPP_ORCH_PRINTER_NAME "printer")
 
-^curl -fsS $"http://($host):($port)/v1/health"
-print ""
-^curl -fsS $"http://($host):($port)/v1/status"
-print ""
+let health = (^curl -fsS $"http://($host):($port)/v1/health" | from json)
+let status = (^curl -fsS $"http://($host):($port)/v1/status" | from json)
+print ($health | to json --raw)
+print ($status | to json --raw)
+require-ready-status $status
+
+let tls_identity = (current-cups-tls-identity "/etc/cups/ssl")
+let served_certificate = (served-cups-tls-certificate $tls_identity)
+if not (certificate-covers-identity $served_certificate $tls_identity) {
+  error make {msg: "CUPS is not serving a certificate for its advertised identity"}
+}
+
 ^lpstat -p
 ^lpstat -t
 
@@ -74,7 +86,9 @@ if $printer_result.exit_code != 0 {
 }
 
 print "pi smoke test passed"
-' | str replace "__PORT__" ($default_port | into string))
+'
+  | str replace --all "__APP_DIR__" $app_dir
+  | str replace "__PORT__" ($default_port | into string))
 
   run-remote-nu-source $pi_host $remote_script --key-path $ssh_key_path --batch
 }

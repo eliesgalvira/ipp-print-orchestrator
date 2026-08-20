@@ -41,14 +41,10 @@ export def current-cups-tls-identity [ssl_dir: string]: nothing -> record {
 }
 
 export def certificate-covers-identity [
-  cert_path: string
+  certificate: string
   identity: record
 ]: nothing -> bool {
-  if not ($cert_path | path exists) {
-    return false
-  }
-
-  let san_result = (run-external "openssl" "x509" "-in" $cert_path "-noout" "-ext" "subjectAltName" | complete)
+  let san_result = ($certificate | run-external "openssl" "x509" "-noout" "-ext" "subjectAltName" | complete)
   if $san_result.exit_code != 0 {
     return false
   }
@@ -68,18 +64,41 @@ export def certificate-covers-identity [
   }
 
   for dns_name in $identity.dns_names {
-    let result = (run-external "openssl" "x509" "-in" $cert_path "-noout" "-checkhost" $dns_name | complete)
+    let result = ($certificate | run-external "openssl" "x509" "-noout" "-checkhost" $dns_name | complete)
     if $result.exit_code != 0 {
       return false
     }
   }
 
   for ip_address in $identity.ip_addresses {
-    let result = (run-external "openssl" "x509" "-in" $cert_path "-noout" "-checkip" $ip_address | complete)
+    let result = ($certificate | run-external "openssl" "x509" "-noout" "-checkip" $ip_address | complete)
     if $result.exit_code != 0 {
       return false
     }
   }
 
   true
+}
+
+export def served-cups-tls-certificate [identity: record]: nothing -> string {
+  let result = (
+    ""
+    | run-external
+        "timeout"
+        "5"
+        "openssl"
+        "s_client"
+        "-connect"
+        "127.0.0.1:631"
+        "-servername"
+        $identity.avahi_fqdn
+        "-showcerts"
+    | complete
+  )
+
+  if $result.exit_code != 0 {
+    error make {msg: $"fetch served CUPS TLS certificate failed: ($result.stderr | str trim)"}
+  }
+
+  $result.stdout
 }

@@ -1,6 +1,6 @@
 #!/usr/bin/env nu
 
-use lib/cups-tls.nu current-cups-tls-identity
+use lib/cups-tls.nu [certificate-covers-identity current-cups-tls-identity served-cups-tls-certificate]
 use lib/env.nu [get-config has-value load-dotenv]
 use lib/repo.nu repo-root
 
@@ -368,20 +368,12 @@ def systemd-service-active [service: string]: nothing -> bool {
 }
 
 def verify-cups-tls-identity [identity: record]: nothing -> nothing {
-  let result = ("" | run-external "timeout" "5" "openssl" "s_client" "-connect" "127.0.0.1:631" "-servername" $identity.avahi_fqdn "-showcerts" | complete)
-  if $result.exit_code != 0 {
-    error make {msg: $"fetch served CUPS TLS certificate failed: ($result.stderr | str trim)"}
+  let served_certificate = (served-cups-tls-certificate $identity)
+  if not (certificate-covers-identity $served_certificate $identity) {
+    error make {msg: "CUPS TLS certificate does not cover its advertised identity"}
   }
 
-  for dns_name in $identity.dns_names {
-    run-required-with-input $"verify CUPS TLS DNS identity ($dns_name)" ["openssl" "x509" "-noout" "-checkhost" $dns_name] $result.stdout | ignore
-  }
-
-  for ip_address in $identity.ip_addresses {
-    run-required-with-input $"verify CUPS TLS IP identity ($ip_address)" ["openssl" "x509" "-noout" "-checkip" $ip_address] $result.stdout | ignore
-  }
-
-  let served_fingerprint = (run-required-with-input "fingerprint served CUPS TLS certificate" ["openssl" "x509" "-noout" "-fingerprint" "-sha256"] $result.stdout | str trim)
+  let served_fingerprint = (run-required-with-input "fingerprint served CUPS TLS certificate" ["openssl" "x509" "-noout" "-fingerprint" "-sha256"] $served_certificate | str trim)
   let installed_fingerprint = (run-required "fingerprint installed CUPS TLS certificate" ["openssl" "x509" "-in" $identity.cert_path "-noout" "-fingerprint" "-sha256"] | str trim)
   if $served_fingerprint != $installed_fingerprint {
     error make {msg: "CUPS is not serving the installed TLS certificate"}

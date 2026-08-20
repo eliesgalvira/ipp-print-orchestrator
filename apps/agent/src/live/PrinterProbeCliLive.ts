@@ -4,13 +4,11 @@ import * as Path from "effect/Path"
 import type * as PlatformError from "effect/PlatformError"
 import { AppConfig } from "../config/AppConfig.js"
 import { CupsObserver } from "../cups-observation/CupsObserver.js"
-import { isPhysicalUsbDeviceUri } from "../domain/PrinterDeviceUri.js"
 import {
   makeUsbDeviceIdentity,
   type UsbDeviceIdentity,
   usbDeviceIdentityMatches,
 } from "../domain/UsbDeviceIdentity.js"
-import { PrinterDeviceSource } from "../services/PrinterDeviceSource.js"
 import { PrinterProbe } from "../services/PrinterProbe.js"
 
 type PrinterProbeService = typeof PrinterProbe.Service
@@ -143,22 +141,8 @@ export const PrinterProbeCliLive = Layer.effect(
   Effect.gen(function* () {
     const appConfig = yield* AppConfig
     const cupsObserver = yield* CupsObserver
-    const printerDeviceSource = yield* PrinterDeviceSource
     const fs = yield* FileSystem.FileSystem
     const path = yield* Path.Path
-
-    const getConfiguredDeviceUri = Effect.fn(
-      "PrinterProbe.getConfiguredDeviceUri",
-    )(function* () {
-      return yield* printerDeviceSource.installedDeviceUri().pipe(
-        Effect.catchTag("CupsUnavailable", () =>
-          Effect.succeed<string | null>(null),
-        ),
-        Effect.catchTag("CupsCommandFailed", () =>
-          Effect.succeed<string | null>(null),
-        ),
-      )
-    })
 
     const readUsbPresence = Effect.fn("PrinterProbe.readUsbPresence")(
       function* (attachedFromObservation: boolean) {
@@ -200,44 +184,40 @@ export const PrinterProbeCliLive = Layer.effect(
       "PrinterProbe.status",
     )(function* () {
       return yield* cupsObserver.observePrinter().pipe(
-        Effect.flatMap((observation) =>
-          Effect.gen(function* () {
-            const configuredDeviceUri = yield* getConfiguredDeviceUri()
-            const isUsbPrinter =
-              configuredDeviceUri !== null &&
-              isPhysicalUsbDeviceUri(configuredDeviceUri)
-            const usbPresence = isUsbPrinter
-              ? yield* readUsbPresence(observation.attached)
-              : usbPresenceFromObservation(observation.attached)
-            const attached = isUsbPrinter
-              ? usbPresence === "attached"
-              : observation.attached
-            const usbUnavailable: boolean =
-              isUsbPrinter && observation.attached && usbPresence !== "attached"
-            return {
-              attached,
-              queueAvailable: attached && observation.queueAvailable,
-              cupsReachable: true,
-              state: observation.state,
-              reasons: usbUnavailable
-                ? [usbPresenceReason(usbPresence), ...observation.reasons]
-                : observation.reasons,
-              message: usbUnavailable
-                ? usbPresenceMessage(usbPresence)
-                : observation.message,
-            }
-          }),
-        ),
-        Effect.catch((error) =>
-          Effect.succeed({
-            attached: false,
-            queueAvailable: false,
-            cupsReachable: false,
-            state: null,
-            reasons: [],
-            message: error.message,
-          }),
-        ),
+        Effect.matchEffect({
+          onFailure: (error) =>
+            readUsbPresence(false).pipe(
+              Effect.map((usbPresence) => ({
+                attached: usbPresence === "attached",
+                queueAvailable: false,
+                cupsReachable: false,
+                state: null,
+                reasons:
+                  usbPresence === "attached"
+                    ? []
+                    : [usbPresenceReason(usbPresence)],
+                message: error.message,
+              })),
+            ),
+          onSuccess: (observation) =>
+            Effect.gen(function* () {
+              const usbPresence = yield* readUsbPresence(observation.attached)
+              const attached = usbPresence === "attached"
+
+              return {
+                attached,
+                queueAvailable: attached && observation.queueAvailable,
+                cupsReachable: true,
+                state: observation.state,
+                reasons: attached
+                  ? observation.reasons
+                  : [usbPresenceReason(usbPresence), ...observation.reasons],
+                message: attached
+                  ? observation.message
+                  : usbPresenceMessage(usbPresence),
+              }
+            }),
+        }),
       )
     })
 
