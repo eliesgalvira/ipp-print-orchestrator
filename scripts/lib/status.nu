@@ -1,14 +1,15 @@
 export def require-ready-status [status: record]: nothing -> nothing {
   let missing = [
-    {field: "appUp", value: ($status | get -o appUp)}
-    {field: "cupsReachable", value: ($status | get -o cupsReachable)}
-    {field: "printerAttached", value: ($status | get -o printerAttached)}
-    {field: "printerQueueAvailable", value: ($status | get -o printerQueueAvailable)}
-  ]
-  | where value != true
-  | get field
+    (if (($status | get -o appUp) != true) { "appUp" } else { null })
+    (if (($status | get -o printerReady) != true) { "printerReady" } else { null })
+  ] | compact
 
   if not ($missing | is-empty) {
-    error make {msg: $"Pi is not ready: expected true for ($missing | str join ', ')"}
+    let details = [
+      $"cupsReachable=(($status | get -o cupsReachable) | default false)"
+      $"cupsQueueAvailable=(($status | get -o cupsQueueAvailable) | default false)"
+      $"usbDeviceState=(($status | get -o usbDeviceState) | default unknown)"
+    ] | str join ", "
+    error make {msg: $"Pi is not ready: expected true for ($missing | str join ', '); ($details)"}
   }
 }

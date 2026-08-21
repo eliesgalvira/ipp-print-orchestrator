@@ -185,8 +185,8 @@ def discover-hp-usb-device-uri []: nothing -> string {
   $line | split row " " | get 1
 }
 
-def printer-device-uri-from-config [printers_conf: string, printer_name: string]: nothing -> string {
-  let block = (cups-printer-block $printers_conf $printer_name)
+def queue-device-uri-from-config [printers_conf: string, queue_name: string]: nothing -> string {
+  let block = (cups-printer-block $printers_conf $queue_name)
   let line = (
     $block
     | lines
@@ -201,14 +201,14 @@ def printer-device-uri-from-config [printers_conf: string, printer_name: string]
   }
 }
 
-def existing-printer-device-uri [printer_name: string]: nothing -> string {
+def existing-queue-device-uri [queue_name: string]: nothing -> string {
   let printers_conf = "/etc/cups/printers.conf"
 
   if not ($printers_conf | path exists) {
     return ""
   }
 
-  printer-device-uri-from-config (sudo cat $printers_conf) $printer_name
+  queue-device-uri-from-config (sudo cat $printers_conf) $queue_name
 }
 
 def explicit-device-uri [device_uri: any]: nothing -> string {
@@ -219,7 +219,7 @@ def explicit-device-uri [device_uri: any]: nothing -> string {
   }
 }
 
-def resolve-hp-device-uri [printer_name: string, device_uri: any]: nothing -> string {
+def resolve-hp-device-uri [queue_name: string, device_uri: any]: nothing -> string {
   let explicit_uri = (explicit-device-uri $device_uri)
 
   if (has-value $explicit_uri) {
@@ -229,10 +229,10 @@ def resolve-hp-device-uri [printer_name: string, device_uri: any]: nothing -> st
   try {
     discover-hp-usb-device-uri
   } catch {|err|
-    let existing_device_uri = (existing-printer-device-uri $printer_name)
+    let existing_device_uri = (existing-queue-device-uri $queue_name)
 
     if (has-value $existing_device_uri) {
-      print $"CUPS USB discovery failed; reusing existing queue device URI for ($printer_name): ($existing_device_uri)"
+      print $"CUPS USB discovery failed; reusing existing queue device URI for ($queue_name): ($existing_device_uri)"
       return $existing_device_uri
     }
 
@@ -457,23 +457,23 @@ def ensure-hp-uld-driver [driver_path: string]: nothing -> string {
   $HP_ULD_PPD_PATH
 }
 
-def install-queue-ppd-if-present [printer_name: string, ppd_path: string]: nothing -> nothing {
-  let queue_ppd_path = $"/etc/cups/ppd/($printer_name).ppd"
-  let queue_exists = (run-external "lpstat" "-p" $printer_name | complete)
+def install-queue-ppd-if-present [queue_name: string, ppd_path: string]: nothing -> nothing {
+  let queue_ppd_path = $"/etc/cups/ppd/($queue_name).ppd"
+  let queue_exists = (run-external "lpstat" "-p" $queue_name | complete)
 
   if $queue_exists.exit_code != 0 {
-    print $"CUPS queue ($printer_name) is not present; installed driver PPD only."
+    print $"CUPS queue ($queue_name) is not present; installed driver PPD only."
     return
   }
 
   install-root-dir "/etc/cups/ppd"
   install-root-file $PUBLIC_DATA_FILE_MODE $ppd_path $queue_ppd_path
   run-required $"verify queue PPD ($queue_ppd_path)" ["sudo" "test" "-r" $queue_ppd_path] | ignore
-  print $"Refreshed queue PPD for ($printer_name) without changing queue state."
+  print $"Refreshed queue PPD for ($queue_name) without changing queue state."
 }
 
 def install-cups-artifacts [
-  printer_name: string
+  queue_name: string
   runtime_path: string
   driver_path: string
   backend_path: string
@@ -485,7 +485,7 @@ def install-cups-artifacts [
   let ppd_path = (ensure-hp-uld-driver $driver_path)
   install-pdf-preflight-filter $runtime_path
   install-supervised-usb-backend $backend_path
-  install-queue-ppd-if-present $printer_name $ppd_path
+  install-queue-ppd-if-present $queue_name $ppd_path
 }
 
 def wait-for-cups-ready []: nothing -> nothing {
@@ -553,8 +553,8 @@ def configure-cups-network [--enable-printing]: nothing -> nothing {
   }
 }
 
-def queue-option-reset-args [printers_conf: string, printer_name: string]: nothing -> list<string> {
-  cups-printer-block $printers_conf $printer_name
+def queue-option-reset-args [printers_conf: string, queue_name: string]: nothing -> list<string> {
+  cups-printer-block $printers_conf $queue_name
   | lines
   | each {|line| $line | str trim}
   | where {|line| $line | str starts-with "Option "}
@@ -565,10 +565,10 @@ def queue-option-reset-args [printers_conf: string, printer_name: string]: nothi
   | flatten
 }
 
-def queue-configuration-args [printer_name: string, device_uri: string, ppd_path: string]: nothing -> list<string> {
+def queue-configuration-args [queue_name: string, device_uri: string, ppd_path: string]: nothing -> list<string> {
   [
     "-p"
-    $printer_name
+    $queue_name
     "-v"
     $device_uri
     "-P"
@@ -588,46 +588,46 @@ def queue-configuration-args [printer_name: string, device_uri: string, ppd_path
   ]
 }
 
-def configure-queue [printer_name: string, device_uri: string, ppd_path: string]: nothing -> nothing {
+def configure-queue [queue_name: string, device_uri: string, ppd_path: string]: nothing -> nothing {
   for queue in $TEMP_QUEUES {
     run-best-effort ["sudo" "lpadmin" "-x" $queue]
   }
 
   let printers_conf = (run-external "sudo" "cat" "/etc/cups/printers.conf" | complete | get stdout)
-  let reset_args = (queue-option-reset-args $printers_conf $printer_name)
+  let reset_args = (queue-option-reset-args $printers_conf $queue_name)
   if ($reset_args | length) > 0 {
-    run-required $"reset persisted CUPS queue options for ($printer_name)" (["sudo" "lpadmin" "-p" $printer_name] ++ $reset_args) | ignore
+    run-required $"reset persisted CUPS queue options for ($queue_name)" (["sudo" "lpadmin" "-p" $queue_name] ++ $reset_args) | ignore
   }
 
-  run-required $"configure CUPS queue ($printer_name)" (["sudo" "lpadmin"] ++ (queue-configuration-args $printer_name $device_uri $ppd_path)) | ignore
-  run-best-effort ["sudo" "cupsdisable" $printer_name]
-  run-best-effort ["sudo" "cupsreject" $printer_name]
+  run-required $"configure CUPS queue ($queue_name)" (["sudo" "lpadmin"] ++ (queue-configuration-args $queue_name $device_uri $ppd_path)) | ignore
+  run-best-effort ["sudo" "cupsdisable" $queue_name]
+  run-best-effort ["sudo" "cupsreject" $queue_name]
 }
 
-def enable-queue [printer_name: string]: nothing -> nothing {
-  run-required "share CUPS queue" ["sudo" "lpadmin" "-p" $printer_name "-o" "printer-is-shared=true"] | ignore
-  run-required "enable CUPS queue" ["sudo" "cupsenable" "-r" "Ready." $printer_name] | ignore
-  run-required "accept CUPS queue jobs" ["sudo" "cupsaccept" $printer_name] | ignore
+def enable-queue [queue_name: string]: nothing -> nothing {
+  run-required "share CUPS queue" ["sudo" "lpadmin" "-p" $queue_name "-o" "printer-is-shared=true"] | ignore
+  run-required "enable CUPS queue" ["sudo" "cupsenable" "-r" "Ready." $queue_name] | ignore
+  run-required "accept CUPS queue jobs" ["sudo" "cupsaccept" $queue_name] | ignore
 }
 
-def verify-ipp-contract [printer_uri: string]: nothing -> nothing {
+def verify-ipp-contract [queue_uri: string]: nothing -> nothing {
   wait-for-cups-ready
-  run-required $"validate IPP printer attributes at ($printer_uri)" [
+  run-required $"validate IPP printer attributes at ($queue_uri)" [
     "ipptool"
     "-tv"
-    $printer_uri
+    $queue_uri
     "/usr/share/cups/ipptool/get-printer-attributes.test"
   ] | ignore
 }
 
-def cups-printer-block [printers_conf: string, printer_name: string]: nothing -> string {
+def cups-printer-block [printers_conf: string, queue_name: string]: nothing -> string {
   let lines = ($printers_conf | lines)
   mut in_printer = false
   mut block = []
 
   for line in $lines {
     let trimmed = ($line | str trim)
-    if $trimmed == $"<Printer ($printer_name)>" {
+    if $trimmed == $"<Printer ($queue_name)>" {
       $in_printer = true
     }
 
@@ -643,11 +643,11 @@ def cups-printer-block [printers_conf: string, printer_name: string]: nothing ->
   ""
 }
 
-def force-queue-error-policy-abort-job [printer_name: string]: nothing -> nothing {
+def force-queue-error-policy-abort-job [queue_name: string]: nothing -> nothing {
   run-best-effort ["sudo" "systemctl" "stop" "cups.service" "cups.socket" "cups.path"]
 
   let perl_expression = (
-    's/(<Printer ' + $printer_name + '>.*?\n)ErrorPolicy \S+(\n.*?<\/Printer>)/${1}ErrorPolicy abort-job${2}/s'
+    's/(<Printer ' + $queue_name + '>.*?\n)ErrorPolicy \S+(\n.*?<\/Printer>)/${1}ErrorPolicy abort-job${2}/s'
   )
 
   run-required "set queue ErrorPolicy to abort-job" [
@@ -660,19 +660,19 @@ def force-queue-error-policy-abort-job [printer_name: string]: nothing -> nothin
   ] | ignore
 
   let printers_conf = (run-required "verify queue ErrorPolicy" ["sudo" "cat" "/etc/cups/printers.conf"])
-  let printer_block = (cups-printer-block $printers_conf $printer_name)
-  if ($printer_block | str length) == 0 or not ($printer_block | str contains "ErrorPolicy abort-job") {
-    error make {msg: $"failed to set ErrorPolicy abort-job for CUPS printer ($printer_name)"}
+  let queue_block = (cups-printer-block $printers_conf $queue_name)
+  if ($queue_block | str length) == 0 or not ($queue_block | str contains "ErrorPolicy abort-job") {
+    error make {msg: $"failed to set ErrorPolicy abort-job for CUPS queue ($queue_name)"}
   }
 
   run-required "restart CUPS after queue ErrorPolicy update" ["sudo" "systemctl" "start" "cups.service"] | ignore
 }
 
-def read-printer-uuid [printer_name: string]: nothing -> string {
+def read-queue-uuid [queue_name: string]: nothing -> string {
   let printers_conf = (run-required "read CUPS printers.conf" ["sudo" "cat" "/etc/cups/printers.conf"])
-  let printer_block = (cups-printer-block $printers_conf $printer_name)
+  let queue_block = (cups-printer-block $printers_conf $queue_name)
 
-  for line in ($printer_block | lines) {
+  for line in ($queue_block | lines) {
     let trimmed = ($line | str trim)
     if ($trimmed | str starts-with "UUID ") {
       return (
@@ -684,16 +684,16 @@ def read-printer-uuid [printer_name: string]: nothing -> string {
     }
   }
 
-  error make {msg: $"could not find UUID for CUPS printer ($printer_name)"}
+  error make {msg: $"could not find UUID for CUPS queue ($queue_name)"}
   ""
 }
 
-def avahi-ipps-service-content [printer_name: string, avahi_fqdn: string, printer_uuid: string]: nothing -> string {
+def avahi-ipps-service-content [queue_name: string, avahi_fqdn: string, queue_uuid: string]: nothing -> string {
   let avahi_short_name = ($avahi_fqdn | str replace --regex "\\.local$" "")
   let service_name = (xml-escape $"HP Laser MFP 135a @ ($avahi_short_name)")
-  let rp = (xml-escape $"printers/($printer_name)")
-  let adminurl = (xml-escape $"https://($avahi_fqdn):631/printers/($printer_name)")
-  let uuid = (xml-escape $printer_uuid)
+  let rp = (xml-escape $"printers/($queue_name)")
+  let adminurl = (xml-escape $"https://($avahi_fqdn):631/printers/($queue_name)")
+  let uuid = (xml-escape $queue_uuid)
 
   [
     "<?xml version=\"1.0\" standalone=\"no\"?>"
@@ -725,9 +725,9 @@ def avahi-ipps-service-content [printer_name: string, avahi_fqdn: string, printe
   ] | str join "\n"
 }
 
-def install-avahi-ipps-service [printer_name: string, avahi_fqdn: string]: nothing -> nothing {
-  let printer_uuid = (read-printer-uuid $printer_name)
-  let service_content = (avahi-ipps-service-content $printer_name $avahi_fqdn $printer_uuid)
+def install-avahi-ipps-service [queue_name: string, avahi_fqdn: string]: nothing -> nothing {
+  let queue_uuid = (read-queue-uuid $queue_name)
+  let service_content = (avahi-ipps-service-content $queue_name $avahi_fqdn $queue_uuid)
   let tmp_service = (mktemp)
 
   try {
@@ -747,10 +747,10 @@ def remove-avahi-ipps-service []: nothing -> nothing {
   run-best-effort ["sudo" "systemctl" "restart" "avahi-daemon.service"]
 }
 
-def final-safe-stop [printer_name: string]: nothing -> nothing {
-  run-best-effort ["sudo" "cupsdisable" $printer_name]
-  run-best-effort ["sudo" "cupsreject" $printer_name]
-  run-best-effort ["sudo" "lpadmin" "-p" $printer_name "-o" "printer-is-shared=false"]
+def final-safe-stop [queue_name: string]: nothing -> nothing {
+  run-best-effort ["sudo" "cupsdisable" $queue_name]
+  run-best-effort ["sudo" "cupsreject" $queue_name]
+  run-best-effort ["sudo" "lpadmin" "-p" $queue_name "-o" "printer-is-shared=false"]
   remove-avahi-ipps-service
   clear-spool-and-stop-cups
   run-best-effort ["sudo" "systemctl" "disable" "cups.service" "cups.socket" "cups.path" "cups-browsed.service"]

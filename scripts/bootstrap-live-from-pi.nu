@@ -59,7 +59,7 @@ def install-bun []: nothing -> nothing {
   rm --force $installer
 }
 
-def detect-printer-name []: nothing -> string {
+def detect-queue-name []: nothing -> string {
   if not (command-exists lpstat) {
     "printer"
   } else {
@@ -83,9 +83,9 @@ def detect-printer-name []: nothing -> string {
   }
 }
 
-def default-env-content [app_dir: string, printer_name: string]: nothing -> string {
+def default-env-content [app_dir: string, queue_name: string]: nothing -> string {
   [
-    $"IPP_ORCH_PRINTER_NAME=($printer_name)"
+    $"IPP_ORCH_PRINTER_NAME=($queue_name)"
     "IPP_ORCH_BIND_HOST=127.0.0.1"
     "IPP_ORCH_BIND_PORT=4310"
     "IPP_ORCH_HEARTBEAT_INTERVAL_MS=60000"
@@ -100,7 +100,7 @@ def default-env-content [app_dir: string, printer_name: string]: nothing -> stri
   ] | str join "\n"
 }
 
-def install-default-env [app_dir: string, printer_name: string]: nothing -> nothing {
+def install-default-env [app_dir: string, queue_name: string]: nothing -> nothing {
   if ("/etc/ipp-print-orchestrator.env" | path exists) {
     print "/etc/ipp-print-orchestrator.env already exists; skipping install"
     return
@@ -108,7 +108,7 @@ def install-default-env [app_dir: string, printer_name: string]: nothing -> noth
 
   let tmp_env = (mktemp)
   let service_env_group = (^id -gn | str trim)
-  default-env-content $app_dir $printer_name | save --force $tmp_env
+  default-env-content $app_dir $queue_name | save --force $tmp_env
   run-sudo ["install" "-o" "root" "-g" $service_env_group "-m" $SERVICE_ENV_FILE_MODE $tmp_env "/etc/ipp-print-orchestrator.env"]
   rm --force $tmp_env
 }
@@ -156,7 +156,7 @@ def install-authorized-key-content [content: string]: nothing -> nothing {
   ^chmod $SSH_AUTHORIZED_KEYS_PRIVATE_MODE $authorized_keys
 }
 
-def configured-printer-name []: nothing -> any {
+def configured-queue-name []: nothing -> any {
   if not ("/etc/ipp-print-orchestrator.env" | path exists) {
     null
   } else {
@@ -174,18 +174,18 @@ def configured-printer-name []: nothing -> any {
   }
 }
 
-def warn-if-printer-missing []: nothing -> nothing {
-  let printer_name = (configured-printer-name)
-  if (not (has-value $printer_name)) or (not (command-exists lpstat)) {
+def warn-if-queue-missing []: nothing -> nothing {
+  let queue_name = (configured-queue-name)
+  if (not (has-value $queue_name)) or (not (command-exists lpstat)) {
     return
   }
 
-  let result = (^lpstat -p $printer_name | complete)
+  let result = (^lpstat -p $queue_name | complete)
   if $result.exit_code == 0 {
     return
   }
 
-  print --stderr $"warning: configured printer \"($printer_name)\" was not found in CUPS."
+  print --stderr $"warning: configured queue \"($queue_name)\" was not found in CUPS."
   print --stderr "available queues:"
   let queues = (^lpstat -p | complete)
   if (has-value $queues.stdout) {
@@ -225,12 +225,12 @@ def main [
   }
 
   run-timed "bootstrap environment" {
-    let printer_name = (detect-printer-name)
-    install-default-env $app_dir $printer_name
+    let queue_name = (detect-queue-name)
+    install-default-env $app_dir $queue_name
   }
 
   run-timed "bootstrap printer validation" {
-    warn-if-printer-missing
+    warn-if-queue-missing
   }
 
   print $"bootstrap complete on ($pi_host_label)"

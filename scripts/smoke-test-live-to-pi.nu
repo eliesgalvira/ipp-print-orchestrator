@@ -62,7 +62,7 @@ def get-value [dotenv: record, key: cell-path, fallback: string]: nothing -> str
 let dotenv = (load-dotenv /etc/ipp-print-orchestrator.env)
 let host = (get-value $dotenv IPP_ORCH_BIND_HOST "127.0.0.1")
 let port = (get-value $dotenv IPP_ORCH_BIND_PORT "__PORT__")
-let printer_name = (get-value $dotenv IPP_ORCH_PRINTER_NAME "printer")
+let queue_name = (get-value $dotenv IPP_ORCH_PRINTER_NAME "printer")
 
 let health = (^curl -fsS $"http://($host):($port)/v1/health" | from json)
 let status = (^curl -fsS $"http://($host):($port)/v1/status" | from json)
@@ -79,9 +79,9 @@ if not (certificate-covers-identity $served_certificate $tls_identity) {
 ^lpstat -p
 ^lpstat -t
 
-let printer_result = (^lpstat -p $printer_name | complete)
-if $printer_result.exit_code != 0 {
-  print -e $"Configured printer ($printer_name) not found in CUPS"
+let queue_result = (^lpstat -p $queue_name | complete)
+if $queue_result.exit_code != 0 {
+  print -e $"Configured queue ($queue_name) not found in CUPS"
   exit 1
 }
 

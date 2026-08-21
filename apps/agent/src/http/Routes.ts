@@ -5,6 +5,10 @@ import * as HttpServerRequest from "effect/unstable/http/HttpServerRequest"
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse"
 
 import {
+  legacyPrinterStatus,
+  printerReadinessStatus,
+} from "../domain/PrinterReadiness.js"
+import {
   makeHttpRequestCompletedEvent,
   WideEventPublisher,
 } from "../observability/WideEventPublisher.js"
@@ -77,14 +81,12 @@ export const HttpRoutes = Layer.mergeAll(
         const heartbeat = yield* Heartbeat
         const snapshot = yield* statusRuntime.current()
         const lastSuccessfulHeartbeatAt = yield* heartbeat.lastSuccess()
+        const readiness = printerReadinessStatus(snapshot.printerReadiness)
+        const legacy = legacyPrinterStatus(snapshot.printerReadiness)
         return yield* HttpServerResponse.json({
           appUp: true,
-          cupsReachable: snapshot.cupsReachable,
-          printerAttached: snapshot.printerAttached,
-          printerQueueAvailable: snapshot.printerQueueAvailable,
-          printerState: snapshot.printerState,
-          printerReasons: snapshot.printerReasons,
-          printerMessage: snapshot.printerMessage,
+          ...readiness,
+          ...legacy,
           lastSuccessfulHeartbeatAt,
           networkOnline: snapshot.networkOnline,
           localIps: snapshot.localIps,

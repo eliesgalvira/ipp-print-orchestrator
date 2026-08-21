@@ -1,9 +1,9 @@
 import { describe, expect, it } from "@effect/vitest"
 
-import { printerAttributesRequestMessage } from "./CupsObserverIppLive.js"
+import { printerAttributesRequestMessage } from "./CupsQueueObserverIppLive.js"
 import { ippFailureMessage } from "./IppFailureMessage.js"
 
-describe("CupsObserverIppLive", () => {
+describe("CupsQueueObserverIppLive", () => {
   it("matches the passing ipptool printer attribute request", () => {
     const attrs = printerAttributesRequestMessage()["operation-attributes-tag"]
 

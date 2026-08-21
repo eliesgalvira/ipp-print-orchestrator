@@ -1,6 +1,10 @@
 import { hostname } from "node:os"
 import { Clock, Effect, Layer, Ref } from "effect"
 
+import {
+  legacyPrinterStatus,
+  printerReadinessStatus,
+} from "../domain/PrinterReadiness.js"
 import { WideEvent } from "../domain/WideEvent.js"
 import { WideEventPublisher } from "../observability/WideEventPublisher.js"
 import { Heartbeat, type HeartbeatSnapshot } from "../services/Heartbeat.js"
@@ -17,10 +21,14 @@ export const HeartbeatLive = Layer.effect(
       const now = new Date(yield* Clock.currentTimeMillis).toISOString()
       const host = hostname()
       const status = yield* statusRuntime.current()
+      const readiness = printerReadinessStatus(status.printerReadiness)
+      const legacy = legacyPrinterStatus(status.printerReadiness)
       yield* Effect.annotateCurrentSpan({
         "heartbeat.hostname": host,
-        "heartbeat.cups_reachable": status.cupsReachable,
-        "heartbeat.printer_attached": status.printerAttached,
+        "heartbeat.cups_reachable": readiness.cupsReachable,
+        "heartbeat.cups_queue_available": readiness.cupsQueueAvailable,
+        "heartbeat.printer_ready": readiness.printerReady,
+        "heartbeat.usb_device_state": readiness.usbDeviceState,
       })
       const event = new WideEvent({
         eventName: "heartbeat",
@@ -29,12 +37,8 @@ export const HeartbeatLive = Layer.effect(
         hostname: host,
         networkOnline: status.networkOnline,
         localIps: [...status.localIps],
-        cupsReachable: status.cupsReachable,
-        printerAttached: status.printerAttached,
-        printerQueueAvailable: status.printerQueueAvailable,
-        printerState: status.printerState,
-        printerReasons: [...status.printerReasons],
-        printerMessage: status.printerMessage,
+        ...readiness,
+        ...legacy,
         lastSuccessfulHeartbeatAt: now,
       })
 
@@ -47,12 +51,7 @@ export const HeartbeatLive = Layer.effect(
         appUp: true,
         networkOnline: status.networkOnline,
         localIps: status.localIps,
-        cupsReachable: status.cupsReachable,
-        printerAttached: status.printerAttached,
-        printerQueueAvailable: status.printerQueueAvailable,
-        printerState: status.printerState,
-        printerReasons: status.printerReasons,
-        printerMessage: status.printerMessage,
+        printerReadiness: status.printerReadiness,
         lastSuccessfulHeartbeatAt: now,
       } satisfies HeartbeatSnapshot
     })

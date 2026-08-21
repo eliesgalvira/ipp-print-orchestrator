@@ -1,5 +1,10 @@
 # ipp-print-orchestrator Agent Guide
 
+## Domain language
+
+CUPS queue observation, USB device state, and printer readiness changes must use
+the terms defined in `CONTEXT.md`.
+
 ## Nushell Script Notes
 
 When editing Nushell helpers in `scripts/`, remember that environment mutations inside a normal `def` do not persist to the caller. If a helper must change caller-visible shell state such as `$env.PATH`, other `$env.*` values, or the caller's working environment for later commands, define it with `def --env` or `export def --env`.

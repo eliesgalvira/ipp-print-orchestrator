@@ -1,24 +1,26 @@
 import { hostname } from "node:os"
 import { Clock, Effect, Layer, Ref } from "effect"
 
+import {
+  CupsQueueStatus,
+  derivePrinterReadiness,
+  legacyPrinterStatus,
+  type PrinterReadiness,
+  printerReadinessStatus,
+} from "../domain/PrinterReadiness.js"
 import { WideEvent } from "../domain/WideEvent.js"
 import { WideEventPublisher } from "../observability/WideEventPublisher.js"
 import { NetworkProbe } from "../services/NetworkProbe.js"
-import { PrinterProbe } from "../services/PrinterProbe.js"
+import { PrinterReadinessProbe } from "../services/PrinterReadinessProbe.js"
 import {
-  type StatusObservationInput,
+  type CupsUnavailableObservation,
   StatusRuntime,
   type StatusSnapshot,
 } from "../services/StatusRuntime.js"
 
-interface EmittedStatusSnapshot extends StatusSnapshot {
+interface ObservedStatusSnapshot extends StatusSnapshot {
   readonly observationReason: string
 }
-
-const mergeObservedSnapshot = (
-  previous: EmittedStatusSnapshot,
-  input: StatusObservationInput,
-): EmittedStatusSnapshot => ({ ...previous, ...input })
 
 const sameStringArray = (
   left: readonly string[],
@@ -27,21 +29,67 @@ const sameStringArray = (
   left.length === right.length &&
   left.every((value, index) => value === right[index])
 
+const samePrinterReadiness = (
+  left: PrinterReadiness,
+  right: PrinterReadiness,
+): boolean => {
+  const leftStatus = printerReadinessStatus(left)
+  const rightStatus = printerReadinessStatus(right)
+
+  return (
+    leftStatus.printerReady === rightStatus.printerReady &&
+    leftStatus.cupsReachable === rightStatus.cupsReachable &&
+    leftStatus.cupsQueueAvailable === rightStatus.cupsQueueAvailable &&
+    leftStatus.cupsQueueState === rightStatus.cupsQueueState &&
+    leftStatus.cupsQueueMessage === rightStatus.cupsQueueMessage &&
+    sameStringArray(
+      leftStatus.cupsQueueReasons,
+      rightStatus.cupsQueueReasons,
+    ) &&
+    leftStatus.usbDeviceState === rightStatus.usbDeviceState &&
+    leftStatus.usbDeviceStateSource === rightStatus.usbDeviceStateSource
+  )
+}
+
+const currentReadinessEventFields = (readiness: PrinterReadiness) => ({
+  ...printerReadinessStatus(readiness),
+  ...legacyPrinterStatus(readiness),
+})
+
+const previousReadinessEventFields = (readiness: PrinterReadiness) => {
+  const status = printerReadinessStatus(readiness)
+  const legacy = legacyPrinterStatus(readiness)
+
+  return {
+    previousPrinterReady: status.printerReady,
+    previousCupsQueueAvailable: status.cupsQueueAvailable,
+    previousCupsQueueState: status.cupsQueueState,
+    previousCupsQueueReasons: [...status.cupsQueueReasons],
+    previousCupsQueueMessage: status.cupsQueueMessage,
+    previousUsbDeviceState: status.usbDeviceState,
+    previousUsbDeviceStateSource: status.usbDeviceStateSource,
+    previousPrinterAttached: legacy.printerAttached,
+    previousPrinterQueueAvailable: legacy.printerQueueAvailable,
+    previousPrinterState: legacy.printerState,
+    previousPrinterReasons: [...legacy.printerReasons],
+    previousPrinterMessage: legacy.printerMessage,
+  }
+}
+
 export const StatusRuntimeLive = Layer.effect(
   StatusRuntime,
   Effect.gen(function* () {
     const wideEventPublisher = yield* WideEventPublisher
     const networkProbe = yield* NetworkProbe
-    const printerProbe = yield* PrinterProbe
-    const lastObservedStatusRef = yield* Ref.make<EmittedStatusSnapshot | null>(
-      null,
-    )
+    const printerReadinessProbe = yield* PrinterReadinessProbe
+    const lastObservedStatusRef =
+      yield* Ref.make<ObservedStatusSnapshot | null>(null)
 
     const emitStatusChangeEvents = Effect.fn(
       "StatusRuntime.emitStatusChangeEvents",
     )(function* (
-      previous: EmittedStatusSnapshot | null,
-      current: EmittedStatusSnapshot,
+      previous: ObservedStatusSnapshot | null,
+      current: ObservedStatusSnapshot,
     ) {
       if (previous === null) {
         yield* Ref.set(lastObservedStatusRef, current)
@@ -64,30 +112,29 @@ export const StatusRuntimeLive = Layer.effect(
         )
       }
 
-      if (previous.cupsReachable !== current.cupsReachable) {
+      const previousReadiness = printerReadinessStatus(
+        previous.printerReadiness,
+      )
+      const currentReadiness = printerReadinessStatus(current.printerReadiness)
+
+      if (previousReadiness.cupsReachable !== currentReadiness.cupsReachable) {
         events.push(
           new WideEvent({
             eventName: "cups.status.changed",
             timestamp: current.timestamp,
             hostname: current.hostname,
             observationReason: current.observationReason,
-            cupsReachable: current.cupsReachable,
-            previousCupsReachable: previous.cupsReachable,
-            printerAttached: current.printerAttached,
-            printerQueueAvailable: current.printerQueueAvailable,
-            printerState: current.printerState,
-            printerReasons: [...current.printerReasons],
-            printerMessage: current.printerMessage,
+            previousCupsReachable: previousReadiness.cupsReachable,
+            ...currentReadinessEventFields(current.printerReadiness),
           }),
         )
       }
 
       if (
-        previous.printerAttached !== current.printerAttached ||
-        previous.printerQueueAvailable !== current.printerQueueAvailable ||
-        previous.printerState !== current.printerState ||
-        previous.printerMessage !== current.printerMessage ||
-        !sameStringArray(previous.printerReasons, current.printerReasons)
+        !samePrinterReadiness(
+          previous.printerReadiness,
+          current.printerReadiness,
+        )
       ) {
         events.push(
           new WideEvent({
@@ -95,17 +142,8 @@ export const StatusRuntimeLive = Layer.effect(
             timestamp: current.timestamp,
             hostname: current.hostname,
             observationReason: current.observationReason,
-            cupsReachable: current.cupsReachable,
-            printerAttached: current.printerAttached,
-            previousPrinterAttached: previous.printerAttached,
-            printerQueueAvailable: current.printerQueueAvailable,
-            previousPrinterQueueAvailable: previous.printerQueueAvailable,
-            printerState: current.printerState,
-            previousPrinterState: previous.printerState,
-            printerReasons: [...current.printerReasons],
-            previousPrinterReasons: [...previous.printerReasons],
-            printerMessage: current.printerMessage,
-            previousPrinterMessage: previous.printerMessage,
+            ...currentReadinessEventFields(current.printerReadiness),
+            ...previousReadinessEventFields(previous.printerReadiness),
           }),
         )
       }
@@ -116,17 +154,25 @@ export const StatusRuntimeLive = Layer.effect(
       yield* Ref.set(lastObservedStatusRef, current)
     })
 
-    const recordObservedStatus = Effect.fn(
-      "StatusRuntime.recordObservedStatus",
-    )(function* (input: StatusObservationInput) {
+    const recordCupsUnavailable = Effect.fn(
+      "StatusRuntime.recordCupsUnavailable",
+    )(function* (input: CupsUnavailableObservation) {
       const previousObservedStatus = yield* Ref.get(lastObservedStatusRef)
       if (previousObservedStatus === null) {
         return
       }
-      const currentObservedStatus = mergeObservedSnapshot(
-        previousObservedStatus,
-        input,
-      )
+
+      const now = new Date(yield* Clock.currentTimeMillis).toISOString()
+      const currentObservedStatus: ObservedStatusSnapshot = {
+        ...previousObservedStatus,
+        timestamp: now,
+        hostname: hostname(),
+        observationReason: input.observationReason,
+        printerReadiness: derivePrinterReadiness({
+          cupsQueue: CupsQueueStatus.Unreachable({ message: input.message }),
+          usbDevice: previousObservedStatus.printerReadiness.usbDevice,
+        }),
+      }
       yield* emitStatusChangeEvents(
         previousObservedStatus,
         currentObservedStatus,
@@ -142,20 +188,15 @@ export const StatusRuntimeLive = Layer.effect(
 
       const now = new Date(yield* Clock.currentTimeMillis).toISOString()
       const network = yield* networkProbe.status()
-      const printer = yield* printerProbe.status()
+      const printerReadiness = yield* printerReadinessProbe.observe()
       const host = hostname()
-      const currentObservedStatus: EmittedStatusSnapshot = {
+      const currentObservedStatus: ObservedStatusSnapshot = {
         timestamp: now,
         hostname: host,
         observationReason: reason,
         networkOnline: network.online,
         localIps: network.localIps,
-        cupsReachable: printer.cupsReachable,
-        printerAttached: printer.attached,
-        printerQueueAvailable: printer.queueAvailable,
-        printerState: printer.state,
-        printerReasons: printer.reasons,
-        printerMessage: printer.message,
+        printerReadiness,
       }
 
       const previousObservedStatus = yield* Ref.get(lastObservedStatusRef)
@@ -172,7 +213,7 @@ export const StatusRuntimeLive = Layer.effect(
     })
 
     return StatusRuntime.of({
-      recordObservedStatus,
+      recordCupsUnavailable,
       observeNow,
       current,
     })

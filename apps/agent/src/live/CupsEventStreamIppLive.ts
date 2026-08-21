@@ -1,4 +1,3 @@
-import { hostname } from "node:os"
 import {
   cancelSubscriptionRequest,
   createPrinterSubscriptionRequest,
@@ -21,11 +20,11 @@ import { StatusRuntime } from "../services/StatusRuntime.js"
 
 type IppClientService = Parameters<typeof IppClient.of>[0]
 
-const printerUriForName = (printerName: string): string =>
-  `ipp://localhost:631/printers/${encodeURIComponent(printerName)}`
+const queueIppUriForName = (queueName: string): string =>
+  `ipp://localhost:631/printers/${encodeURIComponent(queueName)}`
 
-const printerHttpUrlForName = (printerName: string): string =>
-  `http://localhost:631/printers/${encodeURIComponent(printerName)}`
+const queueHttpUrlForName = (queueName: string): string =>
+  `http://localhost:631/printers/${encodeURIComponent(queueName)}`
 
 const executeIpp = (
   ippClient: IppClientService,
@@ -75,33 +74,27 @@ export const CupsEventStreamIppLive = Layer.effect(
     const appConfig = yield* AppConfig
     const ippClient = yield* IppClient
     const statusRuntime = yield* StatusRuntime
-    const printerUri = printerUriForName(appConfig.printerName)
-    const printerHttpUrl = printerHttpUrlForName(appConfig.printerName)
-    const printer = makePrinter({
-      endpoint: printerHttpUrl,
+    const queueIppUri = queueIppUriForName(appConfig.cupsQueueName)
+    const queueHttpUrl = queueHttpUrlForName(appConfig.cupsQueueName)
+    const ippPrinter = makePrinter({
+      endpoint: queueHttpUrl,
       language: "en",
-      uri: printerUri,
+      uri: queueIppUri,
     })
 
     const recordCupsDisconnected = (message: string) =>
-      statusRuntime.recordObservedStatus({
-        timestamp: new Date().toISOString(),
-        hostname: hostname(),
+      statusRuntime.recordCupsUnavailable({
         observationReason: "cups-stream-disconnect",
-        cupsReachable: false,
-        printerQueueAvailable: false,
-        printerState: null,
-        printerReasons: [],
-        printerMessage: message,
+        message,
       })
 
     const createPrinterSubscription = () =>
       executeIpp(
         ippClient,
-        printer,
+        ippPrinter,
         "Create-Printer-Subscriptions",
         createPrinterSubscriptionRequest(
-          printerUri,
+          queueIppUri,
           "ipp-print-orchestrator",
           subscriptionTemplate,
         ),
@@ -125,10 +118,10 @@ export const CupsEventStreamIppLive = Layer.effect(
     const cancelSubscription = (subscriptionId: number) =>
       executeIpp(
         ippClient,
-        printer,
+        ippPrinter,
         "Cancel-Subscription",
         cancelSubscriptionRequest(
-          printerUri,
+          queueIppUri,
           "ipp-print-orchestrator",
           subscriptionId,
         ),
@@ -145,10 +138,10 @@ export const CupsEventStreamIppLive = Layer.effect(
     ) =>
       executeIpp(
         ippClient,
-        printer,
+        ippPrinter,
         "Get-Notifications",
         getNotificationsRequest(
-          printerUri,
+          queueIppUri,
           "ipp-print-orchestrator",
           subscriptionId,
           nextSequenceNumber,

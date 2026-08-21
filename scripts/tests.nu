@@ -238,22 +238,24 @@ def "test CUPS TLS certificate covers every current SAN" []: nothing -> nothing 
   rm --recursive --force $temp_dir
 }
 
-def "test Pi smoke status requires the physical printer" []: nothing -> nothing {
+def "test Pi smoke status requires printer readiness" []: nothing -> nothing {
   let result = (
     nu --no-config-file --commands '
 use scripts/lib/status.nu require-ready-status
 require-ready-status {
   appUp: true
   cupsReachable: true
-  printerAttached: false
-  printerQueueAvailable: false
+  cupsQueueAvailable: true
+  usbDeviceState: "deauthorized"
+  printerReady: false
 }
 '
     | complete
   )
 
   assert not equal $result.exit_code 0 "smoke validation must reject a missing physical printer"
-  assert ($result.stderr | str contains "printerAttached") "smoke failure should identify the missing readiness field"
+  assert ($result.stderr | str contains "printerReady") "smoke failure should name the readiness decision"
+  assert ($result.stderr | str contains "usbDeviceState=deauthorized") "smoke failure should explain the USB state"
 }
 
 def "test supervised CUPS USB URI rewriting" []: nothing -> nothing {
@@ -318,7 +320,7 @@ def "test CUPS printer device URI extraction is scoped to target queue" []: noth
     nu --no-config-file --commands '
 source scripts/setup-cups-live-from-pi.nu
 let printers_conf = "<Printer Other>\nDeviceURI ipp-orch-usb://Other/Printer\n</Printer>\n<Printer HP135a>\nUUID urn:uuid:target\nDeviceURI ipp-orch-usb://HP/Laser%20MFP?serial=123&interface=1\nErrorPolicy abort-job\n</Printer>\n"
-print (printer-device-uri-from-config $printers_conf "HP135a")
+print (queue-device-uri-from-config $printers_conf "HP135a")
 '
     | complete
   )
@@ -519,6 +521,7 @@ print (render-unit systemd/ipp-print-orchestrator.service /srv/ipp --runtime-pat
   assert equal $result.exit_code 0 $"systemd unit rendering should execute: ($result.stderr)"
   assert ($result.stdout | str contains "WorkingDirectory=/srv/ipp") "renderer should preserve configured app working directory"
   assert ($result.stdout | str contains "ExecStart=/nix/store/runtime/bin/ipp-print-orchestrator-agent") "renderer should point ExecStart at Nix runtime wrapper"
+  assert ($result.stdout | str contains "SuccessExitStatus=130") "renderer should treat Effect interruption shutdown as successful"
   assert not ($result.stdout | str contains "/usr/bin/node") "renderer should remove mutable node ExecStart"
 }
 

@@ -29,6 +29,36 @@ export class WideEvent extends Schema.Class<WideEvent>("WideEvent")({
   localIps: Schema.optional(Schema.Array(Schema.String)),
   cupsReachable: Schema.optional(Schema.Boolean),
   previousCupsReachable: Schema.optional(Schema.Boolean),
+  printerReady: Schema.optional(Schema.Boolean),
+  previousPrinterReady: Schema.optional(Schema.Boolean),
+  cupsQueueAvailable: Schema.optional(Schema.Boolean),
+  previousCupsQueueAvailable: Schema.optional(Schema.Boolean),
+  cupsQueueState: Schema.optional(
+    Schema.NullOr(
+      Schema.Literals(["idle", "processing", "stopped", "unknown"]),
+    ),
+  ),
+  previousCupsQueueState: Schema.optional(
+    Schema.NullOr(
+      Schema.Literals(["idle", "processing", "stopped", "unknown"]),
+    ),
+  ),
+  cupsQueueReasons: Schema.optional(Schema.Array(Schema.String)),
+  previousCupsQueueReasons: Schema.optional(Schema.Array(Schema.String)),
+  cupsQueueMessage: Schema.optional(Schema.NullOr(Schema.String)),
+  previousCupsQueueMessage: Schema.optional(Schema.NullOr(Schema.String)),
+  usbDeviceState: Schema.optional(
+    Schema.Literals(["attached", "missing", "deauthorized"]),
+  ),
+  previousUsbDeviceState: Schema.optional(
+    Schema.Literals(["attached", "missing", "deauthorized"]),
+  ),
+  usbDeviceStateSource: Schema.optional(
+    Schema.Literals(["sysfs", "cups-inference"]),
+  ),
+  previousUsbDeviceStateSource: Schema.optional(
+    Schema.Literals(["sysfs", "cups-inference"]),
+  ),
   printerAttached: Schema.optional(Schema.Boolean),
   previousPrinterAttached: Schema.optional(Schema.Boolean),
   printerQueueAvailable: Schema.optional(Schema.Boolean),

@@ -9,6 +9,7 @@ User=pi
 WorkingDirectory=/home/pi/apps/ipp-print-orchestrator
 EnvironmentFile=/etc/ipp-print-orchestrator.env
 ExecStart=/usr/bin/node /home/pi/apps/ipp-print-orchestrator/apps/agent/dist-service/main.js
+SuccessExitStatus=130
 Restart=always
 RestartSec=5
 StandardOutput=journal

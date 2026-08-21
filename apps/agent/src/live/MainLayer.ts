@@ -2,11 +2,11 @@ import { NodeServices } from "@effect/platform-node"
 import { NodeIppClientLive } from "@ipp/ipp"
 import { Layer } from "effect"
 import { AppConfig } from "../config/AppConfig.js"
-import { CupsObserverIppLive } from "../cups-observation/CupsObserverIppLive.js"
+import { CupsQueueObserverIppLive } from "../cups-observation/CupsQueueObserverIppLive.js"
 import { CupsEventStreamIppLive } from "./CupsEventStreamIppLive.js"
 import { HeartbeatLive } from "./HeartbeatLive.js"
 import { NetworkProbeCliLive } from "./NetworkProbeCliLive.js"
-import { PrinterProbeCliLive } from "./PrinterProbeCliLive.js"
+import { PrinterReadinessProbeLive } from "./PrinterReadinessProbeLive.js"
 import { StatusRuntimeLive } from "./StatusRuntimeLive.js"
 import { TelemetryLive } from "./TelemetryLive.js"
 import { WideEventPublisherLive } from "./WideEventPublisherLive.js"
@@ -14,17 +14,17 @@ import { WideEventPublisherLive } from "./WideEventPublisherLive.js"
 const configLayer = AppConfig.layer
 const nodeLayer = NodeServices.layer
 
-const cupsObserverLayer = CupsObserverIppLive.pipe(
+const cupsQueueObserverLayer = CupsQueueObserverIppLive.pipe(
   Layer.provide(configLayer),
   Layer.provide(NodeIppClientLive),
 )
 
 const probeLayer = Layer.merge(
   NetworkProbeCliLive,
-  PrinterProbeCliLive.pipe(
+  PrinterReadinessProbeLive.pipe(
     Layer.provide(configLayer),
     Layer.provide(nodeLayer),
-    Layer.provide(cupsObserverLayer),
+    Layer.provide(cupsQueueObserverLayer),
   ),
 )
 
@@ -49,7 +49,7 @@ const cupsEventStreamLayer = CupsEventStreamIppLive.pipe(
 export const MainLayer = Layer.mergeAll(
   configLayer,
   nodeLayer,
-  cupsObserverLayer,
+  cupsQueueObserverLayer,
   probeLayer,
   eventLayer,
   statusLayer,

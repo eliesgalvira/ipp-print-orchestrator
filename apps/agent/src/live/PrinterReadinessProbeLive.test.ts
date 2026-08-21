@@ -13,40 +13,40 @@ import { describe, expect, it } from "@effect/vitest"
 import { Effect, Layer } from "effect"
 
 import { AppConfig } from "../config/AppConfig.js"
-import { CupsObserver } from "../cups-observation/CupsObserver.js"
+import { CupsQueueObserver } from "../cups-observation/CupsQueueObserver.js"
 import { CupsIppUnavailable } from "../domain/Errors.js"
 import { makeUsbDeviceIdentity } from "../domain/UsbDeviceIdentity.js"
-import { PrinterProbe } from "../services/PrinterProbe.js"
-import { PrinterProbeCliLive } from "./PrinterProbeCliLive.js"
+import { PrinterReadinessProbe } from "../services/PrinterReadinessProbe.js"
+import { PrinterReadinessProbeLive } from "./PrinterReadinessProbeLive.js"
 
-const cupsObserverLayer = (attached = true) =>
+const cupsQueueObserverLayer = (physicalPrinterAppearsAttached = true) =>
   Layer.succeed(
-    CupsObserver,
-    CupsObserver.of({
-      observePrinter: () =>
+    CupsQueueObserver,
+    CupsQueueObserver.of({
+      observeQueue: () =>
         Effect.succeed({
-          printerName: "test-printer",
+          queueName: "test-printer",
           acceptingJobs: true,
           state: "idle",
           reasons: [],
           message: null,
-          attached,
-          queueAvailable: true,
+          available: true,
+          physicalPrinterAppearsAttached,
         }),
     }),
   )
 
 const cupsUnavailableLayer = Layer.succeed(
-  CupsObserver,
-  CupsObserver.of({
-    observePrinter: () =>
+  CupsQueueObserver,
+  CupsQueueObserver.of({
+    observeQueue: () =>
       Effect.fail(new CupsIppUnavailable({ message: "CUPS unavailable" })),
   }),
 )
 
 const appConfigLayer = (usbSysfsRoot: string) =>
   Layer.succeed(AppConfig, {
-    printerName: "test-printer",
+    cupsQueueName: "test-printer",
     bindHost: "127.0.0.1",
     bindPort: 4310,
     usbSysfsRoot,
@@ -112,7 +112,7 @@ const writeUsbDevice = (
   }
 }
 
-describe("PrinterProbeCliLive", () => {
+describe("PrinterReadinessProbeLive", () => {
   it.effect(
     "does not attach a lookalike descriptor with the wrong USB product ID",
     () =>
@@ -125,17 +125,20 @@ describe("PrinterProbeCliLive", () => {
             serial: "ABC123",
           })
 
-          const printerProbe = yield* PrinterProbe
-          const status = yield* printerProbe.status()
+          const readinessProbe = yield* PrinterReadinessProbe
+          const readiness = yield* readinessProbe.observe()
 
-          expect(status.attached).toBe(false)
-          expect(status.reasons).toEqual(["usb-device-missing"])
+          expect(readiness.ready).toBe(false)
+          expect(readiness.usbDevice).toEqual({
+            _tag: "Missing",
+            source: "sysfs",
+          })
         }).pipe(
           Effect.provide(
-            PrinterProbeCliLive.pipe(
+            PrinterReadinessProbeLive.pipe(
               Layer.provide(appConfigLayer(usbSysfsRoot)),
               Layer.provide(NodeServices.layer),
-              Layer.provide(cupsObserverLayer()),
+              Layer.provide(cupsQueueObserverLayer()),
             ),
           ),
         ),
@@ -147,22 +150,21 @@ describe("PrinterProbeCliLive", () => {
     () =>
       withUsbSysfsRoot((usbSysfsRoot) =>
         Effect.gen(function* () {
-          const printerProbe = yield* PrinterProbe
-          const status = yield* printerProbe.status()
+          const readinessProbe = yield* PrinterReadinessProbe
+          const readiness = yield* readinessProbe.observe()
 
-          expect(status.attached).toBe(false)
-          expect(status.queueAvailable).toBe(false)
-          expect(status.cupsReachable).toBe(true)
-          expect(status.reasons).toEqual(["usb-device-missing"])
-          expect(status.message).toBe(
-            "Configured USB printer device is not present in sysfs. Printer might be unplugged or turned off.",
-          )
+          expect(readiness.ready).toBe(false)
+          expect(readiness.cupsQueue._tag).toBe("Reachable")
+          expect(readiness.usbDevice).toEqual({
+            _tag: "Missing",
+            source: "sysfs",
+          })
         }).pipe(
           Effect.provide(
-            PrinterProbeCliLive.pipe(
+            PrinterReadinessProbeLive.pipe(
               Layer.provide(appConfigLayer(usbSysfsRoot)),
               Layer.provide(NodeServices.layer),
-              Layer.provide(cupsObserverLayer()),
+              Layer.provide(cupsQueueObserverLayer()),
             ),
           ),
         ),
@@ -176,23 +178,80 @@ describe("PrinterProbeCliLive", () => {
         Effect.gen(function* () {
           writeUsbDevice(usbSysfsRoot, "1-1", {})
 
-          const printerProbe = yield* PrinterProbe
-          const status = yield* printerProbe.status()
+          const readinessProbe = yield* PrinterReadinessProbe
+          const readiness = yield* readinessProbe.observe()
 
-          expect(status).toEqual({
-            attached: true,
-            queueAvailable: false,
-            cupsReachable: false,
-            state: null,
-            reasons: [],
-            message: "CUPS unavailable",
+          expect(readiness).toEqual({
+            ready: false,
+            cupsQueue: {
+              _tag: "Unreachable",
+              message: "CUPS unavailable",
+            },
+            usbDevice: {
+              _tag: "Attached",
+              source: "sysfs",
+            },
           })
         }).pipe(
           Effect.provide(
-            PrinterProbeCliLive.pipe(
+            PrinterReadinessProbeLive.pipe(
               Layer.provide(appConfigLayer(usbSysfsRoot)),
               Layer.provide(NodeServices.layer),
               Layer.provide(cupsUnavailableLayer),
+            ),
+          ),
+        ),
+      ),
+  )
+
+  it.effect(
+    "marks CUPS-derived USB attachment as an inference when sysfs is unavailable",
+    () =>
+      withUsbSysfsRoot((usbSysfsRoot) =>
+        Effect.gen(function* () {
+          const readinessProbe = yield* PrinterReadinessProbe
+          const readiness = yield* readinessProbe.observe()
+
+          expect(readiness.ready).toBe(true)
+          expect(readiness.usbDevice).toEqual({
+            _tag: "Attached",
+            source: "cups-inference",
+          })
+        }).pipe(
+          Effect.provide(
+            PrinterReadinessProbeLive.pipe(
+              Layer.provide(
+                appConfigLayer(join(usbSysfsRoot, "missing-sysfs-root")),
+              ),
+              Layer.provide(NodeServices.layer),
+              Layer.provide(cupsQueueObserverLayer()),
+            ),
+          ),
+        ),
+      ),
+  )
+
+  it.effect(
+    "keeps a CUPS-derived missing USB state distinct from a sysfs observation",
+    () =>
+      withUsbSysfsRoot((usbSysfsRoot) =>
+        Effect.gen(function* () {
+          const readinessProbe = yield* PrinterReadinessProbe
+          const readiness = yield* readinessProbe.observe()
+
+          expect(readiness.ready).toBe(false)
+          expect(readiness.usbDevice).toEqual({
+            _tag: "Missing",
+            source: "cups-inference",
+          })
+        }).pipe(
+          Effect.provide(
+            PrinterReadinessProbeLive.pipe(
+              Layer.provide(
+                appConfigLayer(join(usbSysfsRoot, "missing-sysfs-root")),
+              ),
+              Layer.provide(NodeServices.layer),
+              Layer.provide(cupsQueueObserverLayer(false)),
             ),
           ),
         ),
@@ -211,22 +270,21 @@ describe("PrinterProbeCliLive", () => {
             authorized: false,
           })
 
-          const printerProbe = yield* PrinterProbe
-          const status = yield* printerProbe.status()
+          const readinessProbe = yield* PrinterReadinessProbe
+          const readiness = yield* readinessProbe.observe()
 
-          expect(status.attached).toBe(false)
-          expect(status.queueAvailable).toBe(false)
-          expect(status.cupsReachable).toBe(true)
-          expect(status.reasons).toEqual(["usb-device-deauthorized"])
-          expect(status.message).toBe(
-            "Configured USB printer device is present in sysfs but deauthorized by the kernel. Reconnect or reauthorize the USB device before printing.",
-          )
+          expect(readiness.ready).toBe(false)
+          expect(readiness.cupsQueue._tag).toBe("Reachable")
+          expect(readiness.usbDevice).toEqual({
+            _tag: "Deauthorized",
+            source: "sysfs",
+          })
         }).pipe(
           Effect.provide(
-            PrinterProbeCliLive.pipe(
+            PrinterReadinessProbeLive.pipe(
               Layer.provide(appConfigLayer(usbSysfsRoot)),
               Layer.provide(NodeServices.layer),
-              Layer.provide(cupsObserverLayer()),
+              Layer.provide(cupsQueueObserverLayer()),
             ),
           ),
         ),
@@ -248,17 +306,20 @@ describe("PrinterProbeCliLive", () => {
           "dir",
         )
 
-        const printerProbe = yield* PrinterProbe
-        const status = yield* printerProbe.status()
+        const readinessProbe = yield* PrinterReadinessProbe
+        const readiness = yield* readinessProbe.observe()
 
-        expect(status.attached).toBe(true)
-        expect(status.queueAvailable).toBe(true)
+        expect(readiness.ready).toBe(true)
+        expect(readiness.usbDevice).toEqual({
+          _tag: "Attached",
+          source: "sysfs",
+        })
       }).pipe(
         Effect.provide(
-          PrinterProbeCliLive.pipe(
+          PrinterReadinessProbeLive.pipe(
             Layer.provide(appConfigLayer(usbSysfsRoot)),
             Layer.provide(NodeServices.layer),
-            Layer.provide(cupsObserverLayer()),
+            Layer.provide(cupsQueueObserverLayer()),
           ),
         ),
       ),
@@ -274,19 +335,19 @@ describe("PrinterProbeCliLive", () => {
           serial: "ABC123",
         })
 
-        const printerProbe = yield* PrinterProbe
-        const initial = yield* printerProbe.status()
+        const readinessProbe = yield* PrinterReadinessProbe
+        const initial = yield* readinessProbe.observe()
         rmSync(join(usbSysfsRoot, "1-1"), { recursive: true, force: true })
-        const current = yield* printerProbe.status()
+        const current = yield* readinessProbe.observe()
 
-        expect(initial.attached).toBe(true)
-        expect(current.attached).toBe(false)
+        expect(initial.usbDevice._tag).toBe("Attached")
+        expect(current.usbDevice._tag).toBe("Missing")
       }).pipe(
         Effect.provide(
-          PrinterProbeCliLive.pipe(
+          PrinterReadinessProbeLive.pipe(
             Layer.provide(appConfigLayer(usbSysfsRoot)),
             Layer.provide(NodeServices.layer),
-            Layer.provide(cupsObserverLayer()),
+            Layer.provide(cupsQueueObserverLayer()),
           ),
         ),
       ),
@@ -304,24 +365,20 @@ describe("PrinterProbeCliLive", () => {
             serial: "ABC123",
           })
 
-          const printerProbe = yield* PrinterProbe
-          const initial = yield* printerProbe.status()
+          const readinessProbe = yield* PrinterReadinessProbe
+          const initial = yield* readinessProbe.observe()
           rmSync(join(usbSysfsRoot, "1-1"), { recursive: true, force: true })
-          const refreshed = yield* printerProbe.status()
+          const refreshed = yield* readinessProbe.observe()
 
-          expect(initial.attached).toBe(true)
-          expect(refreshed.attached).toBe(false)
-          expect(refreshed.queueAvailable).toBe(false)
-          expect(refreshed.reasons).toEqual(["usb-device-missing"])
-          expect(refreshed.message).toBe(
-            "Configured USB printer device is not present in sysfs. Printer might be unplugged or turned off.",
-          )
+          expect(initial.ready).toBe(true)
+          expect(refreshed.ready).toBe(false)
+          expect(refreshed.usbDevice._tag).toBe("Missing")
         }).pipe(
           Effect.provide(
-            PrinterProbeCliLive.pipe(
+            PrinterReadinessProbeLive.pipe(
               Layer.provide(appConfigLayer(usbSysfsRoot)),
               Layer.provide(NodeServices.layer),
-              Layer.provide(cupsObserverLayer()),
+              Layer.provide(cupsQueueObserverLayer()),
             ),
           ),
         ),
@@ -339,34 +396,28 @@ describe("PrinterProbeCliLive", () => {
             serial: "ABC123",
           })
 
-          const printerProbe = yield* PrinterProbe
-          const initial = yield* printerProbe.status()
+          const readinessProbe = yield* PrinterReadinessProbe
+          const initial = yield* readinessProbe.observe()
           rmSync(join(usbSysfsRoot, "1-1"), { recursive: true, force: true })
-          const detached = yield* printerProbe.status()
+          const detached = yield* readinessProbe.observe()
           writeUsbDevice(usbSysfsRoot, "1-2", {
             manufacturer: "HP",
             product: "Laser MFP 131 133 135-138",
             serial: "ABC123",
           })
-          const reattached = yield* printerProbe.status()
+          const reattached = yield* readinessProbe.observe()
 
-          expect(initial.attached).toBe(true)
-          expect(detached.attached).toBe(false)
-          expect(detached.queueAvailable).toBe(false)
-          expect(detached.reasons).toEqual(["usb-device-missing"])
-          expect(detached.message).toBe(
-            "Configured USB printer device is not present in sysfs. Printer might be unplugged or turned off.",
-          )
-          expect(reattached.attached).toBe(true)
-          expect(reattached.queueAvailable).toBe(true)
-          expect(reattached.reasons).toEqual([])
-          expect(reattached.message).toBeNull()
+          expect(initial.ready).toBe(true)
+          expect(detached.ready).toBe(false)
+          expect(detached.usbDevice._tag).toBe("Missing")
+          expect(reattached.ready).toBe(true)
+          expect(reattached.usbDevice._tag).toBe("Attached")
         }).pipe(
           Effect.provide(
-            PrinterProbeCliLive.pipe(
+            PrinterReadinessProbeLive.pipe(
               Layer.provide(appConfigLayer(usbSysfsRoot)),
               Layer.provide(NodeServices.layer),
-              Layer.provide(cupsObserverLayer()),
+              Layer.provide(cupsQueueObserverLayer()),
             ),
           ),
         ),

@@ -1,17 +1,10 @@
 import { Context, type Effect } from "effect"
 
-export interface StatusObservationInput {
-  readonly timestamp: string
-  readonly hostname: string
+import type { PrinterReadiness } from "../domain/PrinterReadiness.js"
+
+export interface CupsUnavailableObservation {
   readonly observationReason: string
-  readonly networkOnline?: boolean
-  readonly localIps?: readonly string[]
-  readonly cupsReachable?: boolean
-  readonly printerAttached?: boolean
-  readonly printerQueueAvailable?: boolean
-  readonly printerState?: string | null
-  readonly printerReasons?: readonly string[]
-  readonly printerMessage?: string | null
+  readonly message: string
 }
 
 export interface StatusSnapshot {
@@ -19,19 +12,14 @@ export interface StatusSnapshot {
   readonly hostname: string
   readonly networkOnline: boolean
   readonly localIps: readonly string[]
-  readonly cupsReachable: boolean
-  readonly printerAttached: boolean
-  readonly printerQueueAvailable: boolean
-  readonly printerState: string | null
-  readonly printerReasons: readonly string[]
-  readonly printerMessage: string | null
+  readonly printerReadiness: PrinterReadiness
 }
 
 export class StatusRuntime extends Context.Service<
   StatusRuntime,
   {
-    readonly recordObservedStatus: (
-      input: StatusObservationInput,
+    readonly recordCupsUnavailable: (
+      input: CupsUnavailableObservation,
     ) => Effect.Effect<void>
     readonly observeNow: (reason: string) => Effect.Effect<StatusSnapshot>
     readonly current: () => Effect.Effect<StatusSnapshot>

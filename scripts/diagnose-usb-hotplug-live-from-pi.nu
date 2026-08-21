@@ -58,18 +58,18 @@ def main [duration_seconds: int = 45]: nothing -> nothing {
   let etc_dotenv = (load-dotenv /etc/ipp-print-orchestrator.env)
   let dotenv = ($repo_dotenv | merge $etc_dotenv)
 
-  let printer_name = (get-config $dotenv IPP_ORCH_PRINTER_NAME "printer")
+  let queue_name = (get-config $dotenv IPP_ORCH_PRINTER_NAME "printer")
   let usb_sysfs_root = (get-config $dotenv IPP_ORCH_USB_SYSFS_ROOT "/sys/bus/usb/devices")
   let bind_host = (get-config $dotenv IPP_ORCH_BIND_HOST "127.0.0.1")
   let bind_port = (get-config $dotenv IPP_ORCH_BIND_PORT "4310")
   let status_url = $"http://($bind_host):($bind_port)/v1/status"
 
   show-heading "CUPS queue"
-  let lpstat_queue = (^lpstat -v $printer_name | complete)
+  let lpstat_queue = (^lpstat -v $queue_name | complete)
   if $lpstat_queue.exit_code == 0 {
     print ($lpstat_queue.stdout | str trim)
   } else {
-    print $"lpstat failed for printer=($printer_name)"
+    print $"lpstat failed for queue=($queue_name)"
     print "Available CUPS queues:"
     let queues = (^lpstat -v | complete)
     print ($queues.stdout | str trim)

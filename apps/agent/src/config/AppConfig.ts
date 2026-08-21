@@ -6,7 +6,7 @@ import {
 } from "../domain/UsbDeviceIdentity.js"
 
 export interface AppConfigShape {
-  readonly printerName: string
+  readonly cupsQueueName: string
   readonly bindHost: string
   readonly bindPort: number
   readonly usbSysfsRoot: string
@@ -22,7 +22,7 @@ export class AppConfig extends Context.Service<AppConfig, AppConfigShape>()(
   static readonly layer = Layer.effect(
     AppConfig,
     Effect.gen(function* () {
-      const printerName = yield* Config.string("IPP_ORCH_PRINTER_NAME").pipe(
+      const cupsQueueName = yield* Config.string("IPP_ORCH_PRINTER_NAME").pipe(
         Config.withDefault("printer"),
       )
       const bindHost = yield* Config.string("IPP_ORCH_BIND_HOST").pipe(
@@ -54,7 +54,7 @@ export class AppConfig extends Context.Service<AppConfig, AppConfigShape>()(
       )
 
       return AppConfig.of({
-        printerName,
+        cupsQueueName,
         bindHost,
         bindPort,
         usbSysfsRoot,

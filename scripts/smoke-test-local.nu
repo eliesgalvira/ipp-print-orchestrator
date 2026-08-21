@@ -18,7 +18,7 @@ def main []: nothing -> nothing {
   }
   let log_file = (mktemp -t ipp-orch-smoke-log.XXXXXX.txt)
   let headers_file = (mktemp -t ipp-orch-smoke-headers.XXXXXX.txt)
-  let printer_name = if (has-value ($env | get -o IPP_ORCH_PRINTER_NAME)) {
+  let queue_name = if (has-value ($env | get -o IPP_ORCH_PRINTER_NAME)) {
     $env.IPP_ORCH_PRINTER_NAME
   } else {
     "printer"
@@ -29,7 +29,7 @@ def main []: nothing -> nothing {
     with-env {
       IPP_ORCH_BIND_HOST: "127.0.0.1"
       IPP_ORCH_BIND_PORT: $port
-      IPP_ORCH_PRINTER_NAME: $printer_name
+      IPP_ORCH_PRINTER_NAME: $queue_name
     } {
       ^bun --filter @ipp/agent dev o+e> $log_file
     }

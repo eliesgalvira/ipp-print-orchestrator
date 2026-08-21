@@ -32,14 +32,16 @@ def format-status-line [line: string]: nothing -> string {
     $"[($timestamp)] status-unreachable host=($status.host) port=($status.port)"
   } else {
     let base_parts = [
-      $"printer=(format-flag ($status | get -o printerAttached) attached missing)"
-      $"state=(($status | get -o printerState) | default unknown)"
+      $"printer=(format-flag ($status | get -o printerReady) ready not-ready)"
+      $"usb=(($status | get -o usbDeviceState) | default unknown)"
+      $"queue=(format-flag ($status | get -o cupsQueueAvailable) available blocked)"
+      $"state=(($status | get -o cupsQueueState) | default unknown)"
       $"cups=(format-flag ($status | get -o cupsReachable) up down)"
       $"net=(format-flag ($status | get -o networkOnline) online offline)"
       $"heartbeat=(format-heartbeat-age ($status | get -o lastSuccessfulHeartbeatAt))"
     ]
 
-    let reasons = (($status | get -o printerReasons) | default [])
+    let reasons = (($status | get -o cupsQueueReasons) | default [])
     let joined_reasons = ($reasons | str join ",")
     let local_ips = (($status | get -o localIps) | default [])
     let hostname = ($status | get -o hostname)

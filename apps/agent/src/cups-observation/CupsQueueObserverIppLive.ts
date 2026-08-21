@@ -11,17 +11,17 @@ import {
 import { Effect, Layer } from "effect"
 import { AppConfig } from "../config/AppConfig.js"
 import { CupsIppProtocolError, CupsIppUnavailable } from "../domain/Errors.js"
-import { makePrinterObservation } from "./CupsObservation.js"
-import { CupsObserver } from "./CupsObserver.js"
+import { makeCupsQueueObservation } from "./CupsQueueObservation.js"
+import { CupsQueueObserver } from "./CupsQueueObserver.js"
 import { ippFailureMessage } from "./IppFailureMessage.js"
 
 type IppClientService = Parameters<typeof IppClient.of>[0]
 
-const printerHttpUrlForName = (printerName: string): string =>
-  `http://localhost:631/printers/${encodeURIComponent(printerName)}`
+const queueHttpUrlForName = (queueName: string): string =>
+  `http://localhost:631/printers/${encodeURIComponent(queueName)}`
 
-const printerIppUriForName = (printerName: string): string =>
-  `ipp://localhost:631/printers/${encodeURIComponent(printerName)}`
+const queueIppUriForName = (queueName: string): string =>
+  `ipp://localhost:631/printers/${encodeURIComponent(queueName)}`
 
 const requestMessage = (attributes: IppAttributeMap): IppRequestMessage => ({
   "operation-attributes-tag": attributes,
@@ -34,11 +34,11 @@ export const printerAttributesRequestMessage = (): IppRequestMessage =>
 
 const executeIpp = (
   ippClient: IppClientService,
-  printer: ReturnType<typeof makePrinter>,
+  ippPrinter: ReturnType<typeof makePrinter>,
   operation: string,
   message: IppRequestMessage,
 ): Effect.Effect<IppMessage, CupsIppUnavailable> =>
-  printer.execute(operation, message).pipe(
+  ippPrinter.execute(operation, message).pipe(
     Effect.provideService(IppClient, ippClient),
     Effect.mapError(
       (error) => new CupsIppUnavailable({ message: String(error) }),
@@ -78,23 +78,23 @@ const value = (group: IppAttributeGroup, name: string): unknown => {
   return values.length === 1 ? values[0] : undefined
 }
 
-export const CupsObserverIppLive = Layer.effect(
-  CupsObserver,
+export const CupsQueueObserverIppLive = Layer.effect(
+  CupsQueueObserver,
   Effect.gen(function* () {
     const appConfig = yield* AppConfig
     const ippClient = yield* IppClient
-    const printerIppUri = printerIppUriForName(appConfig.printerName)
-    const printer = makePrinter({
-      endpoint: printerHttpUrlForName(appConfig.printerName),
+    const queueIppUri = queueIppUriForName(appConfig.cupsQueueName)
+    const ippPrinter = makePrinter({
+      endpoint: queueHttpUrlForName(appConfig.cupsQueueName),
       language: "en",
-      uri: printerIppUri,
+      uri: queueIppUri,
     })
 
-    const observePrinter = Effect.fn("CupsObserver.observePrinter")(
+    const observeQueue = Effect.fn("CupsQueueObserver.observeQueue")(
       function* () {
         const response = yield* executeIpp(
           ippClient,
-          printer,
+          ippPrinter,
           "Get-Printer-Attributes",
           printerAttributesRequestMessage(),
         ).pipe(
@@ -104,11 +104,11 @@ export const CupsObserverIppLive = Layer.effect(
         )
         const attrs = yield* singlePrinterGroup(response)
         const observedName = value(attrs, "printer-name")
-        const observation = makePrinterObservation({
-          printerName:
+        const observation = makeCupsQueueObservation({
+          queueName:
             typeof observedName === "string"
               ? observedName
-              : appConfig.printerName,
+              : appConfig.cupsQueueName,
           acceptingJobs: value(attrs, "printer-is-accepting-jobs"),
           state: value(attrs, "printer-state"),
           reasons: value(attrs, "printer-state-reasons"),
@@ -116,17 +116,18 @@ export const CupsObserverIppLive = Layer.effect(
         })
 
         yield* Effect.annotateCurrentSpan({
-          "cups.printer_attached": observation.attached,
-          "cups.printer_queue_available": observation.queueAvailable,
-          "cups.printer_state": observation.state,
-          "cups.printer_name": appConfig.printerName,
-          "cups.printer_uri": printerIppUri,
+          "cups.queue_available": observation.available,
+          "cups.queue_state": observation.state,
+          "cups.queue_name": appConfig.cupsQueueName,
+          "cups.queue_uri": queueIppUri,
+          "cups.physical_printer_appears_attached":
+            observation.physicalPrinterAppearsAttached,
         })
 
         return observation
       },
     )
 
-    return CupsObserver.of({ observePrinter })
+    return CupsQueueObserver.of({ observeQueue })
   }),
 )
