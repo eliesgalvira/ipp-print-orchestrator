@@ -166,9 +166,10 @@ Own the TLS identity used by Android and other IPP clients:
 - Verify every generated DNS/IP SAN after enabling the queue.
 - Provide a `--repair-tls-only` setup path that can refresh the certificate and
   restart CUPS without clearing the spool or reconfiguring the queue.
-- Run a small systemd watcher that compares the installed certificate SANs with
-  the current DNS names and IP addresses, then reruns `--repair-tls-only` when
-  they differ.
+- Run a small systemd watcher that verifies the served certificate covers every
+  current DNS name and IP address, then reruns `--repair-tls-only` when one is
+  missing. Extra SANs are harmless and must not trigger repair when an address
+  temporarily disappears during a network interruption.
 
 The setup script is responsible for installing the driver, patching the PPD,
 configuring the queue, and clearing the spool. By default it leaves CUPS stopped,

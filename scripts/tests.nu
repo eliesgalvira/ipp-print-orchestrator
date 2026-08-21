@@ -200,7 +200,7 @@ def "test run-with-retries retries transient failures" []: nothing -> nothing {
   rm --force $attempt_path
 }
 
-def "test CUPS TLS certificate identity is derived from SANs" []: nothing -> nothing {
+def "test CUPS TLS certificate covers every current SAN" []: nothing -> nothing {
   let temp_dir = (mktemp --directory)
   let cert_path = ($temp_dir | path join "cups.crt")
   let key_path = ($temp_dir | path join "cups.key")
@@ -210,7 +210,7 @@ def "test CUPS TLS certificate identity is derived from SANs" []: nothing -> not
       run-external
         "openssl" "req" "-x509" "-newkey" "rsa:2048" "-nodes" "-days" "1"
         "-subj" "/CN=print-server"
-        "-addext" "subjectAltName=DNS:print-server,DNS:print-server.local,IP:192.168.4.128"
+        "-addext" "subjectAltName=DNS:print-server,DNS:print-server.local,IP:192.168.4.127,IP:192.168.4.128"
         "-keyout" $key_path "-out" $cert_path
       | complete
     )
@@ -221,7 +221,7 @@ def "test CUPS TLS certificate identity is derived from SANs" []: nothing -> not
       ip_addresses: ["192.168.4.128"]
     }
     let certificate = (open --raw $cert_path)
-    assert (certificate-covers-identity $certificate $identity) "certificate should cover its exact SAN set"
+    assert (certificate-covers-identity $certificate $identity) "certificate should allow old IP SANs while covering its current identity"
     assert not (certificate-covers-identity $certificate {
       dns_names: ["print-server" "renamed.local"]
       ip_addresses: ["192.168.4.128"]

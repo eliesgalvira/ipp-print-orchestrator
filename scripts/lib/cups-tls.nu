@@ -49,20 +49,6 @@ export def certificate-covers-identity [
     return false
   }
 
-  let san_count = (
-    $san_result.stdout
-    | lines
-    | skip 1
-    | str join ","
-    | split row ","
-    | each {|value| $value | str trim}
-    | where {|value| ($value | str starts-with "DNS:") or ($value | str starts-with "IP Address:")}
-    | length
-  )
-  if $san_count != (($identity.dns_names | length) + ($identity.ip_addresses | length)) {
-    return false
-  }
-
   for dns_name in $identity.dns_names {
     let result = ($certificate | run-external "openssl" "x509" "-noout" "-checkhost" $dns_name | complete)
     if $result.exit_code != 0 {
