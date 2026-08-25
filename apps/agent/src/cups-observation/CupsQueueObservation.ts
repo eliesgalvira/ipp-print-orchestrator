@@ -21,7 +21,14 @@ const cupsQueueBlockingReasons = new Set([
   "toner-empty",
 ])
 
-export type CupsQueueState = "idle" | "processing" | "stopped" | "unknown"
+export const CupsQueueStates = [
+  "idle",
+  "processing",
+  "stopped",
+  "unknown",
+] as const
+
+export type CupsQueueState = (typeof CupsQueueStates)[number]
 
 export interface CupsQueueObservation {
   readonly queueName: string

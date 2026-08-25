@@ -9,9 +9,18 @@ const printerNotificationEvents = new Set([
   "printer-state-changed",
 ])
 
+const jobNotificationEvents = new Set([
+  "job-created",
+  "job-progress",
+  "job-state-changed",
+  "job-stopped",
+  "job-completed",
+])
+
 export interface CupsNotificationDecision {
   readonly nextSequenceNumber: number
   readonly observePrinterStatus: boolean
+  readonly observeRetainedJobs: boolean
 }
 
 export const decideCupsNotification = (params: {
@@ -28,6 +37,10 @@ export const decideCupsNotification = (params: {
     observePrinterStatus: notificationIncludesEvent(
       params.notifications,
       printerNotificationEvents,
+    ),
+    observeRetainedJobs: notificationIncludesEvent(
+      params.notifications,
+      jobNotificationEvents,
     ),
   }
 }

@@ -1,73 +1,122 @@
 import { Schema } from "effect"
 
-export const WideEventName = Schema.Literals([
-  "network.status.changed",
-  "cups.status.changed",
-  "printer.status.changed",
-  "http.request.completed",
-  "heartbeat",
-])
+import {
+  CupsJobAccountingAnomalies,
+  CupsJobStates,
+} from "../cups-observation/CupsJobObservation.js"
+import { CupsQueueStates } from "../cups-observation/CupsQueueObservation.js"
+import {
+  UsbDeviceObservationSources,
+  UsbDeviceStateNames,
+} from "./PrinterReadiness.js"
 
-export type WideEventName = typeof WideEventName.Type
+const timestamp = { timestamp: Schema.String }
+const hostObservation = {
+  hostname: Schema.String,
+  observationReason: Schema.String,
+}
+const cupsQueueState = Schema.NullOr(Schema.Literals(CupsQueueStates))
+const usbDeviceState = Schema.Literals(UsbDeviceStateNames)
+const usbDeviceStateSource = Schema.Literals(UsbDeviceObservationSources)
+const readiness = {
+  printerReady: Schema.Boolean,
+  cupsReachable: Schema.Boolean,
+  cupsQueueAvailable: Schema.Boolean,
+  cupsQueueState,
+  cupsQueueReasons: Schema.Array(Schema.String),
+  cupsQueueMessage: Schema.NullOr(Schema.String),
+  usbDeviceState,
+  usbDeviceStateSource,
+}
+const previousReadiness = {
+  previousPrinterReady: Schema.Boolean,
+  previousCupsReachable: Schema.Boolean,
+  previousCupsQueueAvailable: Schema.Boolean,
+  previousCupsQueueState: cupsQueueState,
+  previousCupsQueueReasons: Schema.Array(Schema.String),
+  previousCupsQueueMessage: Schema.NullOr(Schema.String),
+  previousUsbDeviceState: usbDeviceState,
+  previousUsbDeviceStateSource: usbDeviceStateSource,
+}
+const jobObservation = {
+  ...timestamp,
+  ...hostObservation,
+  cupsQueueName: Schema.String,
+  cupsJobId: Schema.Number,
+  cupsJobState: Schema.Literals(CupsJobStates),
+  cupsJobStateReasons: Schema.Array(Schema.String),
+  jobMediaSheetsCompleted: Schema.NullOr(Schema.Number),
+  jobImpressionsCompleted: Schema.NullOr(Schema.Number),
+}
 
-export class WideEvent extends Schema.Class<WideEvent>("WideEvent")({
-  timestamp: Schema.String,
-  eventName: WideEventName,
-  errorTag: Schema.optional(Schema.String),
-  errorMessage: Schema.optional(Schema.String),
-  route: Schema.optional(Schema.String),
-  method: Schema.optional(Schema.String),
-  statusCode: Schema.optional(Schema.Number),
-  durationMs: Schema.optional(Schema.Number),
-  clientAddress: Schema.optional(Schema.String),
-  userAgent: Schema.optional(Schema.String),
-  appUp: Schema.optional(Schema.Boolean),
-  hostname: Schema.optional(Schema.String),
-  observationReason: Schema.optional(Schema.String),
-  networkOnline: Schema.optional(Schema.Boolean),
-  previousNetworkOnline: Schema.optional(Schema.Boolean),
-  localIps: Schema.optional(Schema.Array(Schema.String)),
-  cupsReachable: Schema.optional(Schema.Boolean),
-  previousCupsReachable: Schema.optional(Schema.Boolean),
-  printerReady: Schema.optional(Schema.Boolean),
-  previousPrinterReady: Schema.optional(Schema.Boolean),
-  cupsQueueAvailable: Schema.optional(Schema.Boolean),
-  previousCupsQueueAvailable: Schema.optional(Schema.Boolean),
-  cupsQueueState: Schema.optional(
-    Schema.NullOr(
-      Schema.Literals(["idle", "processing", "stopped", "unknown"]),
-    ),
-  ),
-  previousCupsQueueState: Schema.optional(
-    Schema.NullOr(
-      Schema.Literals(["idle", "processing", "stopped", "unknown"]),
-    ),
-  ),
-  cupsQueueReasons: Schema.optional(Schema.Array(Schema.String)),
-  previousCupsQueueReasons: Schema.optional(Schema.Array(Schema.String)),
-  cupsQueueMessage: Schema.optional(Schema.NullOr(Schema.String)),
-  previousCupsQueueMessage: Schema.optional(Schema.NullOr(Schema.String)),
-  usbDeviceState: Schema.optional(
-    Schema.Literals(["attached", "missing", "deauthorized"]),
-  ),
-  previousUsbDeviceState: Schema.optional(
-    Schema.Literals(["attached", "missing", "deauthorized"]),
-  ),
-  usbDeviceStateSource: Schema.optional(
-    Schema.Literals(["sysfs", "cups-inference"]),
-  ),
-  previousUsbDeviceStateSource: Schema.optional(
-    Schema.Literals(["sysfs", "cups-inference"]),
-  ),
-  printerAttached: Schema.optional(Schema.Boolean),
-  previousPrinterAttached: Schema.optional(Schema.Boolean),
-  printerQueueAvailable: Schema.optional(Schema.Boolean),
-  previousPrinterQueueAvailable: Schema.optional(Schema.Boolean),
-  printerState: Schema.optional(Schema.NullOr(Schema.String)),
-  previousPrinterState: Schema.optional(Schema.NullOr(Schema.String)),
-  printerReasons: Schema.optional(Schema.Array(Schema.String)),
-  previousPrinterReasons: Schema.optional(Schema.Array(Schema.String)),
-  printerMessage: Schema.optional(Schema.NullOr(Schema.String)),
-  previousPrinterMessage: Schema.optional(Schema.NullOr(Schema.String)),
-  lastSuccessfulHeartbeatAt: Schema.optional(Schema.NullOr(Schema.String)),
-}) {}
+const NetworkStatusChanged = Schema.Struct({
+  eventName: Schema.Literal("network.status.changed"),
+  ...timestamp,
+  ...hostObservation,
+  networkOnline: Schema.Boolean,
+  previousNetworkOnline: Schema.Boolean,
+  localIps: Schema.Array(Schema.String),
+})
+
+const CupsStatusChanged = Schema.Struct({
+  eventName: Schema.Literal("cups.status.changed"),
+  ...timestamp,
+  ...hostObservation,
+  ...readiness,
+  previousCupsReachable: Schema.Boolean,
+})
+
+const PrinterStatusChanged = Schema.Struct({
+  eventName: Schema.Literal("printer.status.changed"),
+  ...timestamp,
+  ...hostObservation,
+  ...readiness,
+  ...previousReadiness,
+})
+
+const HttpRequestCompleted = Schema.Struct({
+  eventName: Schema.Literal("http.request.completed"),
+  ...timestamp,
+  route: Schema.String,
+  method: Schema.String,
+  statusCode: Schema.Number,
+  durationMs: Schema.Number,
+  clientAddress: Schema.optionalKey(Schema.String),
+  userAgent: Schema.optionalKey(Schema.String),
+  errorTag: Schema.optionalKey(Schema.String),
+  errorMessage: Schema.optionalKey(Schema.String),
+})
+
+const Heartbeat = Schema.Struct({
+  eventName: Schema.Literal("heartbeat"),
+  ...timestamp,
+  hostname: Schema.String,
+  appUp: Schema.Boolean,
+  networkOnline: Schema.Boolean,
+  localIps: Schema.Array(Schema.String),
+  ...readiness,
+  lastSuccessfulHeartbeatAt: Schema.String,
+})
+
+const CupsJobObserved = Schema.Struct({
+  eventName: Schema.Literal("cups.job.observed"),
+  ...jobObservation,
+})
+
+const CupsJobAccountingAnomaly = Schema.Struct({
+  eventName: Schema.Literal("cups.job.accounting.anomaly"),
+  ...jobObservation,
+  cupsJobAccountingAnomaly: Schema.Literals(CupsJobAccountingAnomalies),
+})
+
+export const WideEvent = Schema.Union([
+  NetworkStatusChanged,
+  CupsStatusChanged,
+  PrinterStatusChanged,
+  HttpRequestCompleted,
+  Heartbeat,
+  CupsJobObserved,
+  CupsJobAccountingAnomaly,
+]).pipe(Schema.toTaggedUnion("eventName"))
+
+export type WideEvent = typeof WideEvent.Type

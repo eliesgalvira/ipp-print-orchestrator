@@ -95,8 +95,6 @@ describe("StatusRuntimeLive", () => {
           cupsQueueAvailable: false,
           usbDeviceState: "attached",
           usbDeviceStateSource: "sysfs",
-          printerAttached: true,
-          printerQueueAvailable: false,
         })
         expect(emitted[1]).toMatchObject({
           eventName: "printer.status.changed",

@@ -1,11 +1,8 @@
 import { hostname } from "node:os"
 import { Clock, Effect, Layer, Ref } from "effect"
 
-import {
-  legacyPrinterStatus,
-  printerReadinessStatus,
-} from "../domain/PrinterReadiness.js"
-import { WideEvent } from "../domain/WideEvent.js"
+import { printerReadinessStatus } from "../domain/PrinterReadiness.js"
+import type { WideEvent } from "../domain/WideEvent.js"
 import { WideEventPublisher } from "../observability/WideEventPublisher.js"
 import { Heartbeat, type HeartbeatSnapshot } from "../services/Heartbeat.js"
 import { StatusRuntime } from "../services/StatusRuntime.js"
@@ -22,7 +19,6 @@ export const HeartbeatLive = Layer.effect(
       const host = hostname()
       const status = yield* statusRuntime.current()
       const readiness = printerReadinessStatus(status.printerReadiness)
-      const legacy = legacyPrinterStatus(status.printerReadiness)
       yield* Effect.annotateCurrentSpan({
         "heartbeat.hostname": host,
         "heartbeat.cups_reachable": readiness.cupsReachable,
@@ -30,7 +26,7 @@ export const HeartbeatLive = Layer.effect(
         "heartbeat.printer_ready": readiness.printerReady,
         "heartbeat.usb_device_state": readiness.usbDeviceState,
       })
-      const event = new WideEvent({
+      const event = {
         eventName: "heartbeat",
         timestamp: now,
         appUp: true,
@@ -38,9 +34,8 @@ export const HeartbeatLive = Layer.effect(
         networkOnline: status.networkOnline,
         localIps: [...status.localIps],
         ...readiness,
-        ...legacy,
         lastSuccessfulHeartbeatAt: now,
-      })
+      } satisfies WideEvent
 
       yield* wideEventPublisher.emit(event)
       yield* Ref.set(lastSuccessRef, now)

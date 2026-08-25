@@ -227,6 +227,7 @@ export const operationAttributeSyntax = {
   "notify-sequence-numbers": { type: "integer", tag: ippTags.integer },
   "notify-wait": { type: "boolean", tag: ippTags.boolean },
   "notify-get-interval": { type: "integer", tag: ippTags.integer },
+  "which-jobs": { type: "keyword" },
   "status-message": { type: "text" },
 } as const satisfies Record<string, IppAttributeSyntax>
 
@@ -242,6 +243,7 @@ export const jobAttributeSyntax = {
   finishings: { type: "enum", tag: ippTags.enum },
   "job-id": { type: "integer", tag: ippTags.integer },
   "job-hold-until-time": { type: "dateTime", tag: ippTags.dateTime },
+  "job-impressions-completed": { type: "integer", tag: ippTags.integer },
   "job-media-sheets-completed": { type: "integer", tag: ippTags.integer },
   "job-printer-state": { type: "enum", tag: ippTags.enum },
   "job-printer-state-message": { type: "text" },

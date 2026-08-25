@@ -30,6 +30,7 @@ describe("CUPS notification policy", () => {
     ).toEqual({
       nextSequenceNumber: 13,
       observePrinterStatus: true,
+      observeRetainedJobs: true,
     })
   })
 })

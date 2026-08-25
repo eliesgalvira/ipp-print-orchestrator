@@ -5,7 +5,10 @@ import type {
   CupsQueueState,
 } from "../cups-observation/CupsQueueObservation.js"
 
-export type UsbDeviceObservationSource = "sysfs" | "cups-inference"
+export const UsbDeviceObservationSources = ["sysfs", "cups-inference"] as const
+
+export type UsbDeviceObservationSource =
+  (typeof UsbDeviceObservationSources)[number]
 
 export type UsbDeviceState = Data.TaggedEnum<{
   Attached: { readonly source: UsbDeviceObservationSource }
@@ -39,7 +42,13 @@ export const derivePrinterReadiness = (input: {
     UsbDeviceState.$is("Attached")(input.usbDevice),
 })
 
-export type UsbDeviceStateName = "attached" | "missing" | "deauthorized"
+export const UsbDeviceStateNames = [
+  "attached",
+  "missing",
+  "deauthorized",
+] as const
+
+export type UsbDeviceStateName = (typeof UsbDeviceStateNames)[number]
 
 export const usbDeviceStateName = (state: UsbDeviceState): UsbDeviceStateName =>
   UsbDeviceState.$match(state, {
@@ -84,46 +93,5 @@ export const printerReadinessStatus = (
     ...cupsQueue,
     usbDeviceState: usbDeviceStateName(readiness.usbDevice),
     usbDeviceStateSource: readiness.usbDevice.source,
-  }
-}
-
-const usbDeviceMissingMessage =
-  "Configured USB printer device is not present. Printer might be unplugged or turned off."
-const usbDeviceDeauthorizedMessage =
-  "Configured USB printer device is present but deauthorized by the kernel. Reconnect or reauthorize the USB device before printing."
-
-export interface LegacyPrinterStatus {
-  readonly printerAttached: boolean
-  readonly printerQueueAvailable: boolean
-  readonly printerState: string | null
-  readonly printerReasons: readonly string[]
-  readonly printerMessage: string | null
-}
-
-export const legacyPrinterStatus = (
-  readiness: PrinterReadiness,
-): LegacyPrinterStatus => {
-  const status = printerReadinessStatus(readiness)
-  const usbDevice = UsbDeviceState.$match(readiness.usbDevice, {
-    Attached: () => ({ reason: null, message: null }),
-    Missing: () => ({
-      reason: "usb-device-missing",
-      message: usbDeviceMissingMessage,
-    }),
-    Deauthorized: () => ({
-      reason: "usb-device-deauthorized",
-      message: usbDeviceDeauthorizedMessage,
-    }),
-  })
-
-  return {
-    printerAttached: status.usbDeviceState === "attached",
-    printerQueueAvailable: status.printerReady,
-    printerState: status.cupsQueueState,
-    printerReasons:
-      usbDevice.reason === null
-        ? status.cupsQueueReasons
-        : [usbDevice.reason, ...status.cupsQueueReasons],
-    printerMessage: usbDevice.message ?? status.cupsQueueMessage,
   }
 }

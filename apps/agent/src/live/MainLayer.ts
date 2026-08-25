@@ -44,6 +44,7 @@ const cupsEventStreamLayer = CupsEventStreamIppLive.pipe(
   Layer.provide(configLayer),
   Layer.provide(NodeIppClientLive),
   Layer.provide(statusLayer),
+  Layer.provide(eventLayer),
 )
 
 export const MainLayer = Layer.mergeAll(

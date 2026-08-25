@@ -17,8 +17,10 @@ let sdk: NodeSDK | null = null
 let effectTracer: EffectTracer.Tracer | null = null
 let shutdownRegistered = false
 
-const severityForEvent = (_event: WideEvent): SeverityNumber =>
-  SeverityNumber.INFO
+const severityForEvent = (event: WideEvent): SeverityNumber =>
+  event.eventName === "cups.job.accounting.anomaly"
+    ? SeverityNumber.WARN
+    : SeverityNumber.INFO
 
 const logAttributesForEvent = (
   event: WideEvent,
@@ -147,11 +149,11 @@ export const emitWideEventLog = (
 
   const logger = otelLogsApi.getLogger("ipp-print-orchestrator")
   const context = effectSpanToOtelContext(span)
+  const severityNumber = severityForEvent(event)
   const record = {
     eventName: event.eventName,
-    severityNumber: severityForEvent(event),
-    severityText:
-      severityForEvent(event) === SeverityNumber.ERROR ? "ERROR" : "INFO",
+    severityNumber,
+    severityText: severityNumber === SeverityNumber.WARN ? "WARN" : "INFO",
     body: event.eventName,
     attributes: logAttributesForEvent(event),
     timestamp: new Date(event.timestamp),

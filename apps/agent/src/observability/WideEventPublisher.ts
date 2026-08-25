@@ -1,6 +1,6 @@
 import { Context, type Effect } from "effect"
 
-import { WideEvent } from "../domain/WideEvent.js"
+import type { WideEvent } from "../domain/WideEvent.js"
 
 export class WideEventPublisher extends Context.Service<
   WideEventPublisher,
@@ -23,20 +23,19 @@ export interface HttpRequestCompletedEventInput {
 
 export const makeHttpRequestCompletedEvent = (
   input: HttpRequestCompletedEventInput,
-): WideEvent =>
-  new WideEvent({
-    timestamp: input.timestamp,
-    eventName: "http.request.completed",
-    route: input.route,
-    method: input.method,
-    statusCode: input.statusCode,
-    durationMs: input.durationMs,
-    ...(input.clientAddress === undefined
-      ? {}
-      : { clientAddress: input.clientAddress }),
-    ...(input.userAgent === undefined ? {} : { userAgent: input.userAgent }),
-    ...(input.errorTag === undefined ? {} : { errorTag: input.errorTag }),
-    ...(input.errorMessage === undefined
-      ? {}
-      : { errorMessage: input.errorMessage }),
-  })
+): WideEvent => ({
+  timestamp: input.timestamp,
+  eventName: "http.request.completed",
+  route: input.route,
+  method: input.method,
+  statusCode: input.statusCode,
+  durationMs: input.durationMs,
+  ...(input.clientAddress === undefined
+    ? {}
+    : { clientAddress: input.clientAddress }),
+  ...(input.userAgent === undefined ? {} : { userAgent: input.userAgent }),
+  ...(input.errorTag === undefined ? {} : { errorTag: input.errorTag }),
+  ...(input.errorMessage === undefined
+    ? {}
+    : { errorMessage: input.errorMessage }),
+})

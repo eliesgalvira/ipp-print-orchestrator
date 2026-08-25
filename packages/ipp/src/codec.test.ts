@@ -136,6 +136,41 @@ describe("IPP codec", () => {
     })
   })
 
+  it("serializes retained-job queries", () => {
+    const bytes = serializeIppRequest({
+      operation: "Get-Jobs",
+      printerUri: "ipp://localhost:631/printers/Test_Printer",
+      requestId: 43,
+      message: {
+        "operation-attributes-tag": {
+          "requesting-user-name": "ipp-print-orchestrator",
+          "which-jobs": "all",
+          "requested-attributes": [
+            "job-id",
+            "job-state",
+            "job-media-sheets-completed",
+          ],
+        },
+      },
+    })
+
+    expect(parseIppMessage(bytes)).toMatchObject({
+      operation: "Get-Jobs",
+      groups: [
+        {
+          tag: "operation-attributes-tag",
+          attributes: expect.arrayContaining([
+            { name: "which-jobs", value: "all" },
+            {
+              name: "requested-attributes",
+              value: ["job-id", "job-state", "job-media-sheets-completed"],
+            },
+          ]),
+        },
+      ],
+    })
+  })
+
   it("roundtrips common job attribute types without losing meaning", () => {
     const submittedAt = new Date("2026-04-19T12:34:56.700Z")
     const bytes = serializeIppRequest({

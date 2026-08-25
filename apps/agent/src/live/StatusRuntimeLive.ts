@@ -4,11 +4,10 @@ import { Clock, Effect, Layer, Ref } from "effect"
 import {
   CupsQueueStatus,
   derivePrinterReadiness,
-  legacyPrinterStatus,
   type PrinterReadiness,
   printerReadinessStatus,
 } from "../domain/PrinterReadiness.js"
-import { WideEvent } from "../domain/WideEvent.js"
+import type { WideEvent } from "../domain/WideEvent.js"
 import { WideEventPublisher } from "../observability/WideEventPublisher.js"
 import { NetworkProbe } from "../services/NetworkProbe.js"
 import { PrinterReadinessProbe } from "../services/PrinterReadinessProbe.js"
@@ -51,28 +50,18 @@ const samePrinterReadiness = (
   )
 }
 
-const currentReadinessEventFields = (readiness: PrinterReadiness) => ({
-  ...printerReadinessStatus(readiness),
-  ...legacyPrinterStatus(readiness),
-})
-
 const previousReadinessEventFields = (readiness: PrinterReadiness) => {
   const status = printerReadinessStatus(readiness)
-  const legacy = legacyPrinterStatus(readiness)
 
   return {
     previousPrinterReady: status.printerReady,
+    previousCupsReachable: status.cupsReachable,
     previousCupsQueueAvailable: status.cupsQueueAvailable,
     previousCupsQueueState: status.cupsQueueState,
     previousCupsQueueReasons: [...status.cupsQueueReasons],
     previousCupsQueueMessage: status.cupsQueueMessage,
     previousUsbDeviceState: status.usbDeviceState,
     previousUsbDeviceStateSource: status.usbDeviceStateSource,
-    previousPrinterAttached: legacy.printerAttached,
-    previousPrinterQueueAvailable: legacy.printerQueueAvailable,
-    previousPrinterState: legacy.printerState,
-    previousPrinterReasons: [...legacy.printerReasons],
-    previousPrinterMessage: legacy.printerMessage,
   }
 }
 
@@ -99,17 +88,15 @@ export const StatusRuntimeLive = Layer.effect(
       const events: WideEvent[] = []
 
       if (previous.networkOnline !== current.networkOnline) {
-        events.push(
-          new WideEvent({
-            eventName: "network.status.changed",
-            timestamp: current.timestamp,
-            hostname: current.hostname,
-            observationReason: current.observationReason,
-            networkOnline: current.networkOnline,
-            previousNetworkOnline: previous.networkOnline,
-            localIps: [...current.localIps],
-          }),
-        )
+        events.push({
+          eventName: "network.status.changed",
+          timestamp: current.timestamp,
+          hostname: current.hostname,
+          observationReason: current.observationReason,
+          networkOnline: current.networkOnline,
+          previousNetworkOnline: previous.networkOnline,
+          localIps: [...current.localIps],
+        } satisfies WideEvent)
       }
 
       const previousReadiness = printerReadinessStatus(
@@ -118,16 +105,14 @@ export const StatusRuntimeLive = Layer.effect(
       const currentReadiness = printerReadinessStatus(current.printerReadiness)
 
       if (previousReadiness.cupsReachable !== currentReadiness.cupsReachable) {
-        events.push(
-          new WideEvent({
-            eventName: "cups.status.changed",
-            timestamp: current.timestamp,
-            hostname: current.hostname,
-            observationReason: current.observationReason,
-            previousCupsReachable: previousReadiness.cupsReachable,
-            ...currentReadinessEventFields(current.printerReadiness),
-          }),
-        )
+        events.push({
+          eventName: "cups.status.changed",
+          timestamp: current.timestamp,
+          hostname: current.hostname,
+          observationReason: current.observationReason,
+          previousCupsReachable: previousReadiness.cupsReachable,
+          ...printerReadinessStatus(current.printerReadiness),
+        } satisfies WideEvent)
       }
 
       if (
@@ -136,16 +121,14 @@ export const StatusRuntimeLive = Layer.effect(
           current.printerReadiness,
         )
       ) {
-        events.push(
-          new WideEvent({
-            eventName: "printer.status.changed",
-            timestamp: current.timestamp,
-            hostname: current.hostname,
-            observationReason: current.observationReason,
-            ...currentReadinessEventFields(current.printerReadiness),
-            ...previousReadinessEventFields(previous.printerReadiness),
-          }),
-        )
+        events.push({
+          eventName: "printer.status.changed",
+          timestamp: current.timestamp,
+          hostname: current.hostname,
+          observationReason: current.observationReason,
+          ...printerReadinessStatus(current.printerReadiness),
+          ...previousReadinessEventFields(previous.printerReadiness),
+        } satisfies WideEvent)
       }
 
       yield* Effect.forEach(events, (event) => wideEventPublisher.emit(event), {
