@@ -117,18 +117,16 @@ Patch the HP PPD conservatively:
   `JCLSkipBlankPages=True` in the CUPS filter options and patching the queue PPD
   default to `*DefaultJCLSkipBlankPages: True`. Verify the staged SPL/QPDL
   header contains `@PJL SET XIGNOREFF=ON` before bytes are accepted.
-- Treat the final `rastertospl` `PAGE:` lines as the page-count authority for
-  physical output. Ghostscript progress lines such as `Processing page 2...`
-  are diagnostic input, not a rejection criterion by themselves, because
-  Ghostscript can log an extra progress page while the CUPS raster stream and
-  final SPL output still contain exactly one driver-reported page.
-- Do not forward raw subfilter stderr to CUPS. The wrapper may use subfilter
-  stderr internally for guard decisions and diagnostics, but the public stderr
-  stream returned to CUPS must be curated. Pass through only page-accounting
-  lines such as `PAGE:` and `ATTR: job-media-progress`; emit wrapper-owned
-  `INFO`, `ERROR`, and `STATE` lines for real accepted/rejected decisions. This
-  prevents benign implementation warnings from becoming `printer-state-message`
-  or `job-printer-state-message` values that Android displays as printer errors.
+- Use the final `rastertospl` `PAGE:` lines to validate guarded SPL page count,
+  not as evidence that the physical printer moved paper. Ghostscript progress
+  lines such as `Processing page 2...` remain diagnostic because Ghostscript
+  can log an extra progress page while the final SPL contains one reported page.
+- Do not forward raw subfilter stderr to CUPS. Release only final-driver `PAGE:`
+  and `ATTR: job-media-progress` accounting after the SPL header is validated
+  and the complete guarded output is copied to the backend. Emit wrapper-owned
+  `INFO`, `ERROR`, and `STATE` lines for accepted and rejected decisions. This
+  keeps rejected or partial pipelines out of CUPS job accounting and prevents
+  benign warnings from becoming client-visible printer errors.
 - Route the queue through the `ipp-orch-usb` backend wrapper instead of the raw
   CUPS `usb` backend. The wrapper stages filter output before touching USB,
   rejects empty filter output immediately, delegates non-empty payloads to the
@@ -182,13 +180,16 @@ silently reinstall an old unsafe PPD.
 
 The public IPP surface is treated as part of the product contract with Android,
 not as incidental CUPS internals. Any CUPS/PPD/filter state visible through
-`Get-Printer-Attributes`, `Get-Job-Attributes`, or DNS-SD TXT records must be
-boring, internally consistent, and client-safe. A job can physically print while
-the Android UX still reports failure if this metadata is misleading.
+`Get-Printer-Attributes`, `Get-Job-Attributes`, `Get-Jobs`, or DNS-SD TXT
+records must be boring, internally consistent, and client-safe. A job can
+physically print while the Android UX still reports failure if this metadata is
+misleading.
 
 CUPS is the sole job ingress, spool, and lifecycle authority. The observer has
 no HTTP job routes, local blob store, job repository, retry queue, or mirrored
-event outbox. Its health and telemetry failures must not gate CUPS printing.
+event outbox. It reconciles CUPS' retained `Get-Jobs` snapshots after connecting
+and after job notifications, but never retries or owns a public print job. Its
+health and telemetry failures must not gate CUPS printing.
 
 The local IPP decoder preserves ordered groups and ordered attributes, including
 repeated complete attributes. Network responses containing a repeated attribute

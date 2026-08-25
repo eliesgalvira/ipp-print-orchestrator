@@ -164,6 +164,12 @@ Events are written once through structured process logging and optional OTLP.
 There is no local append-only event mirror. When OTLP is unavailable, remote
 telemetry can be missing; printer operation and status observation continue.
 
+The agent reconciles retained CUPS jobs on connection and after job
+notifications. It emits changed lifecycle/accounting snapshots and flags
+completed jobs with missing or zero `job-media-sheets-completed`, plus failed
+jobs with nonzero accounting. These values describe the CUPS rendering pipeline;
+the HP 135a exposes no physical paper counter to this service.
+
 The live observability check reads `AXIOM_QUERY_URL`, `AXIOM_QUERY_TOKEN`,
 `AXIOM_LOGS_DATASET`, and `AXIOM_TRACES_DATASET` from the target env file. It
 queries both datasets for the trace ID returned by the status request it just
