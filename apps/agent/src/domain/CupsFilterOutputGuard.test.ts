@@ -4,9 +4,9 @@ import {
   countCupsPageLogEntries,
   decideCupsCopiesGuard,
   decideSplOutputGuard,
+  extractCupsJobAccounting,
   hasSplBlankPageSuppression,
   parseCupsCopies,
-  sanitizeCupsFilterStderrForCups,
 } from "./CupsFilterOutputGuard.js"
 
 describe("CUPS filter output guard", () => {
@@ -138,9 +138,9 @@ describe("CUPS filter output guard", () => {
     ).toBe(2)
   })
 
-  it("passes only CUPS page-accounting stderr back to CUPS", () => {
+  it("extracts only CUPS job-accounting lines from driver stderr", () => {
     expect(
-      sanitizeCupsFilterStderrForCups(
+      extractCupsJobAccounting(
         [
           "INFO: cfFilterGhostscript: Processing page 1...",
           "ppdFilterLoadPPD: Last filter could not get determined, page logging by the PDF filter turned off.",

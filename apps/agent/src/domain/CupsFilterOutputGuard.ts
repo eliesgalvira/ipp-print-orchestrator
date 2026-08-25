@@ -51,7 +51,7 @@ export const countCupsPageLogEntries = (stderr: string): number =>
   stderr.split(/\r?\n/).filter((line) => /^PAGE:\s+\d+\s+\d+\s*$/i.test(line))
     .length
 
-export const sanitizeCupsFilterStderrForCups = (stderr: string): string => {
+export const extractCupsJobAccounting = (stderr: string): string => {
   const lines = stderr.split(/\r?\n/).filter((line) => {
     const trimmed = line.trim()
     return (

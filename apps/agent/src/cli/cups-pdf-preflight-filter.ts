@@ -22,8 +22,8 @@ import { Cause, Effect, Schema } from "effect"
 import {
   decideCupsCopiesGuard,
   decideSplOutputGuard,
+  extractCupsJobAccounting,
   hasSplBlankPageSuppression,
-  sanitizeCupsFilterStderrForCups,
 } from "../domain/CupsFilterOutputGuard.js"
 import {
   CupsCommandFailed,
@@ -44,13 +44,6 @@ export interface CupsFilterInvocation {
   readonly copies: string
   readonly options: string
   readonly filePath?: string
-}
-
-interface GuardedSplOutput {
-  readonly path: string
-  readonly bytes: number
-  readonly pages: number
-  readonly maxBytes: number
 }
 
 const pdfToPdfFilter =
@@ -297,11 +290,6 @@ const runCupsFilter = (params: {
           stdio: ["ignore", stdout, "pipe"],
         })
         const stderr = commandOutputToString(result.stderr)
-        const cupsVisibleStderr = sanitizeCupsFilterStderrForCups(stderr)
-
-        if (cupsVisibleStderr.length > 0) {
-          process.stderr.write(cupsVisibleStderr)
-        }
 
         if (result.error !== undefined) {
           throw result.error
@@ -343,9 +331,6 @@ const copyFileToStdout = (sourcePath: string) =>
         message: `failed to copy guarded printer output to CUPS stdout: ${String(error)}`,
       }),
   })
-
-const copyGuardedOutputToStdout = (output: GuardedSplOutput) =>
-  copyFileToStdout(output.path)
 
 const readFileSize = (filePath: string) =>
   Effect.try({
@@ -562,17 +547,14 @@ const renderPipeline = (
 
     yield* validateSplBlankPageSuppression(splPath, splBytes)
 
-    const guardedOutput: GuardedSplOutput = {
-      path: splPath,
-      bytes: splBytes,
-      pages: guardDecision.observedPages,
-      maxBytes: guardDecision.maxBytes,
-    }
+    yield* copyFileToStdout(splPath)
+    yield* Effect.sync(() => {
+      process.stderr.write(extractCupsJobAccounting(rasterToSpl.stderr))
+    })
     yield* writeCupsStderr(
       "INFO",
-      `Guarded printer output accepted job ${invocation.jobId}: pages=${guardedOutput.pages} bytes=${guardedOutput.bytes} maxBytes=${guardedOutput.maxBytes}`,
+      `Guarded printer output accepted job ${invocation.jobId}: pages=${guardDecision.observedPages} bytes=${splBytes} maxBytes=${guardDecision.maxBytes}`,
     )
-    yield* copyGuardedOutputToStdout(guardedOutput)
   })
 
 const program = Effect.gen(function* () {
