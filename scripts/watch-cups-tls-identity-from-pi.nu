@@ -1,7 +1,7 @@
 #!/usr/bin/env nu
 
 use lib/avahi.nu run-required
-use lib/cups-tls.nu [certificate-covers-identity current-cups-tls-identity served-cups-tls-certificate]
+use lib/cups-tls.nu [cups-serves-tls-identity current-cups-tls-identity]
 use lib/repo.nu repo-root
 
 const CUPS_SSL_DIR = "/etc/cups/ssl"
@@ -27,12 +27,11 @@ def repair-cups-tls-identity []: nothing -> nothing {
 
 def repair-if-certificate-is-stale []: nothing -> nothing {
   let identity = (current-cups-tls-identity $CUPS_SSL_DIR)
-  let certificate = (served-cups-tls-certificate $identity)
-  if (certificate-covers-identity $certificate $identity) {
+  if (cups-serves-tls-identity $identity) {
     return
   }
 
-  print $"CUPS TLS certificate does not match the current DNS names and IP addresses; repairing ($identity.cert_path)."
+  print $"CUPS does not serve one certificate covering its current DNS names and IP addresses on every address; repairing ($identity.cert_path)."
   repair-cups-tls-identity
 }
 

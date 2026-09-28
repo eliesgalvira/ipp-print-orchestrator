@@ -3,7 +3,7 @@
 use std/assert
 
 use check-observability-live-from-pi.nu trace-query
-use lib/cups-tls.nu certificate-covers-identity
+use lib/cups-tls.nu [certificate-covers-identity cups-credential-stem]
 use lib/env.nu [get-config has-value load-dotenv]
 use lib/remote.nu [aarch64-builder-target parse-nix-paths remote-target rsync-args ssh-args ssh-options ssh-rsh-command run-with-retries]
 use lib/repo.nu [deploy-excludes repo-root source-installable]
@@ -210,7 +210,7 @@ def "test CUPS TLS certificate covers every current SAN" []: nothing -> nothing 
       run-external
         "openssl" "req" "-x509" "-newkey" "rsa:2048" "-nodes" "-days" "1"
         "-subj" "/CN=print-server"
-        "-addext" "subjectAltName=DNS:print-server,DNS:print-server.local,IP:192.168.4.127,IP:192.168.4.128"
+        "-addext" "subjectAltName=DNS:print-server,DNS:print-server.local,IP:192.168.4.127,IP:192.168.4.128,IP:fd71:c940:e14e:1:673a:75b8:5ceb:4831"
         "-keyout" $key_path "-out" $cert_path
       | complete
     )
@@ -218,10 +218,11 @@ def "test CUPS TLS certificate covers every current SAN" []: nothing -> nothing 
 
     let identity = {
       dns_names: ["print-server" "print-server.local"]
-      ip_addresses: ["192.168.4.128"]
+      ip_addresses: ["192.168.4.128" "fd71:c940:e14e:1:673a:75b8:5ceb:4831"]
     }
     let certificate = (open --raw $cert_path)
     assert (certificate-covers-identity $certificate $identity) "certificate should allow old IP SANs while covering its current identity"
+    assert not (certificate-covers-identity "" $identity) "a missing certificate should never cover an identity"
     assert not (certificate-covers-identity $certificate {
       dns_names: ["print-server" "renamed.local"]
       ip_addresses: ["192.168.4.128"]
@@ -236,6 +237,12 @@ def "test CUPS TLS certificate covers every current SAN" []: nothing -> nothing 
   }
 
   rm --recursive --force $temp_dir
+}
+
+def "test CUPS credential stems match the files CUPS looks up" []: nothing -> nothing {
+  assert equal (cups-credential-stem "fd71:c940:e14e:1:673a:75b8:5ceb:4831") "fd71_c940_e14e_1_673a_75b8_5ceb_4831"
+  assert equal (cups-credential-stem "192.168.4.127") "192.168.4.127"
+  assert equal (cups-credential-stem "print-server.local") "print-server.local"
 }
 
 def "test Pi smoke status requires printer readiness" []: nothing -> nothing {

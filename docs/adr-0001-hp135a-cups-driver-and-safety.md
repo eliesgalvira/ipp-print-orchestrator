@@ -167,14 +167,24 @@ Own the TLS identity used by Android and other IPP clients:
 - Start Avahi before CUPS setup reads the advertised mDNS hostname.
 - Generate a CUPS self-signed server certificate whose SANs include the static
   system hostname, the current Avahi hostname/FQDN, `localhost`, and local IP
-  addresses.
-- Verify every generated DNS/IP SAN after enabling the queue.
+  addresses. Keep the installed certificate while it still covers that
+  identity, so clients that pinned it keep trusting the queue.
+- Link every identity name and address in `/etc/cups/ssl` to that certificate
+  and delete every other credential there. CUPS 2.4 picks credentials per
+  connection from the local address the client reached, and only addresses
+  starting with a digit fall back to the hostname certificate. An IPv6 address
+  such as `fd71:…` is looked up as `fd71_….crt`, and CUPS mints a self-signed
+  certificate under that name when the file is missing (`_httpTLSStart` in
+  `cups/tls-gnutls.c`). On 2026-09-28 a certificate CUPS had minted in 2025 was
+  still served over IPv6; a workstation's CUPS rejected it and dropped the jobs.
+- Verify that loopback and every local address serve the same certificate and
+  that it covers every DNS name and IP address, after enabling the queue.
 - Provide a `--repair-tls-only` setup path that can refresh the certificate and
   restart CUPS without clearing the spool or reconfiguring the queue.
-- Run a small systemd watcher that verifies the served certificate covers every
-  current DNS name and IP address, then reruns `--repair-tls-only` when one is
-  missing. Extra SANs are harmless and must not trigger repair when an address
-  temporarily disappears during a network interruption.
+- Run a small systemd watcher that runs that verification and reruns
+  `--repair-tls-only` when it fails. Extra SANs are harmless and must not
+  trigger repair when an address temporarily disappears during a network
+  interruption.
 
 The setup script is responsible for installing the driver, patching the PPD,
 configuring the queue, and clearing the spool. By default it leaves CUPS stopped,

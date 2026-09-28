@@ -44,47 +44,38 @@ export def certificate-covers-identity [
   certificate: string
   identity: record
 ]: nothing -> bool {
-  let san_result = ($certificate | run-external "openssl" "x509" "-noout" "-ext" "subjectAltName" | complete)
-  if $san_result.exit_code != 0 {
-    return false
-  }
-
-  for dns_name in $identity.dns_names {
-    let result = ($certificate | run-external "openssl" "x509" "-noout" "-checkhost" $dns_name | complete)
-    if $result.exit_code != 0 {
-      return false
-    }
-  }
-
-  for ip_address in $identity.ip_addresses {
-    let result = ($certificate | run-external "openssl" "x509" "-noout" "-checkip" $ip_address | complete)
-    if $result.exit_code != 0 {
-      return false
-    }
-  }
-
-  true
+  [["-ext" "subjectAltName"]]
+  | append ($identity.dns_names | each {|dns_name| [["-checkhost" $dns_name]]} | flatten)
+  | append ($identity.ip_addresses | each {|ip_address| [["-checkip" $ip_address]]} | flatten)
+  | all {|check| ($certificate | run-external "openssl" "x509" "-noout" ...$check | complete).exit_code == 0}
 }
 
-export def served-cups-tls-certificate [identity: record]: nothing -> string {
-  let result = (
-    ""
-    | run-external
-        "timeout"
-        "5"
-        "openssl"
-        "s_client"
-        "-connect"
-        "127.0.0.1:631"
-        "-servername"
-        $identity.avahi_fqdn
-        "-showcerts"
-    | complete
-  )
+# The file stem CUPS uses when it looks up credentials for a name (http_gnutls_make_path in cups/tls-gnutls.c).
+export def cups-credential-stem [name: string]: nothing -> string {
+  $name | str replace --all --regex '[^A-Za-z0-9.-]' '_'
+}
+
+def served-cups-tls-certificate [address: string]: nothing -> string {
+  let result = ("" | run-external "timeout" "5" "openssl" "s_client" "-connect" $"[($address)]:631" | complete)
 
   if $result.exit_code != 0 {
-    error make {msg: $"fetch served CUPS TLS certificate failed: ($result.stderr | str trim)"}
+    error make {msg: $"fetch CUPS TLS certificate served on ($address) failed: ($result.stderr | str trim)"}
   }
 
   $result.stdout
+}
+
+def certificate-fingerprint [certificate: string]: nothing -> string {
+  $certificate | run-external "openssl" "x509" "-noout" "-fingerprint" "-sha256" | str trim
+}
+
+# CUPS chooses credentials per connection from the local address the client reached, so the
+# loopback certificate is only trustworthy if every advertised address serves the same one.
+export def cups-serves-tls-identity [identity: record]: nothing -> bool {
+  let certificate = (served-cups-tls-certificate "127.0.0.1")
+  let fingerprint = (certificate-fingerprint $certificate)
+
+  (certificate-covers-identity $certificate $identity) and ($identity.ip_addresses | all {|address|
+    (certificate-fingerprint (served-cups-tls-certificate $address)) == $fingerprint
+  })
 }

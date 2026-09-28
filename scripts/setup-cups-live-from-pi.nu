@@ -1,6 +1,6 @@
 #!/usr/bin/env nu
 
-use lib/cups-tls.nu [certificate-covers-identity current-cups-tls-identity served-cups-tls-certificate]
+use lib/cups-tls.nu [certificate-covers-identity cups-credential-stem cups-serves-tls-identity current-cups-tls-identity]
 use lib/env.nu [get-config has-value load-dotenv]
 use lib/repo.nu repo-root
 
@@ -307,21 +307,14 @@ def cups-tls-openssl-config [
   | str join "\n"
 }
 
-def install-cups-tls-certificate []: nothing -> record {
-  let identity = (current-cups-tls-identity $CUPS_SSL_DIR)
-  let system_hostname = $identity.system_hostname
-  let dns_names = $identity.dns_names
-  let ip_addresses = $identity.ip_addresses
+def generate-cups-tls-certificate [identity: record, target_key_path: string]: nothing -> nothing {
   let tmp_dir = (mktemp -d)
   let config_path = ($tmp_dir | path join "cups-tls.cnf")
   let cert_path = ($tmp_dir | path join "cups.crt")
   let key_path = ($tmp_dir | path join "cups.key")
-  let target_cert_path = $identity.cert_path
-  let target_key_path = ($CUPS_SSL_DIR | path join $"($system_hostname).key")
 
   try {
-    install-root-dir $CUPS_SSL_DIR
-    cups-tls-openssl-config $system_hostname $dns_names $ip_addresses | save --force $config_path
+    cups-tls-openssl-config $identity.system_hostname $identity.dns_names $identity.ip_addresses | save --force $config_path
 
     run-required "generate CUPS TLS certificate" [
       "openssl"
@@ -343,7 +336,7 @@ def install-cups-tls-certificate []: nothing -> record {
       "v3_req"
     ] | ignore
 
-    install-root-file $PUBLIC_DATA_FILE_MODE $cert_path $target_cert_path
+    install-root-file $PUBLIC_DATA_FILE_MODE $cert_path $identity.cert_path
     install-root-file $PRIVATE_SECRET_FILE_MODE $key_path $target_key_path
   } catch {|err|
     rm -rf $tmp_dir
@@ -351,16 +344,50 @@ def install-cups-tls-certificate []: nothing -> record {
   }
 
   rm -rf $tmp_dir
+}
 
-  print $"Installed CUPS TLS certificate ($target_cert_path) for DNS names: ($dns_names | str join ', ')"
-  if not ($ip_addresses | is-empty) {
-    print $"Installed CUPS TLS certificate IP SANs: ($ip_addresses | str join ', ')"
+# CUPS looks up credentials under the name of the address each client reached and mints its own
+# self-signed pair when that file is missing, so every identity name links to the managed pair
+# and any other credentials, including ones CUPS minted earlier, are removed.
+def link-cups-tls-credentials [identity: record]: nothing -> nothing {
+  let managed_stem = $identity.system_hostname
+  let link_stems = (
+    $identity.dns_names
+    | append $identity.ip_addresses
+    | each {|name| cups-credential-stem $name}
+    | uniq
+    | where {|stem| $stem != $managed_stem}
+  )
+
+  for stem in $link_stems {
+    for extension in [crt key] {
+      install-root-symlink $"($managed_stem).($extension)" ($CUPS_SSL_DIR | path join $"($stem).($extension)")
+    }
   }
 
-  {
-    ...$identity
-    key_path: $target_key_path
+  let kept_names = ($link_stems | append $managed_stem | each {|stem| ["!" "-name" $"($stem).crt" "!" "-name" $"($stem).key"]} | flatten)
+  run-required "remove unmanaged CUPS TLS credentials" (
+    ["sudo" "find" $CUPS_SSL_DIR "-mindepth" "1" "-maxdepth" "1"] ++ $kept_names ++ ["-printf" "Removed unmanaged CUPS TLS credential %p\n" "-delete"]
+  ) | print --no-newline
+}
+
+def install-cups-tls-certificate []: nothing -> record {
+  let identity = (current-cups-tls-identity $CUPS_SSL_DIR)
+  let key_path = ($CUPS_SSL_DIR | path join $"($identity.system_hostname).key")
+  let installed_certificate = (run-external "sudo" "cat" $identity.cert_path | complete | get stdout)
+  let key_installed = ((run-external "sudo" "test" "-s" $key_path | complete).exit_code == 0)
+
+  install-root-dir $CUPS_SSL_DIR
+
+  if $key_installed and (certificate-covers-identity $installed_certificate $identity) {
+    print $"Kept CUPS TLS certificate ($identity.cert_path); it already covers ($identity.dns_names | append $identity.ip_addresses | str join ', ')"
+  } else {
+    generate-cups-tls-certificate $identity $key_path
+    print $"Installed CUPS TLS certificate ($identity.cert_path) for ($identity.dns_names | append $identity.ip_addresses | str join ', ')"
   }
+
+  link-cups-tls-credentials $identity
+  $identity
 }
 
 def systemd-service-active [service: string]: nothing -> bool {
@@ -369,15 +396,8 @@ def systemd-service-active [service: string]: nothing -> bool {
 }
 
 def verify-cups-tls-identity [identity: record]: nothing -> nothing {
-  let served_certificate = (served-cups-tls-certificate $identity)
-  if not (certificate-covers-identity $served_certificate $identity) {
-    error make {msg: "CUPS TLS certificate does not cover its advertised identity"}
-  }
-
-  let served_fingerprint = (run-required-with-input "fingerprint served CUPS TLS certificate" ["openssl" "x509" "-noout" "-fingerprint" "-sha256"] $served_certificate | str trim)
-  let installed_fingerprint = (run-required "fingerprint installed CUPS TLS certificate" ["openssl" "x509" "-in" $identity.cert_path "-noout" "-fingerprint" "-sha256"] | str trim)
-  if $served_fingerprint != $installed_fingerprint {
-    error make {msg: "CUPS is not serving the installed TLS certificate"}
+  if not (cups-serves-tls-identity $identity) {
+    error make {msg: "CUPS does not serve one certificate covering its advertised identity on every address"}
   }
 }
 
