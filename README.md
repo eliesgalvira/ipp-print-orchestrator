@@ -133,6 +133,11 @@ and insufficient temporary space. It stages complete SPL/QPDL output before the
 `ipp-orch-usb` backend touches USB. The backend rejects empty input and times out
 a wedged real USB backend.
 
+The backend package also supplies a CUPS USB cleanup rule for the HP 135a's
+`03f0:f22a` device identity. CUPS resets that USB device after each job, extending
+its Samsung cleanup workaround to this HP-branded model. The setup script
+installs the rule alongside the supervised backend.
+
 Safe queue configuration leaves CUPS stopped, unshared, and rejecting jobs:
 
 ```bash

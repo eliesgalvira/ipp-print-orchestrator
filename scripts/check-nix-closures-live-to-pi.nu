@@ -75,6 +75,7 @@ let filter_js = ($runtime_path | path join "libexec/ipp-print-orchestrator/cups-
 let ppd = ($driver_path | path join "share/ppd/uld-hp/HP_Laser_MFP_13x_Series.ppd")
 let raster_filter = ($driver_path | path join "lib/cups/filter/rastertospl")
 let usb_backend = ($backend_path | path join "lib/cups/backend/ipp-orch-usb")
+let usb_quirks = ($backend_path | path join "share/cups/usb/ipp-orchestrator-hp135a.usb-quirks")
 
 run-required "verify service wrapper exists" ["test" "-x" $service_wrapper] | ignore
 run-required "verify CUPS PDF preflight wrapper exists" ["test" "-x" $cups_filter] | ignore
@@ -82,6 +83,7 @@ run-required "verify bundled CUPS filter JS exists" ["test" "-r" $filter_js] | i
 run-required "verify HP ULD PPD exists" ["test" "-r" $ppd] | ignore
 run-required "verify HP raster filter exists" ["test" "-x" $raster_filter] | ignore
 run-required "verify supervised USB backend exists" ["test" "-x" $usb_backend] | ignore
+run-required "verify HP USB cleanup rule" ["grep" "-Fx" "0x03f0 0xf22a soft-reset" $usb_quirks] | ignore
 run-required "verify PPD PDF preflight filter directive" ["grep" "-F" "*cupsFilter: \"application/pdf 0 ipp-pdf-preflight-to-spl\"" $ppd] | ignore
 run-required "verify PPD raster filter directive" ["grep" "-F" "*cupsFilter:  \"application/vnd.cups-raster 0 rastertospl\"" $ppd] | ignore
 run-required "verify supervised USB backend shell syntax" ["sh" "-n" $usb_backend] | ignore

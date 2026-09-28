@@ -135,6 +135,13 @@ Patch the HP PPD conservatively:
   `scripts/cups/backend/ipp-orch-usb`, not as generated shell embedded in Nu.
   Install it with root-only execute permission, matching the real CUPS `usb`
   backend, so CUPS runs it with enough privilege to delegate to that backend.
+- Package and install `ipp-orchestrator-hp135a.usb-quirks` with the supervised
+  backend. Its only rule is `0x03f0 0xf22a soft-reset`. The physical printer
+  identifies as HP over USB, so CUPS' existing Samsung vendor rule,
+  `0x04e8 soft-reset`, does not match it. Delegate cleanup to the real CUPS
+  backend after job transfer; do not reset the device from the status observer.
+  In CUPS 2.4.10, the quirk named `soft-reset` invokes `libusb_reset_device`.
+  Scope the rule to this device identity, not all HP devices.
 
 Configure CUPS defensively:
 
@@ -235,6 +242,36 @@ The wrapper makes that failure bounded and detaches the HP USB device on timeout
 The timeout must be long enough to cover both printer backpressure and multi-page
 USB transfer time; the default is five minutes after an 11-page job showed the
 previous 60 second bound could kill a valid SPL stream mid-transfer.
+
+On 2026-09-21, CUPS job 35 printed four correct pages, but job 36, a three-page
+PDF, produced roughly twenty sheets with unusual characters at the top and no
+correct page. CUPS recorded one submission per job and marked both successful.
+Replaying the retained PDFs through the installed filter produced valid QPDL
+page records, band checksums and decompressed band lengths. Reconstructing the
+second job's first page from that output produced the expected document image.
+The replay files were regenerated output, not captures of the original USB
+transfers.
+
+The installed USB quirks did not match `03f0:f22a`. The
+[upstream Samsung cleanup bug](https://bugs.launchpad.net/ubuntu/+source/cups/+bug/1032456)
+describes weird characters from the second job onward when the cleanup reset is
+absent. After adding the device-specific rule, two authorized one-page jobs,
+using the first page of each retained document, both produced complete, correct
+physical pages without a power cycle between jobs. CUPS and the kernel recorded
+a USB reset after each job. USB monitoring confirmed successful outgoing
+transfers totaling exactly the captured payload sizes, 271051 and 280484 bytes;
+every captured transfer prefix matched its corresponding payload offset.
+
+The user then authorized a reprint of the original three-page PDF. Its retained
+source matched the archived original by SHA256. CUPS job 39 completed in 24
+seconds, the kernel recorded the USB cleanup reset, and the user confirmed that
+all three physical pages were complete and correct.
+
+These tests support retaining the cleanup workaround. A kernel controller
+warning occurred during the second one-page test's backend cleanup; all outgoing
+transfers had succeeded and the user confirmed correct physical output. The
+observer's CUPS accounting remains separate from physical paper correctness, and
+file-only guard tests cannot validate this hardware failure mode.
 
 Preserving job files for one day increases local forensic capability after a
 printer incident. The tradeoff is that recent documents may remain under the

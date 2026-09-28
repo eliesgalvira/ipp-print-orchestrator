@@ -7,6 +7,7 @@ use lib/repo.nu repo-root
 const HP_ULD_PPD_PATH = "/usr/share/ppd/uld-hp/HP_Laser_MFP_13x_Series.ppd"
 const CUPS_PDF_PREFLIGHT_FILTER_PATH = "/usr/lib/cups/filter/ipp-pdf-preflight-to-spl"
 const CUPS_USB_BACKEND_WRAPPER_PATH = "/usr/lib/cups/backend/ipp-orch-usb"
+const CUPS_USB_QUIRKS_PATH = "/usr/share/cups/usb/ipp-orchestrator-hp135a.usb-quirks"
 const CUPS_FILTER_CACHE_DIR = "/var/cache/ipp-print-orchestrator"
 const CUPS_FONTCONFIG_CACHE_DIR = "/var/cache/fontconfig"
 const CUPS_SSL_DIR = "/etc/cups/ssl"
@@ -416,10 +417,14 @@ def supervised-usb-device-uri [device_uri: string]: nothing -> string {
 
 def install-supervised-usb-backend [backend_path: string]: nothing -> nothing {
   let store_backend = ($backend_path | path join "lib/cups/backend/ipp-orch-usb")
+  let store_quirks = ($backend_path | path join "share/cups/usb/ipp-orchestrator-hp135a.usb-quirks")
   let tmp_backend = (mktemp)
 
   try {
     run-required "verify Nix supervised USB backend" ["test" "-x" $store_backend] | ignore
+    run-required "verify Nix HP USB cleanup rule" ["test" "-r" $store_quirks] | ignore
+    install-root-dir ($CUPS_USB_QUIRKS_PATH | path dirname)
+    install-root-file $PUBLIC_DATA_FILE_MODE $store_quirks $CUPS_USB_QUIRKS_PATH
     [
       "#!/bin/sh"
       (["exec" (shell-quote $store_backend) '"$@"'] | str join " ")

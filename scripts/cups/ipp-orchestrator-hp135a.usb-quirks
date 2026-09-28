@@ -1,0 +1,4 @@
+# HP Laser MFP 135a uses Samsung-derived SPL under an HP USB identity.
+# Apply CUPS' Samsung cleanup reset to this device without matching other HPs.
+# https://bugs.launchpad.net/ubuntu/+source/cups/+bug/1032456
+0x03f0 0xf22a soft-reset

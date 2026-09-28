@@ -48,6 +48,9 @@
 
             install -D --mode=755 "$out/libexec/ipp-orch-usb" "$out/lib/cups/backend/ipp-orch-usb"
 
+            install -D --mode=644 "$src/scripts/cups/ipp-orchestrator-hp135a.usb-quirks" \
+              "$out/share/cups/usb/ipp-orchestrator-hp135a.usb-quirks"
+
             runHook postInstall
           '';
 
@@ -74,6 +77,10 @@
             test -x "$backend"
             head --lines=1 "$backend" | grep --fixed-strings "#!${pkgs.dash}/bin/dash"
             grep --fixed-strings "PATH=${pkgs.coreutils}/bin:${pkgs.gnused}/bin:" "$backend"
+
+            quirks="${config.packages.cups-usb-backend}/share/cups/usb/ipp-orchestrator-hp135a.usb-quirks"
+            test -r "$quirks"
+            test "$(grep --invert-match '^#' "$quirks" | grep --invert-match '^$')" = '0x03f0 0xf22a soft-reset'
 
             touch "$out"
           '';
