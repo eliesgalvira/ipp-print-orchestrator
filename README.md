@@ -20,7 +20,7 @@ apps/agent/       Effect service and CUPS PDF filter
 packages/ipp/     Lossless IPP codec, client, and subscription helpers
 nix/              flake-parts modules (*.mod.nix): packages, checks, dev shell, formatter
 scripts/          Local and live-Pi operational adapters
-systemd/          Pi systemd units rendered against the copied Nix runtime closure
+systemd/          Pi systemd units and journald settings, rendered against the copied Nix runtime closure
 docs/             Accepted printer and safety decision
 ```
 
@@ -175,6 +175,8 @@ still exists.
 ## Observability
 
 Events are written once through structured process logging and optional OTLP.
+The Pi keeps its systemd journal across reboots, capped at 256 MB; Raspberry Pi
+OS otherwise keeps it in RAM.
 There is no local append-only event mirror. When OTLP is unavailable, remote
 telemetry can be missing; printer operation and status observation continue.
 

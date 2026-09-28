@@ -134,20 +134,27 @@ def main [
 
   require-runtime-path $runtime_path
 
-  run-sudo-timed "ensure systemd unit directory" ["install" "-d" "/etc/systemd/system"]
-  let app_service_changed = (install-rendered-unit ($systemd_dir | path join "ipp-print-orchestrator.service") "/etc/systemd/system/ipp-print-orchestrator.service" $root_dir --runtime-path $runtime_path)
-  let heartbeat_service_changed = (install-rendered-unit ($systemd_dir | path join "ipp-print-orchestrator-heartbeat.service") "/etc/systemd/system/ipp-print-orchestrator-heartbeat.service" $root_dir)
-  let heartbeat_timer_changed = (install-rendered-unit ($systemd_dir | path join "ipp-print-orchestrator-heartbeat.timer") "/etc/systemd/system/ipp-print-orchestrator-heartbeat.timer" $root_dir)
-  let cups_tls_watch_service_changed = (install-rendered-unit ($systemd_dir | path join "ipp-print-orchestrator-cups-tls-watch.service") "/etc/systemd/system/ipp-print-orchestrator-cups-tls-watch.service" $root_dir)
+  run-sudo-timed "ensure systemd configuration directories" ["install" "-d" "/etc/systemd/system" "/etc/systemd/journald.conf.d"]
+  let units_changed = (
+    [ipp-print-orchestrator-heartbeat.service ipp-print-orchestrator-heartbeat.timer ipp-print-orchestrator-cups-tls-watch.service]
+    | each {|unit| install-rendered-unit ($systemd_dir | path join $unit) $"/etc/systemd/system/($unit)" $root_dir}
+    | append (install-rendered-unit ($systemd_dir | path join "ipp-print-orchestrator.service") "/etc/systemd/system/ipp-print-orchestrator.service" $root_dir --runtime-path $runtime_path)
+  )
+  let journald_changed = (install-rendered-unit ($systemd_dir | path join "journald-ipp-print-orchestrator.conf") "/etc/systemd/journald.conf.d/90-ipp-print-orchestrator.conf" $root_dir)
 
   if not ("/etc/ipp-print-orchestrator.env" | path exists) {
     install-default-service-env
   }
 
-  if $app_service_changed or $heartbeat_service_changed or $heartbeat_timer_changed or $cups_tls_watch_service_changed {
+  if ($units_changed | any {|changed| $changed}) {
     run-sudo-timed "systemctl daemon-reload" ["systemctl" "daemon-reload"]
   } else {
     print "systemd units unchanged; skipping daemon-reload"
+  }
+
+  if $journald_changed {
+    restart-systemd-unit "systemd-journald.service"
+    run-sudo-timed "move the journal to persistent storage" ["journalctl" "--flush"]
   }
 
   ensure-systemd-enabled "ipp-print-orchestrator.service"
