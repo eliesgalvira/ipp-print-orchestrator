@@ -162,6 +162,10 @@ Configure CUPS defensively:
 - `AutoPurgeJobs=Yes`
 - `JobKillDelay=5`
 
+With `MaxJobsPerPrinter=1`, CUPS rejects a job submitted while another is active
+with `client-error-not-possible` and the text "Quota limit reached." No page or
+byte quota is configured.
+
 Own the TLS identity used by Android and other IPP clients:
 
 - Start Avahi before CUPS setup reads the advertised mDNS hostname.
@@ -232,6 +236,12 @@ driver page count, bounded size, and the required SPL/QPDL
 This reduces payload size for scanned/image-heavy pages while preserving the
 raster format expected by `rastertospl`. It also prevents CUPS from retrying a
 bad job repeatedly if the backend or printer errors.
+
+The filter forces `print-scaling=none` and A4 whatever the client requests, so
+every page prints at 100%. The printer cannot mark within 4.41 mm of any edge
+(the PPD `ImageableArea`, reported over IPP as `media-*-margin-supported` 441),
+and content there is lost. Documents laid out to the page edge, such as signed
+Word forms, lose their last line and edge stamps.
 
 On 2026-06-21, a one-page Microsoft Print To PDF document submitted from
 Android caused the printer to emit unexpected paper. CUPS showed one `Print-Job`
@@ -315,10 +325,16 @@ especially when Android may still have a local queued job.
 Physical print tests require explicit confirmation of the exact sheet count.
 Use one sheet unless the user explicitly authorizes more.
 
-Avoid local `lp` for validation. The working shape is a single IPP `Print-Job`
-with the PDF attached to the request, `copies=1`, `print-scaling=none`,
-`orientation-requested=portrait`, `sides=one-sided`, and monochrome output. The
-guarded CUPS path must accept or reject that shape directly.
+Avoid local `lp` for validation and for printing from a workstation. The
+working shape is a single IPP `Print-Job` with the PDF attached to the request,
+`copies=1`, `print-scaling=none`, `orientation-requested=portrait`,
+`sides=one-sided`, and monochrome output. The guarded CUPS path must accept or
+reject that shape directly. `scripts/print-live-to-pi.nu` sends it from
+`scripts/print-live-to-pi.test`, after fitting each page into the printable
+area, and waits for CUPS to finish each job before sending the next. In
+`ipptool` files write `orientation-requested` as the enum value `3`: the keyword
+`portrait` is sent as `0`, which CUPS stores and later returns as an invalid
+attribute that `ipptool` rejects.
 
 ## Verification Performed
 

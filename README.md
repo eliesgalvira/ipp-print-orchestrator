@@ -66,7 +66,16 @@ nu scripts/smoke-test-local.nu
 - `GET /v1/health`
 - `GET /v1/status`
 
-There is deliberately no job API. Use the IPPS queue for printing.
+There is deliberately no job API. Use the IPPS queue for printing. From a
+workstation, print with:
+
+```bash
+nu scripts/print-live-to-pi.nu first.pdf second.pdf
+```
+
+It checks printer readiness over SSH, fits each page inside the printer's
+margins, and submits one job at a time in Android's IPP shape, waiting for CUPS
+to finish each job.
 
 ## Configuration
 
